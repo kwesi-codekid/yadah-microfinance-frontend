@@ -31,11 +31,7 @@ import { notify } from "~/components/toast";
 import { ApiError } from "~/lib/api/client";
 import * as customersApi from "~/lib/api/customers";
 import * as usersApi from "~/lib/api/users";
-import {
-  ID_TYPE_LABELS,
-  type Customer,
-  type CustomerStatus,
-} from "~/lib/customer-client";
+import type { Customer, CustomerStatus } from "~/lib/customer-client";
 import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 
 export function meta(_: Route.MetaArgs) {
@@ -381,20 +377,37 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
           <Table.Row key={c.id} id={c.id}>
             <Table.Cell className="px-4 py-2 font-medium text-foreground">
               {/* The name is the way in — every role gets the detail page, and
-                  for a collector it is the only place they can act. */}
+                  for a collector it is the only place they can act.
+
+                  The email sits under it rather than in a column of its own:
+                  most customers don't have one, and a column that is mostly
+                  dashes costs the same width as one that is always full. */}
               <Link
                 to={`/customers/${c.id}`}
-                className="flex items-center gap-2 hover:text-success hover:underline"
+                className="flex items-center gap-2 hover:text-success"
               >
                 <Avatar customer={c} />
-                {c.fullName}
+                <span className="min-w-0">
+                  <span className="block truncate hover:underline">
+                    {c.fullName}
+                  </span>
+                  {c.email && (
+                    <span
+                      className="block truncate text-xs font-normal text-muted"
+                      title={c.email}
+                    >
+                      {c.email}
+                    </span>
+                  )}
+                </span>
               </Link>
             </Table.Cell>
             <Table.Cell className="px-4 py-2 text-muted">{c.phone}</Table.Cell>
             <Table.Cell className="px-4 py-2 text-muted">
-              {c.identification
-                ? `${ID_TYPE_LABELS[c.identification.idType]} · ${c.identification.idNumber}`
-                : "—"}
+              {/* The number alone. The type used to be prefixed onto it, but
+                  the number's own shape says which it is, and the label was
+                  eating the width the number needed. */}
+              {c.identification?.idNumber ?? "—"}
             </Table.Cell>
             {canManage && (
               <>

@@ -380,10 +380,16 @@ type ErrorEnvelope = {
       (`throwAsRouteError` in [client.ts](app/lib/api/client.ts)).
 - [x] Registration doesn't ask who collects — the Assignment section is off on `/customers/new`
       and a customer is created unassigned. A collector is set later from the record, if at all.
-- [x] Auto-assigning the registrar is **dropped**, not deferred. It could never have fired:
-      `POST /customers` is office-only and `assignedCollectorId` must be an *active collector*
-      (422 INVALID_COLLECTOR), so an admin/manager's own id was never a legal value. The API
-      records *who registered* the customer as `registeredById` regardless.
+- [x] Auto-assigning the registrar **as collector** is dropped, not deferred. It could never
+      have fired: `POST /customers` is office-only and `assignedCollectorId` must be an *active
+      collector* (422 INVALID_COLLECTOR), so an admin/manager's own id was never a legal value.
+- [x] The registrar *is* captured, just not through that field. `registeredById` is absent from
+      the request body and present on the response — the API sets it from the token that called
+      `POST /customers`, so it is already the signed-in user on every record ever created. The
+      record page now shows it as **Registered by** in the Assignment section, resolved through
+      one `GET /users/{id}` (the collector list can't name them — the registrar is an admin or
+      manager). The two are different questions: `registeredById` is who signed the customer up,
+      `assignedCollectorId` is who collects from them.
 - [ ] **Blocked by the API:** the intent is that any collector may collect from any customer, but
       the API still scopes a collector to the customers assigned to them — so an unassigned
       customer is today visible to *no* collector rather than all of them. Until that scoping is

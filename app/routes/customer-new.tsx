@@ -155,7 +155,7 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
       <PageHeader
         backTo="/customers"
         backLabel="Customers"
-        title="Register customer"
+        title="Register Customer"
         subtitle="Only a name and phone number are required — the rest can follow later."
       />
 
@@ -165,11 +165,11 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
         </p>
       )}
 
-      {/* One form over the whole grid, unlike the record page: there the files
-          have an id to be posted against and can go on their own, but nothing
-          exists here until this is submitted, so the photo and the profile have
-          to travel together. Hence `multipart/form-data` on the profile form —
-          the action creates the customer, then uploads what came with it. */}
+      {/* One form over the whole grid — the same shape the record page uses
+          while editing, so registering someone and then changing them are the
+          same gesture. `multipart/form-data` because the pictures ride in with
+          the fields; the action uploads them and then creates the customer
+          with the URLs they returned. */}
       <Form
         method="post"
         ref={formRef}
@@ -227,9 +227,9 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
               photoSlot={
                 <UploadSlot
                   compact
+                  camera
                   field="photo"
                   title="Photo"
-                  hint="Optional — JPEG, PNG or WebP, up to 5 MB."
                   error={actionData?.fieldErrors?.photo}
                   onSelect={(has) =>
                     setSelected((prev) => ({ ...prev, photo: has }))

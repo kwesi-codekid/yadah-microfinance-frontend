@@ -1,5 +1,9 @@
-import { createContext, useContext, useRef, useState } from "react";
-import { Upload, X, ChevronDown } from "lucide-react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { Camera, ChevronDown, Upload, X } from "lucide-react";
+import {
+  CameraCapture,
+  isCameraAvailable,
+} from "~/components/camera-capture";
 import {
   GENDERS,
   GENDER_LABELS,
@@ -58,6 +62,7 @@ export function CustomerProfile({
   customer,
   collectors = [],
   collectorName,
+  registrarName,
   editing,
   errors,
   showAssignment = true,
@@ -69,6 +74,11 @@ export function CustomerProfile({
   collectors?: { id: string; name: string }[];
   /** Names the assigned collector in the read-only view. */
   collectorName?: string | null;
+  /**
+   * Names whoever registered the customer. Never editable — the API sets
+   * `registeredById` from the token that created the record.
+   */
+  registrarName?: string | null;
   editing: boolean;
   errors?: Record<string, string>;
   /**
@@ -322,9 +332,19 @@ export function CustomerProfile({
               options: collectors.map((c) => ({ value: c.id, label: c.name })),
             }}
           />
-          {/* No `field`: the id is the record's identity, not a detail of it,
-              so it stays read-only on both sides of the toggle. There is
-              nothing to show before the record exists. */}
+          {/* Neither of these takes a `field`: they are facts about the record
+              rather than details of it, so they stay read-only on both sides of
+              the toggle, and there is nothing to show before it exists.
+
+              Who registered someone is set by the API from the token that
+              created them — it can't be chosen, only reported. */}
+          {customer && (
+            <Detail
+              label="Registered by"
+              value={registrarName ?? undefined}
+              empty={customer.registeredById ? "Unknown staff" : "—"}
+            />
+          )}
           {customer && <Detail label="Customer ID" value={customer.id} mono />}
         </DetailSection>
       )}
@@ -388,12 +408,16 @@ function DetailSection({
       {editing && hint && <p className="-mt-1 mb-3 text-xs text-muted">{hint}</p>}
 
       {aside ? (
-        // A passport frame beside the fields. Capped at 9rem on a phone too —
-        // the aside is the width of a photo, not of the screen, so left to
-        // itself it would stretch to a full-width block above the form.
+        // A photo frame beside the fields, 8rem square, at the far end of the
+        // row. Last in the DOM as well as on screen, so tabbing runs through
+        // the fields and reaches the picture at the end rather than opening a
+        // file picker before the name has been typed. On a phone the two stack
+        // in that same order. Capped at 8rem there too — the aside is the width
+        // of a photo, not of the screen, or it would stretch to a full-width
+        // block under the form.
         <div className="flex flex-col gap-x-6 gap-y-4 sm:flex-row">
-          <div className="w-36 shrink-0">{aside}</div>
           <Grid className={grid}>{children}</Grid>
+          <div className="w-32 shrink-0">{aside}</div>
         </div>
       ) : (
         <Grid className={grid}>{children}</Grid>
@@ -538,6 +562,59 @@ function Detail({
 }
 
 /**
+ * A stored image, read-only — what an `UploadSlot` becomes once the page is no
+ * longer editing.
+ *
+ * Same frame, same label, same square crop as `<UploadSlot compact />`, so
+ * turning edit on and off swaps one for the other without anything moving. An
+ * empty slot still draws its box: a gap where a face should be reads as a
+ * broken layout, where an explicit "None" reads as a fact about the record.
+ */
+export function ImageView({
+  title,
+  url,
+  compact,
+}: {
+  title: string;
+  url?: string;
+  /** Square and label-sized, for standing among the fields. */
+  compact?: boolean;
+}) {
+  const frame = compact
+    ? "aspect-square w-full rounded-md object-cover"
+    : "h-auto max-h-64 w-full rounded-lg object-contain";
+
+  return (
+    <div className={compact ? "space-y-1" : "space-y-2"}>
+      {compact ? (
+        <span className={DETAIL_LABEL}>{title}</span>
+      ) : (
+        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+      )}
+
+      {url ? (
+        <a href={url} target="_blank" rel="noreferrer" className="block">
+          <img
+            src={url}
+            alt={title}
+            className={`${frame} border border-border transition-opacity hover:opacity-90`}
+          />
+        </a>
+      ) : (
+        <p
+          className={[
+            "flex items-center justify-center rounded-md border-2 border-dashed border-border text-xs text-muted",
+            compact ? "aspect-square w-full" : "h-32 w-full",
+          ].join(" ")}
+        >
+          None
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
  * One file slot: the stored image, or the one waiting to replace it. No submit
  * of its own — the form around the slots owns that.
  *
@@ -553,21 +630,37 @@ export function UploadSlot({
   error,
   onSelect,
   compact,
+  camera,
 }: {
   field: string;
   title: string;
-  hint: string;
+  /** The format rules, under the heading. Not shown when `compact`. */
+  hint?: string;
   currentUrl?: string;
   error?: string;
   /** Tells the parent whether this slot is holding a file to send. */
   onSelect: (hasFile: boolean) => void;
   /**
-   * Passport-photo sized, for standing among the fields rather than filling a
-   * column of its own: a fixed 3:4 box, a label in the same 11px uppercase as
-   * every field beside it, and no card around it. The full-size card is built
-   * for the attachments column and towers over a row of 36px inputs.
+   * Photo-sized, for standing among the fields rather than filling a column of
+   * its own: a square box, a label in the same 11px uppercase as every field
+   * beside it, and no card around it. The full-size card is built for the
+   * attachments column and towers over a row of 36px inputs.
+   *
+   * It carries no hint text. At 8rem wide the format rules ran to three lines
+   * and were taller than the frame they described — and the picker rejects a
+   * wrong file on the spot anyway, which says the same thing at the moment it
+   * matters.
    */
   compact?: boolean;
+  /**
+   * Offer the device camera as well as the file picker. On for the portrait,
+   * where the person is standing at the counter while it is filled in.
+   *
+   * Hidden entirely where the browser won't allow a camera — over plain HTTP
+   * off `localhost`, `getUserMedia` doesn't exist, and a button that can only
+   * fail is worse than no button.
+   */
+  camera?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   /**
@@ -598,6 +691,19 @@ export function UploadSlot({
   const [localError, setLocalError] = useState<string | null>(null);
   const inputId = `upload-${field}`;
 
+  const [cameraOpen, setCameraOpen] = useState(false);
+  /**
+   * Decided after mount, never during render: `isCameraAvailable` reads
+   * `navigator`, which doesn't exist on the server, and a button that appeared
+   * only after hydration would be a mismatch. This way the server and the
+   * first client render agree on "no camera", and it appears a tick later
+   * wherever there is one.
+   */
+  const [canUseCamera, setCanUseCamera] = useState(false);
+  useEffect(() => {
+    if (camera) setCanUseCamera(isCameraAvailable());
+  }, [camera]);
+
   /** Take a file from either route — the picker or a drop — and preview it. */
   function accept(file: File) {
     if (!UPLOAD_TYPES.includes(file.type))
@@ -619,15 +725,15 @@ export function UploadSlot({
     onSelect(false);
   }
 
-  function onDrop(event: React.DragEvent) {
-    event.preventDefault();
-    setDragging(false);
-    const file = event.dataTransfer.files?.[0];
-    if (!file) return;
-    // The input is what posts the file, so the drop has to be written into it.
-    // Via a fresh `DataTransfer` rather than assigning `dataTransfer.files`
-    // wholesale: dropping several files onto a single-file input is not
-    // something every browser accepts.
+  /**
+   * Take a file that didn't come from the picker — a drop, or a camera capture
+   * — and put it into the input, which is what actually posts it.
+   *
+   * Via a fresh `DataTransfer` rather than assigning `dataTransfer.files`
+   * wholesale: handing a multi-file list to a single-file input is not
+   * something every browser accepts.
+   */
+  function receive(file: File) {
     if (inputRef.current) {
       const carrier = new DataTransfer();
       carrier.items.add(file);
@@ -636,12 +742,19 @@ export function UploadSlot({
     accept(file);
   }
 
+  function onDrop(event: React.DragEvent) {
+    event.preventDefault();
+    setDragging(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) receive(file);
+  }
+
   /* The picture, at whichever size this slot is being used at. The compact one
      is a fixed 3:4 box so the layout doesn't jump between empty and filled —
      the column version can grow to the image, but a passport frame among the
      fields has to hold its place. */
   const imageClass = compact
-    ? "aspect-3/4 w-full rounded-md border border-border object-cover"
+    ? "aspect-square w-full rounded-md border border-border object-cover"
     : "h-auto max-h-64 w-full rounded-lg border border-border object-contain";
 
   return (
@@ -668,7 +781,7 @@ export function UploadSlot({
         !currentUrl && (
           <div>
             <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-            <p className="mt-0.5 text-xs text-muted">{hint}</p>
+            {hint && <p className="mt-0.5 text-xs text-muted">{hint}</p>}
           </div>
         )
       )}
@@ -747,9 +860,12 @@ export function UploadSlot({
             "peer-focus-visible:border-success peer-focus-visible:ring-2 peer-focus-visible:ring-success/30",
             // Compact fills its 3:4 frame and centres whatever is in it, so an
             // empty slot is the same size as a filled one.
+            // Square rather than the 3:4 a passport photo takes: portrait made
+            // the frame half again as tall as the three rows of fields beside
+            // it, and set the height of the whole Identity section.
             // `relative` so a stored photo can fill the frame absolutely.
             compact
-              ? "relative flex aspect-3/4 w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-md p-2"
+              ? "relative flex aspect-square w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-md p-2"
               : "rounded-lg p-3",
             dragging
               ? "border-success bg-success/10"
@@ -775,12 +891,14 @@ export function UploadSlot({
 
           {compact ? (
             // Icon and one short word. The format rules live below the box, so
-            // there is nothing here competing for a 9rem-wide space.
+            // there is nothing here competing for an 8rem-wide space. Named
+            // for the file path specifically once a camera button sits under
+            // it — two controls both saying "add photo" is a coin toss.
             !currentUrl && (
               <>
                 <Upload size={16} className="text-muted" aria-hidden="true" />
                 <span className="text-[11px] font-medium text-foreground">
-                  Add photo
+                  {canUseCamera ? "Choose file" : "Add photo"}
                 </span>
               </>
             )
@@ -805,10 +923,37 @@ export function UploadSlot({
         </label>
       )}
 
-      {/* Compact says the rules under the box instead of inside it. Only while
-          empty: once there is a picture, the box has explained itself. */}
-      {compact && !preview && !currentUrl && (
-        <p className="text-[10px] leading-tight text-muted">{hint}</p>
+      {/* Outside the label, always: a button nested inside one is a second
+          control fighting the first for the same click, and this one has to
+          open a dialog rather than the file picker.
+
+          Offered whatever the slot is holding — retaking is as ordinary as
+          taking, and after a bad shot it is the first thing anyone reaches
+          for. */}
+      {canUseCamera && (
+        <>
+          <button
+            type="button"
+            onClick={() => setCameraOpen(true)}
+            className={[
+              "flex w-full items-center justify-center gap-1.5 rounded-md border-2 border-border font-medium text-foreground transition-colors hover:border-success/60 hover:bg-background",
+              compact ? "min-h-7 text-[11px]" : "min-h-8 text-xs",
+            ].join(" ")}
+          >
+            <Camera size={compact ? 12 : 14} aria-hidden="true" />
+            {preview || currentUrl ? "Retake" : "Take photo"}
+          </button>
+
+          <CameraCapture
+            isOpen={cameraOpen}
+            onOpenChange={setCameraOpen}
+            title={`Take ${title.toLowerCase()}`}
+            fileName={`${field}.jpg`}
+            // Straight into the same path a dropped file takes, so nothing
+            // downstream knows or cares that this one came from a lens.
+            onCapture={receive}
+          />
+        </>
       )}
 
       {/* Outside the label — a link nested in one would fight it for the

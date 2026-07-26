@@ -3,7 +3,11 @@ import { data, Form, Link, useNavigation, useSearchParams } from "react-router";
 import { Button } from "@heroui/react";
 import { Ban, Pencil, PiggyBank, RotateCcw } from "lucide-react";
 import type { Route } from "./+types/customer-detail";
-import { CustomerProfile, UploadSlot } from "~/components/customer-profile";
+import {
+  CustomerProfile,
+  ImageView,
+  UploadSlot,
+} from "~/components/customer-profile";
 import { ConfirmModal } from "~/components/modals";
 import { PageHeader } from "~/components/page-header";
 import { notify } from "~/components/toast";
@@ -53,9 +57,29 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           })
         : null,
     ]);
+
+    /**
+     * Who registered this customer. The API sets `registeredById` itself, from
+     * the token of whoever called `POST /customers` — it is not a field the
+     * form sends, and it is the one piece of provenance on the record.
+     *
+     * Fetched one-by-one rather than read off the list above: the registrar is
+     * an admin or manager, and that list is collectors only. `catch` rather
+     * than `throw` — a staff member since deleted, or an id this user may not
+     * look up, should cost the line its name, not the page its render.
+     */
+    const registrar =
+      office && customer.customer.registeredById
+        ? await usersApi
+            .getUser(token, customer.customer.registeredById)
+            .then((r) => r.user)
+            .catch(() => null)
+        : null;
+
     return {
       customer: customer.customer,
       collectors: collectors?.items ?? [],
+      registrarName: registrar?.name ?? null,
     };
   }).catch(throwAsRouteError); // 404, or 403 for someone else's customer
 
@@ -72,6 +96,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       // request — which is half the point of editing here rather than on a page
       // of its own.
       collectors: result.collectors.map((c) => ({ id: c.id, name: c.name })),
+      registrarName: result.registrarName,
       canManage: office,
     },
     { headers },
@@ -148,46 +173,36 @@ async function runIntent({
   form: FormData;
 }): Promise<ActionData> {
   /**
-   * All three slots post together under one button, so this handles whichever
-   * of them carried a file.
+   * The profile and its pictures save together, under one button — the same
+   * shape as registration, which is the point: a photo is part of the record,
+   * not an errand run beside it. There is no separate upload intent any more.
    *
-   * Two steps, not one: the pictures go to `/uploads/images`, and the URLs
-   * that come back are patched onto the record. The API no longer takes a file
-   * at a customer's own URL — see
+   * Two steps, though, not one: the images go to `/uploads/images` and the URLs
+   * that come back are folded into the same PATCH as the fields. The API no
+   * longer takes a file at a customer's own URL — see
    * [customer-uploads.server.ts](app/lib/customer-uploads.server.ts).
    */
-  if (intent === "upload-files") {
-    const { pending, fieldErrors } = readImageSlots(form);
+  if (intent === "update-customer") {
+    // The same readers the register page runs, over the same field names — the
+    // two share `CustomerProfile`, so they can't disagree about either.
+    const { input, fieldErrors } = readCustomerForm(form);
+    const { pending, fieldErrors: uploadErrors } = readImageSlots(form);
+    Object.assign(fieldErrors, uploadErrors);
 
     if (Object.keys(fieldErrors).length)
       return { intent, fieldErrors } satisfies ActionData;
-    if (pending.length === 0)
-      return { intent, formError: "Choose a file to upload." } satisfies ActionData;
 
     // Same token for both legs, deliberately — `withAuth` wraps this whole
     // function, and asking it twice would spend the refresh token twice.
-    const patch = await uploadImageSlots(token, pending);
-    await customersApi.updateCustomer(token, id, patch);
+    const images = await uploadImageSlots(token, pending);
+    await customersApi.updateCustomer(token, id, { ...input, ...images });
 
     return {
       ok: true,
       intent,
-      message: `${describeUploads(pending)} updated.`,
-    } satisfies ActionData;
-  }
-
-  if (intent === "update-customer") {
-    // The same reader the register page runs, over the same field names — the
-    // two share `CustomerProfile`, so they can't disagree about either.
-    const { input, fieldErrors } = readCustomerForm(form);
-    if (Object.keys(fieldErrors).length)
-      return { intent, fieldErrors } satisfies ActionData;
-
-    await customersApi.updateCustomer(token, id, input);
-    return {
-      ok: true,
-      intent,
-      message: "Profile updated.",
+      message: pending.length
+        ? `Profile and ${describeUploads(pending).toLowerCase()} updated.`
+        : "Profile updated.",
     } satisfies ActionData;
   }
 
@@ -216,13 +231,14 @@ export default function CustomerDetail({
   loaderData,
   actionData,
 }: Route.ComponentProps) {
-  const { customer, collectorName, collectors, canManage } = loaderData;
+  const { customer, collectorName, collectors, registrarName, canManage } =
+    loaderData;
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
-  // Which upload slots are holding a file. Lifted here because the single
-  // submit button below them needs to know whether there is anything to send.
+  // Which upload slots are holding a file — only to say so in the save bar,
+  // since the pictures go with the profile whether or not there are any.
   const [selected, setSelected] = useState<Record<string, boolean>>({});
-  const anySelected = Object.values(selected).some(Boolean);
+  const fileCount = Object.values(selected).filter(Boolean).length;
 
   /**
    * Editing is a URL state, not a `useState`: `?edit` survives a reload, gives
@@ -258,9 +274,10 @@ export default function CustomerDetail({
   }, [actionData, setSearchParams]);
 
   /**
-   * The profile takes the whole grid when there is no upload column beside it.
-   * Uploads are office-only now, so a collector's page would otherwise show the
-   * record in three quarters of the width with a gap where the slots aren't.
+   * The profile takes the whole grid when there is no document column beside
+   * it. A collector may not change anything, and their page would otherwise
+   * show the record in three quarters of the width with a gap where the ID
+   * scans aren't — those being office-only to view as well as to replace.
    */
   const profileColumn = `space-y-7 ${
     canManage ? "lg:col-span-2 xl:col-span-3" : "lg:col-span-3 xl:col-span-4"
@@ -271,10 +288,86 @@ export default function CustomerDetail({
       customer={customer}
       collectors={collectors}
       collectorName={collectorName}
+      registrarName={registrarName}
       editing={editing}
       errors={actionData?.fieldErrors}
       showAssignment={canManage}
+      // At the end of the Identity row, as on registration — a picture of
+      // someone is identity in the same sense their name is. An upload slot
+      // while editing, the picture itself when not; same frame either way, so
+      // toggling edit doesn't move anything.
+      photoSlot={
+        editing ? (
+          <UploadSlot
+            compact
+            camera
+            field="photo"
+            title="Photo"
+            currentUrl={customer.photoUrl}
+            error={actionData?.fieldErrors?.photo}
+            onSelect={(has) => setSelected((prev) => ({ ...prev, photo: has }))}
+          />
+        ) : (
+          <ImageView compact title="Photo" url={customer.photoUrl} />
+        )
+      }
     />
+  );
+
+  const recordGrid = (
+    /* Four columns from `xl`, not three: the ID scans need about the same
+       width whatever the screen, so giving the profile the extra quarter is
+       what lets its fields sit three and four across instead of running down
+       the page. */
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 xl:grid-cols-4">
+      {/* The ID scans, and only those — the photo belongs with the name and
+          date of birth, and sits at the end of the Identity row instead.
+
+          Two sides, not one document: the API stores the front and back of an
+          ID separately, and a Ghana Card's number is on the front while its
+          expiry is on the back. */}
+      {canManage && (
+        <div className="space-y-4 lg:col-span-1">
+          {editing ? (
+            <>
+              <UploadSlot
+                field="idDocumentFront"
+                title="ID document — front"
+                hint="Stored at higher resolution for legibility."
+                currentUrl={customer.idDocumentFrontUrl}
+                error={actionData?.fieldErrors?.idDocumentFront}
+                onSelect={(has) =>
+                  setSelected((prev) => ({ ...prev, idDocumentFront: has }))
+                }
+              />
+              <UploadSlot
+                field="idDocumentBack"
+                title="ID document — back"
+                hint="The reverse of the same document."
+                currentUrl={customer.idDocumentBackUrl}
+                error={actionData?.fieldErrors?.idDocumentBack}
+                onSelect={(has) =>
+                  setSelected((prev) => ({ ...prev, idDocumentBack: has }))
+                }
+              />
+            </>
+          ) : (
+            <>
+              <ImageView
+                title="ID document — front"
+                url={customer.idDocumentFrontUrl}
+              />
+              <ImageView
+                title="ID document — back"
+                url={customer.idDocumentBackUrl}
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      <div className={profileColumn}>{profile}</div>
+    </div>
   );
 
   return (
@@ -325,98 +418,37 @@ export default function CustomerDetail({
           shows what someone is saving. The Accounts button above goes there,
           and opening a cycle starts from that page. */}
 
-      {/* Four columns from `xl`, not three: the upload slots need about the
-          same width whatever the screen, so giving the profile the extra
-          quarter is what lets its fields sit three and four across instead of
-          running down the page. */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 xl:grid-cols-4">
-        {/* Files first on mobile: the photo identifies the person at a glance.
+      {/* One form over the whole grid while editing, exactly as on
+          registration: the pictures and the fields are one record and save
+          under one button. This used to be two forms, because the record
+          already exists and a replacement photo had somewhere of its own to go
+          — but that left an upload widget sitting on the page in plain view
+          mode, and made this page behave differently from the one that creates
+          the same thing. Not editing: no form at all, and the images are
+          simply images.
 
-            Its own form, separate from the profile's: the record already
-            exists, so a replacement picture can be sent without waiting on the
-            whole profile. On registration there is no record yet and the two
-            travel together — which is the one place these pages differ.
-
-            Office-only in full now. The photo used to be the one write a
-            collector could make, but the endpoint that allowed it was
-            withdrawn and its replacement (`PATCH /customers/{id}`) is office
-            -only, so there is nothing here to offer them. */}
-        {canManage && (
-          <Form
-            method="post"
-            encType="multipart/form-data"
-            className="space-y-4 lg:col-span-1"
-          >
-            <input type="hidden" name="intent" value="upload-files" />
-
-            <UploadSlot
-              field="photo"
-              title="Photo"
-              hint="JPEG, PNG or WebP, up to 5 MB."
-              currentUrl={customer.photoUrl}
-              error={actionData?.fieldErrors?.photo}
-              onSelect={(has) =>
-                setSelected((prev) => ({ ...prev, photo: has }))
-              }
-            />
-            {/* Two sides, not one document: the API stores the front and back
-                of an ID separately, and a Ghana Card's number is on the front
-                while its expiry is on the back. */}
-            <UploadSlot
-              field="idDocumentFront"
-              title="ID document — front"
-              hint="Stored at higher resolution for legibility."
-              currentUrl={customer.idDocumentFrontUrl}
-              error={actionData?.fieldErrors?.idDocumentFront}
-              onSelect={(has) =>
-                setSelected((prev) => ({ ...prev, idDocumentFront: has }))
-              }
-            />
-            <UploadSlot
-              field="idDocumentBack"
-              title="ID document — back"
-              hint="The reverse of the same document."
-              currentUrl={customer.idDocumentBackUrl}
-              error={actionData?.fieldErrors?.idDocumentBack}
-              onSelect={(has) =>
-                setSelected((prev) => ({ ...prev, idDocumentBack: has }))
-              }
-            />
-
-            <Button
-              type="submit"
-              size="sm"
-              className="rounded-md bg-success"
-              // Nothing chosen means nothing to send.
-              isDisabled={submitting || !anySelected}
-            >
-              {submitting ? "Uploading…" : "Upload"}
-            </Button>
-          </Form>
-        )}
-
-        {/* The same column either way. A `<Form>` only when there is something
-            to submit — and a sibling of the upload form above, never a parent:
-            nesting one form inside another is not allowed. */}
-        {editing ? (
-          <Form
-            method="post"
-            ref={profileFormRef}
-            // Our own rules cover the same ground and can report in place; the
-            // browser's bubbles would fire on `type="email"` first.
-            noValidate
-            className={profileColumn}
-          >
-            {/* Hidden rather than on the button: the bar below submits with
-                `requestSubmit()` and no submitter, so a name/value on the
-                button would never reach the action. */}
-            <input type="hidden" name="intent" value="update-customer" />
-            {profile}
-          </Form>
-        ) : (
-          <div className={profileColumn}>{profile}</div>
-        )}
-      </div>
+          A ternary over one `recordGrid` element, not a wrapper component
+          declared here — a component defined during render is a new type on
+          every render, which would unmount the file inputs and drop whatever
+          was waiting in them the moment any state changed. */}
+      {editing ? (
+        <Form
+          method="post"
+          ref={profileFormRef}
+          encType="multipart/form-data"
+          // Our own rules cover the same ground and can report in place; the
+          // browser's bubbles would fire on `type="email"` first.
+          noValidate
+        >
+          {/* Hidden rather than on the button: the bar below submits with
+              `requestSubmit()` and no submitter, so a name/value on the button
+              would never reach the action. */}
+          <input type="hidden" name="intent" value="update-customer" />
+          {recordGrid}
+        </Form>
+      ) : (
+        recordGrid
+      )}
 
       {/* Pinned to the foot of the page while editing: the profile is 25
           fields tall, and a save button only at the top would mean scrolling
@@ -425,11 +457,15 @@ export default function CustomerDetail({
           full width and sits flush against the edge. */}
       {editing && (
         <div className="sticky bottom-0 -mx-6 -mb-8 mt-6 flex flex-wrap items-center gap-3 border-t-2 border-border bg-surface px-6 py-3">
-          {/* The one rule of this form that isn't visible in it: `undefined`
-              and "make this empty" look identical over the wire, so the API
-              reads a cleared field as "leave it alone". */}
+          {/* Normally the one rule of this form that isn't visible in it:
+              `undefined` and "make this empty" look identical over the wire,
+              so the API reads a cleared field as "leave it alone". A picture
+              waiting to be sent displaces it — that is the more urgent thing
+              to know, and it is true only while it is true. */}
           <p className="text-xs text-muted">
-            Clearing a field won't erase what's stored.
+            {fileCount > 0
+              ? `${fileCount === 1 ? "1 image" : `${fileCount} images`} will be uploaded when you save.`
+              : "Clearing a field won't erase what's stored."}
           </p>
 
           <div className="ml-auto flex items-center gap-3">
