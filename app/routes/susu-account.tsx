@@ -8,6 +8,7 @@ import { DataTable, Table } from "~/components/data-table";
 import { FIELD, FieldError, SelectField } from "~/components/form-fields";
 import { TextInput } from "~/components/inputs";
 import { ConfirmModal } from "~/components/modals";
+import { SideDrawer } from "~/components/side-drawer";
 import { CycleCalendar } from "~/components/susu-cycle";
 import { notify } from "~/components/toast";
 import {
@@ -243,12 +244,17 @@ export default function SusuAccountDetail({
     today,
   } = loaderData;
   const closed = account.status === "closed";
+  const [recording, setRecording] = useState(false);
 
   useEffect(() => {
     if (actionData?.ok) notify.success(actionData.message ?? "Done.");
     else if (actionData?.formError) notify.error(actionData.formError);
     if (actionData?.failure)
       console.error("[susu-account] request failed:", actionData.failure);
+    // Only a recorded deposit closes the drawer. A rejected one leaves it open
+    // with the message on the field it belongs to — closing on failure would
+    // throw away what was typed and hide why it wouldn't go through.
+    if (actionData?.ok && actionData.intent === "deposit") setRecording(false);
   }, [actionData]);
 
   return (
@@ -271,36 +277,52 @@ export default function SusuAccountDetail({
           ]}
         />
 
-        {canManage && !closed && (
-          <CloseButton account={account} name={customer.fullName} />
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Collectors record deposits too — the API scopes them to their own
+              customers — so this is gated on the account, not the role. */}
+          {account.status === "active" && (
+            <Button
+              type="button"
+              size="sm"
+              className="min-h-9 rounded-md bg-success px-3"
+              onPress={() => setRecording(true)}
+            >
+              <HandCoins size={14} />
+              Record deposit
+            </Button>
+          )}
+          {canManage && !closed && (
+            <CloseButton account={account} name={customer.fullName} />
+          )}
+        </div>
       </div>
 
-      {/* One column, not two: the Money card is hidden for now (see
-          `MoneyCard` below) and a two-thirds column with nothing beside it
-          would leave a third of the page empty. Restore the grid when the card
-          comes back. */}
-      <div className="space-y-6">
-        {/* No card around it: each month is already a bordered card of its
-            own, and a box inside a box put two borders around every date. */}
-        <CycleCalendar account={account} deposits={deposits} today={today} />
+      {/* Only an active account takes deposits. A completed cycle is full and
+          a closed one is paid out — offering the form on either would be
+          offering a button the API refuses.
 
-        {/* Only an active account takes deposits. A completed cycle is full
-            and a closed one is paid out — offering the form on either would
-            be offering a button the API refuses. */}
-        {account.status === "active" && (
-          <DepositForm
-            account={account}
-            idempotencyKey={idempotencyKey}
-            fieldErrors={actionData?.fieldErrors}
-          />
-        )}
+          Mounted whether or not it is open, so the panel can animate out as
+          well as in. Keyed on the idempotency key, which the loader remints on
+          every revalidation: a recorded deposit therefore resets the day count
+          and the channel, while a rejected one — same key, same mount — keeps
+          what was typed. */}
+      {account.status === "active" && (
+        <DepositDrawer
+          key={idempotencyKey}
+          isOpen={recording}
+          account={account}
+          idempotencyKey={idempotencyKey}
+          fieldErrors={actionData?.fieldErrors}
+          onClose={() => setRecording(false)}
+        />
+      )}
 
-        {/* Hidden for now — put this line back to show it again. */}
-        {/* <MoneyCard account={account} /> */}
-      </div>
-
-      <section className="mt-8">
+      {/* The statement leads. It is the reconciliation record — the thing
+          someone opening this page is checking a passbook against — and the
+          calendar is the same deposits drawn rather than listed. Two or three
+          month cards above it pushed the figures below the fold on every
+          visit, including the ones where nobody was looking at dates. */}
+      <section>
         <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted">
           Statement
         </h2>
@@ -346,6 +368,21 @@ export default function SusuAccountDetail({
           ))}
         </DataTable>
       </section>
+
+      {/* Full width, same as the statement: the months are a grid that wants
+          the whole line — three across on a wide screen — and a 31-day cycle
+          spans two or three of them. Nothing can sit beside this. */}
+      <section className="mt-8">
+        <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted">
+          Cycle
+        </h2>
+        {/* No card around it: each month is already a bordered card of its
+            own, and a box inside a box put two borders around every date. */}
+        <CycleCalendar account={account} deposits={deposits} today={today} />
+
+        {/* Hidden for now — put this line back to show it again. */}
+        {/* <MoneyCard account={account} /> */}
+      </section>
     </div>
   );
 }
@@ -355,15 +392,24 @@ export default function SusuAccountDetail({
  * missed. No amount field: the API multiplies the account's fixed daily amount
  * by the days covered, so an amount here would be a number the collector could
  * get wrong and the server would ignore.
+ *
+ * A drawer rather than a card on the page: collecting is a thing you do to this
+ * account, not part of reading it, and the form sat between the calendar and
+ * the statement — two views of the same deposits — pushing them apart on every
+ * visit, including the ones where nobody was collecting.
  */
-function DepositForm({
+function DepositDrawer({
+  isOpen,
   account,
   idempotencyKey,
   fieldErrors,
+  onClose,
 }: {
+  isOpen: boolean;
   account: SusuAccount;
   idempotencyKey: string;
   fieldErrors?: Record<string, string>;
+  onClose: () => void;
 }) {
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -380,67 +426,92 @@ function DepositForm({
   const dayCount = Number(days);
   const total = Number.isInteger(dayCount) ? dayCount * account.dailyAmount : 0;
 
+  // The footer sits outside the form the drawer scrolls, so the submit button
+  // points back at it by id.
+  const formId = "record-deposit";
+
   return (
-    <Card title="Record a deposit">
-      <Form method="post" className="space-y-4">
+    <SideDrawer
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Record a deposit"
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            className="rounded-md"
+            onPress={onClose}
+            isDisabled={submitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form={formId}
+            className="rounded-md bg-success"
+            isDisabled={submitting || Object.keys(liveErrors).length > 0}
+          >
+            {submitting ? "Recording…" : "Record deposit"}
+          </Button>
+        </>
+      }
+    >
+      <Form id={formId} method="post" className="space-y-5">
         <input type="hidden" name="intent" value="deposit" />
         {/* The whole point of the key: this exact value survives a retry, so a
             second tap on a bad connection replays the first deposit instead of
             taking the money again. */}
         <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <TextInput
-              name="daysCovered"
-              label="Days covered"
-              value={days}
-              onChange={setDays}
-              inputProps={{
-                type: "number",
-                min: 1,
-                max: left,
-                step: 1,
-                inputMode: "numeric",
-                className: FIELD,
-              }}
-            />
-            <p className="text-xs text-muted">
-              1 for today. More to catch up on missed days — {left} left.
-            </p>
-            <FieldError message={liveErrors.daysCovered ?? fieldErrors?.daysCovered} />
-          </div>
-
-          <SelectField
-            name="channel"
-            label="Channel"
-            defaultValue="cash"
-            options={DEPOSIT_CHANNELS.map((channel) => ({
-              value: channel,
-              label: DEPOSIT_CHANNEL_LABELS[channel],
-            }))}
+        <div className="space-y-1.5">
+          <TextInput
+            name="daysCovered"
+            label="Days covered"
+            value={days}
+            onChange={setDays}
+            inputProps={{
+              type: "number",
+              min: 1,
+              max: left,
+              step: 1,
+              inputMode: "numeric",
+              // No autofocus: the field already says 1, which is what most
+              // deposits are, and focusing it pops a phone's keypad over the
+              // drawer for a value nobody was going to change.
+              className: FIELD,
+            }}
+          />
+          <p className="text-xs text-muted">
+            1 for today. More to catch up on missed days — {left} left.
+          </p>
+          <FieldError
+            message={liveErrors.daysCovered ?? fieldErrors?.daysCovered}
           />
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-          <p className="text-sm text-muted">
-            Collecting{" "}
-            <span className="font-semibold text-foreground">
-              {formatGhs(total)}
-            </span>
-            {dayCount > 1 && ` · ${formatGhs(account.dailyAmount)} × ${dayCount}`}
-          </p>
-          <Button
-            type="submit"
-            size="sm"
-            className="min-h-11 rounded-md bg-success px-5"
-            isDisabled={submitting || Object.keys(liveErrors).length > 0}
-          >
-            {submitting ? "Recording…" : "Record deposit"}
-          </Button>
-        </div>
+        <SelectField
+          name="channel"
+          label="Channel"
+          defaultValue="cash"
+          options={DEPOSIT_CHANNELS.map((channel) => ({
+            value: channel,
+            label: DEPOSIT_CHANNEL_LABELS[channel],
+          }))}
+        />
+
+        {/* What the button is about to take, in figures, above it rather than
+            on it — a collector counting cash into a drawer is reading this,
+            not the label. */}
+        <dl className="space-y-2 rounded-lg border-2 border-border bg-background p-3">
+          <Figure label="Daily amount" value={formatGhs(account.dailyAmount)} />
+          {dayCount > 1 && (
+            <Figure label="Days" value={`× ${dayCount}`} />
+          )}
+          <Figure label="Collecting" value={formatGhs(total)} strong />
+        </dl>
       </Form>
-    </Card>
+    </SideDrawer>
   );
 }
 
