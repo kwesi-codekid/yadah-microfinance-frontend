@@ -53,6 +53,10 @@ const SUBMIT_CLASS =
 // full-bleed layer and the desktop left column — so they can't drift apart.
 const LOGIN_BG = "url('/money.jpg')";
 
+// Company mark. Same file the splash screen uses, so the two entry points to
+// the app open on the same logo.
+const LOGO_SRC = "/favicon.png";
+
 /** Only permit same-origin, absolute-path redirects (guards against open redirect). */
 function safeRedirect(value: FormDataEntryValue | null, fallback = "/") {
   if (typeof value !== "string") return fallback;
@@ -243,12 +247,43 @@ export default function Login() {
 
       {/* Large screens only: the photo becomes the left column of the grid. */}
       <aside
-        aria-hidden
         className="relative hidden overflow-hidden bg-cover bg-center lg:block"
         style={{ backgroundImage: LOGIN_BG }}
       >
         {/* Brand-tinted overlay: adds depth and ties the photo to the brand. */}
-        <div className="absolute inset-0 bg-linear-to-tr from-black/70 via-success/20 to-success/25" />
+        <div
+          aria-hidden
+          className="absolute inset-0 bg-linear-to-tr from-black/70 via-success/20 to-success/25"
+        />
+
+        {/* The column's content: one centred stack — mark, wordmark, then the
+            promise. It only exists at lg — below that the mark moves into the
+            card header, so the logo is never announced twice. */}
+        <div className="relative flex h-full flex-col items-center justify-center gap-8 p-10 text-center text-white xl:p-12">
+          <div className="flex flex-col items-center gap-4">
+            <img
+              src={LOGO_SRC}
+              alt=""
+              className="size-20 select-none rounded-2xl bg-white/90 p-2.5 ring-1 ring-white/25"
+              draggable={false}
+            />
+            <div className="leading-tight">
+              <p className="font-sen text-2xl font-bold tracking-tight">YADAH</p>
+              <p className="text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-white/70">
+                Dynamic Enterprise
+              </p>
+            </div>
+          </div>
+
+          <div className="max-w-sm space-y-3">
+            <h2 className="font-sen text-3xl font-bold leading-snug xl:text-4xl">
+              Susu, savings and loans — in one place.
+            </h2>
+            <p className="text-sm text-white/75">
+              Sign in to manage customers, accounts and daily collections.
+            </p>
+          </div>
+        </div>
       </aside>
 
       {/* Theme switcher — floats top-right. */}
@@ -280,9 +315,16 @@ export default function Login() {
 
             {/* Sign-in method picker. Controlled so OTP round-trips keep the
                 phone tab selected (see the effect above). */}
-            <div className="flex items-center gap-4 mb-4">
-             
-              <div className="space-y-1 flex-1 flex-col items-center justify-center">
+            <div className="mb-6 flex flex-col items-center gap-4">
+              {/* Below lg this is the only place the brand appears; at lg the
+                  photo column carries it, so it drops out here. */}
+              <img
+                src={LOGO_SRC}
+                alt="Yadah Dynamic Enterprise"
+                className="size-14 select-none lg:hidden"
+                draggable={false}
+              />
+              <div className="space-y-1">
                 <h1 className="font-bold text-3xl font-sen text-center">Welcome Back!</h1>
                 <p className="text-muted text-center">Sign in securely to your account</p>
               </div>

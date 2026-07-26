@@ -241,8 +241,8 @@ export default function SusuAccountDetail({
   return (
     <div className="mx-auto w-full px-6 py-8">
       <PageHeader
-        backTo="/susu"
-        backLabel="Susu accounts"
+        backTo={`/customers/${customer.id}/accounts`}
+        backLabel={`${customer.fullName}'s accounts`}
         title={customer.fullName}
         subtitle={`${formatGhs(account.dailyAmount)} daily · opened ${formatDate(account.openedAt)}`}
         actions={
@@ -260,7 +260,7 @@ export default function SusuAccountDetail({
           Customer profile
         </Link>
         <Link
-          to={`/susu?customer=${customer.id}&status=all`}
+          to={`/customers/${customer.id}/accounts?status=all`}
           className="text-sm text-muted underline hover:text-foreground"
         >
           All their accounts

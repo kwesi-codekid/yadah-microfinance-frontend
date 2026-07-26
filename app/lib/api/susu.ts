@@ -41,6 +41,12 @@ export interface ListSusuAccountsParams {
   limit?: number;
   customerId?: string;
   status?: SusuAccountStatus;
+  /**
+   * Exactly six digits — the number printed on the customer's card. This is
+   * the only way to go from a quoted account number to an account, so it is
+   * what a counter search should send.
+   */
+  accountNumber?: string;
 }
 
 /** GET /susu/accounts */
@@ -53,6 +59,7 @@ export function listSusuAccounts(
   if (params.limit) q.set("limit", String(params.limit));
   if (params.customerId) q.set("customerId", params.customerId);
   if (params.status) q.set("status", params.status);
+  if (params.accountNumber) q.set("accountNumber", params.accountNumber);
   const qs = q.toString();
   return apiFetch<SusuAccountListResult>(`/susu/accounts${qs ? `?${qs}` : ""}`, {
     accessToken,
@@ -134,8 +141,9 @@ export interface RecordDepositInput {
  *
  * 422 `EXCEEDS_REMAINING` carries `details.remaining` — read it with
  * `readExceedsRemaining` and tell the collector how many days are actually
- * left. 409 means a concurrent update; retrying with the same key is safe, and
- * is exactly what the key is for.
+ * left. 422 `ACCOUNT_NOT_ACTIVE` means the cycle is already completed or
+ * closed, so there is nothing to pay into. 409 means a concurrent update;
+ * retrying with the same key is safe, and is exactly what the key is for.
  */
 export function recordSusuDeposit(
   accessToken: string,

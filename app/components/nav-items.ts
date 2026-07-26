@@ -1,8 +1,6 @@
 import {
   LayoutDashboard,
   Users,
-  PiggyBank,
-  Wallet,
   HandCoins,
   UserCog,
   type LucideIcon,
@@ -38,8 +36,10 @@ export const NAV: NavItem[] = [
     icon: HandCoins,
     roles: ["collector", "manager", "admin"],
   },
-  { to: "/susu", label: "Susu", icon: PiggyBank },
-  { to: "/savings", label: "Savings", icon: Wallet, soon: true },
+  // No Susu or Savings entry: an account belongs to a customer and is reached
+  // through one, at `/customers/:id/accounts`. A cross-customer ledger would be
+  // a second way in that nobody's day starts from — the collector's does start
+  // from Collect, which is above.
   {
     to: "/staff",
     label: "Staff",

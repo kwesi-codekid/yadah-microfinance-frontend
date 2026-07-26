@@ -46,6 +46,12 @@ export const DEPOSIT_CHANNEL_LABELS: Record<DepositChannel, string> = {
 /** The `SusuAccount` schema. */
 export interface SusuAccount {
   id: string;
+  /**
+   * Six digits, unique. The handle a customer actually quotes at the counter —
+   * the `id` is a 24-char hex string that means nothing to anyone. Look one up
+   * with the `accountNumber` filter on `GET /susu/accounts`.
+   */
+  accountNumber: string;
   customerId: string;
   /** Pesewas. Immutable for the life of the cycle. */
   dailyAmount: number;
@@ -126,6 +132,13 @@ export interface RecordDepositResult {
   account: SusuAccount;
   /** True when the API replayed an earlier identical request. */
   replayed: boolean;
+}
+
+/** The API's `accountNumber` filter takes exactly six digits and nothing else. */
+export const SUSU_ACCOUNT_NUMBER_PATTERN = /^\d{6}$/;
+
+export function isSusuAccountNumber(v: string): boolean {
+  return SUSU_ACCOUNT_NUMBER_PATTERN.test(v);
 }
 
 export function isSusuAccountStatus(v: unknown): v is SusuAccountStatus {

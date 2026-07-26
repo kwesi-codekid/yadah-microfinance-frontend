@@ -167,6 +167,46 @@ export const DataTable = ({
   );
 };
 
+/**
+ * The footer controls on their own, for a paged collection that isn't a table
+ * — the card grid on a customer's accounts. Same select and same pager the
+ * table renders, so the two can't drift into looking like different apps.
+ */
+export function CollectionFooter({
+  page,
+  pageCount,
+  onPageChange,
+  pageSize,
+  pageSizeOptions = [10, 25, 50],
+  onPageSizeChange,
+}: {
+  page: number;
+  pageCount: number;
+  onPageChange: (page: number) => void;
+  pageSize?: number;
+  pageSizeOptions?: number[];
+  onPageSizeChange?: (size: number) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      {pageSize !== undefined && onPageSizeChange ? (
+        <PageSizeSelect
+          value={pageSize}
+          options={pageSizeOptions}
+          onChange={onPageSizeChange}
+        />
+      ) : (
+        <span />
+      )}
+      <TablePagination
+        page={page}
+        pageCount={pageCount}
+        onPageChange={onPageChange}
+      />
+    </div>
+  );
+}
+
 /** Rows-per-page selector (native select styled to the theme). */
 function PageSizeSelect({
   value,
@@ -268,7 +308,7 @@ function TablePagination({
   );
 }
 
-function EmptyState({ content }: { content?: EmptyContent }) {
+export function EmptyState({ content }: { content?: EmptyContent }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-20">
       <div className="rounded-full bg-surface-tertiary p-6">

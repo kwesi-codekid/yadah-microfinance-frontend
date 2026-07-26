@@ -81,19 +81,44 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ### Customers (`tags: Customers`)
 
-Access: **office** = admin + manager. Collectors may list (scoped by the API to
-their own assigned customers) and replace a customer's photo — nothing else.
+Access: **office** = admin + manager. Collectors may list — scoped by the API to
+their own assigned customers — and nothing else. They used to be able to replace
+a photo; see the note under the table.
 
 | # | Method | Path | Summary | Access | Client fn | Status |
 |---|--------|------|---------|--------|-----------|--------|
-| 14 | POST | `/customers` | Register a customer | **office** | `createCustomer()` | ✅ wired (register drawer) |
+| 14 | POST | `/customers` | Register a customer | **office** | `createCustomer()` | ✅ wired (`/customers/new`) |
 | 15 | GET | `/customers` | List customers (paginated) | all roles | `listCustomers()` | ✅ wired (table) |
 | 16 | GET | `/customers/{id}` | Get one customer | all roles | `getCustomer()` | ✅ wired (detail page) |
-| 17 | PATCH | `/customers/{id}` | Update profile / reassign collector | **office** | `updateCustomer()` | ✅ wired (edit drawer) |
-| 18 | POST | `/customers/{id}/photo` | Upload/replace photo | office **or assigned collector** | `uploadCustomerPhoto()` | ✅ wired (files drawer) |
-| 19 | POST | `/customers/{id}/id-document` | Upload/replace ID scan | **office** | `uploadCustomerIdDocument()` | ✅ wired (files drawer) |
-| 20 | POST | `/customers/{id}/deactivate` | Deactivate (idempotent) | **office** | `deactivateCustomer()` | ✅ wired |
-| 21 | POST | `/customers/{id}/activate` | Reactivate | **office** | `activateCustomer()` | ✅ wired (status filter) |
+| 17 | PATCH | `/customers/{id}` | Update profile / reassign collector | **office** | `updateCustomer()` | ✅ wired (`?edit`, and image URLs) |
+| 18 | POST | `/customers/{id}/deactivate` | Deactivate (idempotent) | **office** | `deactivateCustomer()` | ✅ wired |
+| 19 | POST | `/customers/{id}/activate` | Reactivate | **office** | `activateCustomer()` | ✅ wired (status filter) |
+
+> **Withdrawn — `POST /customers/{id}/photo` and `POST /customers/{id}/id-document`
+> no longer exist.** Images go to `POST /uploads/images` and the customer record
+> holds the returned URL in `photoUrl` / `idDocumentFrontUrl` /
+> `idDocumentBackUrl` (the single `idDocumentUrl` is gone — the API stores both
+> sides now). The photo endpoint admitted the *assigned collector*; `PATCH
+> /customers/{id}` does not, so that capability is lost until the API offers a
+> collector-writable path.
+>
+> Also new on create/update: 409 `PHONE_TAKEN` and `ID_TAKEN`.
+
+### Uploads (`tags: Uploads`)
+
+| # | Method | Path | Summary | Access | Client fn | Status |
+|---|--------|------|---------|--------|-----------|--------|
+| 20 | POST | `/uploads/images` | Upload an image, get a hosted URL | any signed-in | `uploadImage()` | ✅ wired |
+| 21 | DELETE | `/uploads/images` | Remove one by `publicId` | any signed-in | `deleteImage()` | ⚠️ wrapped, unused |
+
+Multipart part is named **`image`** (not `photo`, which is what the retired
+customer endpoints wanted). `?kind=photo|document`, default `photo`; `document`
+is stored at higher resolution. JPEG/PNG/WebP, max 5 MB — 413 `FILE_TOO_LARGE`,
+415 `UNSUPPORTED_FILE_TYPE`. Returns `{ url, publicId }`.
+
+> Nothing calls `deleteImage()` yet: replacing a picture overwrites the URL on
+> the record and orphans the old upload rather than deleting it. Worth a pass if
+> storage cost matters.
 
 ### Susu (`tags: Susu`)
 
@@ -102,10 +127,14 @@ is immutable for the cycle's life; a customer may hold several concurrent
 accounts. Commission at closure is exactly one day's deposit, whatever day the
 customer exits on.
 
+`SusuAccount` now carries a six-digit **`accountNumber`**, unique and quotable —
+the handle a customer reads down a phone, and the only way to look an account up
+without knowing its `id`. Deposits can also answer 422 `ACCOUNT_NOT_ACTIVE`.
+
 | # | Method | Path | Summary | Access | Client fn | Status |
 |---|--------|------|---------|--------|-----------|--------|
-| 22 | POST | `/susu/accounts` | Open an account | **office** | `openSusuAccount()` | ✅ wired (customer detail) |
-| 23 | GET | `/susu/accounts` | List accounts (paginated) | all roles | `listSusuAccounts()` | ✅ wired (`/susu` table) |
+| 22 | POST | `/susu/accounts` | Open an account | **office** | `openSusuAccount()` | ✅ wired (`/customers/:id/accounts`) |
+| 23 | GET | `/susu/accounts` | List accounts (paginated) | all roles | `listSusuAccounts()` | ✅ wired (`/customers/:id/accounts`, always `customerId`-scoped); new `accountNumber` filter wrapped but unused |
 | 24 | GET | `/susu/accounts/{id}` | Detail with cycle progress | all roles (scoped) | `getSusuAccount()` | ✅ wired (`/susu/:id`) |
 | 25 | GET | `/susu/accounts/{id}/deposits` | Statement, newest first | all roles (scoped) | `listSusuDeposits()` | ✅ wired (grid + statement) |
 | 26 | POST | `/susu/accounts/{id}/deposits` | Record a deposit / catch-up | collector (own) + office | `recordSusuDeposit()` | ✅ wired (deposit form) |
@@ -326,8 +355,26 @@ type ErrorEnvelope = {
 - [x] The form runs as a 5-step stepper, validated per step on the way through.
       `readCustomerForm` is isomorphic — the same function the action runs also runs in the
       browser to gate each step, so there is no second copy of the rules to drift.
-- [x] `/customers/:id` detail page — profile, photo + ID document uploads, status switch.
-- [x] Photo + ID document uploads, size/type checked before the round trip.
+- [x] `/customers/:id` detail page — profile, image uploads, status switch. Editing happens in
+      place behind `?edit` rather than at a route of its own; `/customers/new` is the same grid
+      with every field blank. Both share
+      [customer-profile.tsx](app/components/customer-profile.tsx).
+- [x] **Uploads rebuilt for the new API.** `POST /customers/{id}/photo` and
+      `/customers/{id}/id-document` were withdrawn; images now go to `POST /uploads/images`
+      (multipart part named `image`, `?kind=photo|document`) and the URL comes back to be stored
+      on the record. Wrapped in [uploads.ts](app/lib/api/uploads.ts), with the two-step dance
+      shared by both pages in
+      [customer-uploads.server.ts](app/lib/customer-uploads.server.ts).
+      - Registration now uploads **before** it creates, which removes the half-registered case
+        entirely — a rejected file fails before any customer exists.
+      - `idDocumentUrl` became `idDocumentFrontUrl` + `idDocumentBackUrl`; the UI has three slots.
+- [ ] **Regression from that change:** a collector can no longer replace a customer's photo. The
+      retired photo endpoint admitted the assigned collector, but its replacement path
+      (`PATCH /customers/{id}`) is office-only, so the upload column is hidden from collectors
+      rather than offering them a guaranteed 403. Needs either a collector-writable upload path
+      or an accepted loss of the field-photo flow.
+- [x] 409 `PHONE_TAKEN` / `ID_TAKEN` land on the phone and ID number inputs rather than in a
+      banner — both usually mean the person is already registered.
 - [x] Deactivate / activate (no delete exists — history stays intact).
 - [x] 403/404 from a loader render as real error pages, not "unexpected error"
       (`throwAsRouteError` in [client.ts](app/lib/api/client.ts)).
@@ -343,7 +390,10 @@ type ErrorEnvelope = {
       relaxed, someone registered here has to be assigned from the record page before they can be
       collected from.
 - [ ] Collector select pages at 100 — the API's ceiling. Needs paging past that.
-- [ ] Susu / savings accounts belonging to a customer — the detail page is where they'll hang.
+- [x] Susu / savings accounts belonging to a customer — they hang off `/customers/:id/accounts`,
+      reached from the Accounts row action and the button on the detail page. One page per
+      customer with a section per product, not a product picker in front of it. Savings is
+      the second section once its endpoints are wired.
 
 ### Phase 3.2 — Susu
 - [x] Money helpers (Phase 0) — the prerequisite, now unblocked and done.
@@ -352,6 +402,15 @@ type ErrorEnvelope = {
       `buildCycleSlots`) live here rather than in the routes, so the counter answer to
       "how much do I get?" can't differ between two screens.
 - [x] Endpoint wrappers → [susu.ts](app/lib/api/susu.ts), mirroring [customers.ts](app/lib/api/customers.ts).
+- [x] **`accountNumber`** — six digits, unique, now issued by the API. The card face prints it
+      whole and no longer fakes a reference out of the last four of the `id`; that was invented
+      precisely because a 24-char hex string is unquotable down a phone, and there is now a real
+      one. `GET /susu/accounts?accountNumber=` is wired as a list filter.
+- [ ] Nothing yet *uses* the `accountNumber` filter — a counter lookup ("customer quotes their
+      number, find the account") has no screen. `SUSU_ACCOUNT_NUMBER_PATTERN` is in
+      [susu-client.ts](app/lib/susu-client.ts) ready for it.
+- [x] 422 `ACCOUNT_NOT_ACTIVE` on deposits — documented on the wrapper; the generic 422 path
+      already surfaces its message.
 - [x] Form readers → [susu-form.ts](app/lib/susu-form.ts), isomorphic like the customer
       ones: `readDepositForm` runs in the action *and* against the typed value on screen,
       so the days-left rule exists once.
@@ -360,11 +419,16 @@ type ErrorEnvelope = {
       building a `Date`: local parsing shifts the day west of UTC, and locale/timezone
       formatting differs between the SSR runtime and the browser.
 - [x] [susu-cycle.tsx](app/components/susu-cycle.tsx) — `CycleGrid`, `CycleBar`, `StatusPill`.
-- [x] Customer detail grows a susu section, above the profile: accounts of every status,
-      plus open-account. The daily amount is immutable, so opening confirms with the
-      amount, the 31-day total, and what closing costs — a ceiling this app invented
-      would eventually refuse a legitimate account, a confirmation never does.
-- [x] `/susu` — accounts table, status filter, pagination.
+- [x] `/customers/:id/accounts` — everything one customer saves into, a section per product,
+      status filter and paging over the susu table, plus open-account. A customer opens a
+      fresh cycle roughly monthly (sometimes several at once), so the list is unbounded and
+      is paged rather than shown whole. The daily amount is immutable, so opening confirms
+      with the amount, the 31-day total, and what closing costs — a ceiling this app
+      invented would eventually refuse a legitimate account, a confirmation never does.
+- [x] ~~`/susu` — accounts table, status filter, pagination.~~ **Removed.** An account is
+      reached through the customer who holds it; a cross-customer ledger was a second way in
+      that nobody's day started from. `/collections` is the collector's daily entry point and
+      the dashboard summary is the office's.
 - [x] `/susu/:id` — 31-cell cycle grid, money panel, statement, deposit form, close.
       Catch-ups render dashed in the grid and as a `12–15` range in the statement, so
       the two reconcile against each other.
@@ -379,8 +443,12 @@ type ErrorEnvelope = {
 - [x] Dashboard replaced with `/susu/summary`: date picker, collector filter for office,
       and the day's deposits. Collectors see their own figures; the API ignores
       `collectorId` for them, so it isn't sent.
-- [ ] `/susu` shows one row per *account*; a customer with three accounts is three rows.
-      A per-customer roll-up is probably the view the office actually wants.
+- [x] ~~`/susu` shows one row per *account*; a customer with three accounts is three rows.~~
+      Answered by removing that page: the list is now always one customer's, where several
+      rows for one person is the point rather than the problem.
+- [ ] No totals on `/customers/:id/accounts` — with a cycle a month, "how much has this
+      customer saved with us, ever" is a fair question and the page can't answer it. Needs
+      either an API roll-up or a walk of every page.
 - [ ] No offline handling. A collector out of signal loses the submit — the idempotency
       key makes a retry safe, but nothing queues it for them.
 

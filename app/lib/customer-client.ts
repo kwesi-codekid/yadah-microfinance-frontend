@@ -79,7 +79,15 @@ export interface Customer {
   purposeOfAccount?: string;
   nextOfKin?: NextOfKin;
   photoUrl?: string;
-  idDocumentUrl?: string;
+  /**
+   * Both sides of the ID, stored as hosted URLs.
+   *
+   * These replaced a single `idDocumentUrl`, and they are plain strings rather
+   * than uploads: the file goes to `POST /uploads/images` first and the URL it
+   * hands back is what gets written here. See [uploads.ts](app/lib/api/uploads.ts).
+   */
+  idDocumentFrontUrl?: string;
+  idDocumentBackUrl?: string;
   registeredById: string;
   assignedCollectorId?: string;
   status: CustomerStatus;
@@ -110,6 +118,14 @@ export interface CustomerInput {
   purposeOfAccount?: string;
   nextOfKin?: NextOfKin;
   assignedCollectorId?: string;
+  /**
+   * Image URLs from `POST /uploads/images`, not files. The customer endpoints
+   * take no multipart body at all — a picture is uploaded on its own and only
+   * its URL is written to the record, on create or on update alike.
+   */
+  photoUrl?: string;
+  idDocumentFrontUrl?: string;
+  idDocumentBackUrl?: string;
 }
 
 export function isGender(v: unknown): v is Gender {

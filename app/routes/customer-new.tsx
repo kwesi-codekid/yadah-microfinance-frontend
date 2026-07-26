@@ -6,11 +6,11 @@ import { CustomerProfile, UploadSlot } from "~/components/customer-profile";
 import { PageHeader } from "~/components/page-header";
 import { toApiFailure, type ApiFailure } from "~/lib/api/client";
 import * as customersApi from "~/lib/api/customers";
+import { fieldErrorsFromFailure, readCustomerForm } from "~/lib/customer-form";
 import {
-  fieldErrorsFromFailure,
-  readCustomerForm,
-  validateUpload,
-} from "~/lib/customer-form";
+  readImageSlots,
+  uploadImageSlots,
+} from "~/lib/customer-uploads.server";
 import { requireOffice, withAuth } from "~/lib/session.server";
 
 export function meta(_: Route.MetaArgs) {
@@ -39,28 +39,19 @@ export async function action({ request }: Route.ActionArgs) {
   const { input, fieldErrors } = readCustomerForm(form);
 
   /**
-   * The files ride in with the profile, because this page presents them as one
-   * record rather than a form followed by an upload step. The API has no such
-   * combined endpoint — a photo is posted to `/customers/{id}/photo`, which
-   * needs an id that doesn't exist yet — so the sequence is create, then
-   * upload, with the id the create hands back.
+   * The pictures ride in with the profile, because this page presents them as
+   * one record rather than a form followed by an upload step — and now the API
+   * agrees. Images go to `/uploads/images` on their own and the customer record
+   * takes the resulting URLs as ordinary fields, so both halves of this page
+   * can be committed in the right order: **upload first, then create**.
    *
-   * Both files are checked *before* the customer is created. Creating someone
-   * and then refusing their photo for being a PDF would leave a half-registered
-   * record behind and no obvious way to tell that is what happened.
+   * That ordering is the whole reason this got simpler. It used to be create
+   * -then-upload, because a photo needed a customer id to be posted against,
+   * which meant a rejected file could leave a half-registered record behind. An
+   * upload that fails now happens before anything exists.
    */
-  const photo = form.get("photo");
-  const idDocument = form.get("idDocument");
-  const hasPhoto = photo instanceof File && photo.size > 0;
-  const hasIdDocument = idDocument instanceof File && idDocument.size > 0;
-  if (hasPhoto) {
-    const error = validateUpload(photo);
-    if (error) fieldErrors.photo = error;
-  }
-  if (hasIdDocument) {
-    const error = validateUpload(idDocument);
-    if (error) fieldErrors.idDocument = error;
-  }
+  const { pending, fieldErrors: uploadErrors } = readImageSlots(form);
+  Object.assign(fieldErrors, uploadErrors);
 
   if (Object.keys(fieldErrors).length) return data<ActionData>({ fieldErrors });
 
@@ -78,21 +69,29 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     /**
-     * Create and uploads share one `withAuth`, and must. It reads the tokens
+     * Uploads and create share one `withAuth`, and must. It reads the tokens
      * off the request cookie every time it is called, so a second call in the
      * same action would still be holding the refresh token the first one just
      * spent — the API would refuse it and the user would be bounced to login
      * for successfully registering someone.
+     *
+     * The callback is safely retryable on a 401, which is the other reason to
+     * order it this way: nothing here is committed until the very last call.
+     * Re-running an upload costs a duplicate image, not a duplicate customer.
      */
-    const { data: result, headers } = await withAuth(request, async (token) => {
-      const created = await customersApi.createCustomer(token, input);
+    const { data: id, headers } = await withAuth(request, async (token) => {
+      const images = await uploadImageSlots(token, pending);
+      const created = await customersApi.createCustomer(token, {
+        ...input,
+        ...images,
+      });
 
       // Only follow the customer to its own page if the response actually
       // carried an id — building the URL blindly is how you land on
       // `/customers/undefined`, where the API rejects the path param and a
       // successful registration looks like a crash.
-      const id = created?.customer?.id;
-      if (!id) {
+      const newId = created?.customer?.id;
+      if (!newId) {
         console.warn(
           "POST /customers succeeded but returned no customer id. Response keys:",
           JSON.stringify({
@@ -100,52 +99,17 @@ export async function action({ request }: Route.ActionArgs) {
             customer: Object.keys(created?.customer ?? {}),
           }),
         );
-        return { id: null, uploadsFailed: false };
+        return null;
       }
-
-      /**
-       * The customer is committed from here, so nothing below may throw:
-       * `withAuth` retries this whole callback on a 401, and a retry after a
-       * successful create would register the same person a second time.
-       *
-       * A failed upload is therefore recorded, not raised. The record page is
-       * where a retry belongs anyway — it has the same two slots, pointed at
-       * the endpoints that now have an id to accept them.
-       */
-      let uploadsFailed = false;
-      if (hasPhoto) {
-        try {
-          await customersApi.uploadCustomerPhoto(token, id, photo as File);
-        } catch (error) {
-          uploadsFailed = true;
-          console.error("[customer-new] photo upload failed:", error);
-        }
-      }
-      if (hasIdDocument) {
-        try {
-          await customersApi.uploadCustomerIdDocument(
-            token,
-            id,
-            idDocument as File,
-          );
-        } catch (error) {
-          uploadsFailed = true;
-          console.error("[customer-new] ID document upload failed:", error);
-        }
-      }
-
-      return { id, uploadsFailed };
+      return newId;
     });
 
-    if (!result.id) return redirect("/customers", { headers });
+    if (!id) return redirect("/customers", { headers });
 
-    // Straight to the new record — the next thing anyone does is open a susu
+    // Straight to the new record — the next thing anyone does is open an
     // account, which lives there. `headers` must ride along or the rotated
     // refresh token is lost on the way.
-    return redirect(
-      `/customers/${result.id}${result.uploadsFailed ? "?uploads=failed" : ""}`,
-      { headers },
-    );
+    return redirect(`/customers/${id}`, { headers });
   } catch (error) {
     // Redirects (an unrenewable session) must propagate, not become messages.
     if (error instanceof Response) throw error;
@@ -219,24 +183,32 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
             quarter is what lets its fields sit three and four across instead of
             running down the page. */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 xl:grid-cols-4">
-          {/* Files first on mobile, exactly as on the record — the photo is
-              what identifies the person at a glance. Both are optional at
-              registration and can be added later from the record itself. */}
+          {/* The ID scans, and only those. The photo used to sit up here with
+              them, but a picture of someone belongs with their name and date of
+              birth rather than in a pile of attachments — it is now the aside
+              of the Identity section below. What is left is genuinely a column
+              of documents.
+
+              Two sides, not one: the API stores the front and back of an ID
+              separately, and a Ghana Card's number is on the front while its
+              expiry is on the back. */}
           <div className="space-y-4 lg:col-span-1">
             <UploadSlot
-              field="photo"
-              title="Photo"
-              hint="Optional — JPEG, PNG or WebP, up to 5 MB."
-              error={actionData?.fieldErrors?.photo}
-              onSelect={(has) => setSelected((prev) => ({ ...prev, photo: has }))}
+              field="idDocumentFront"
+              title="ID document — front"
+              hint="Optional — stored at higher resolution for legibility."
+              error={actionData?.fieldErrors?.idDocumentFront}
+              onSelect={(has) =>
+                setSelected((prev) => ({ ...prev, idDocumentFront: has }))
+              }
             />
             <UploadSlot
-              field="idDocument"
-              title="ID document"
-              hint="Optional — stored at higher resolution for legibility."
-              error={actionData?.fieldErrors?.idDocument}
+              field="idDocumentBack"
+              title="ID document — back"
+              hint="Optional — the reverse of the same document."
+              error={actionData?.fieldErrors?.idDocumentBack}
               onSelect={(has) =>
-                setSelected((prev) => ({ ...prev, idDocument: has }))
+                setSelected((prev) => ({ ...prev, idDocumentBack: has }))
               }
             />
           </div>
@@ -252,6 +224,18 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
               editing
               showAssignment={false}
               errors={actionData?.fieldErrors}
+              photoSlot={
+                <UploadSlot
+                  compact
+                  field="photo"
+                  title="Photo"
+                  hint="Optional — JPEG, PNG or WebP, up to 5 MB."
+                  error={actionData?.fieldErrors?.photo}
+                  onSelect={(has) =>
+                    setSelected((prev) => ({ ...prev, photo: has }))
+                  }
+                />
+              }
             />
           </div>
         </div>
@@ -264,7 +248,7 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
         <div className="sticky bottom-0 -mx-6 -mb-8 mt-6 flex flex-wrap items-center gap-3 border-t-2 border-border bg-surface px-6 py-3">
           <p className="text-xs text-muted">
             {fileCount > 0
-              ? `${fileCount === 1 ? "1 file" : `${fileCount} files`} will be uploaded once the customer is created.`
+              ? `${fileCount === 1 ? "1 image" : `${fileCount} images`} will be uploaded before the customer is created.`
               : "A photo and ID document can be added now or later."}
           </p>
 

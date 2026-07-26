@@ -82,7 +82,7 @@ export interface AmountRules {
  * validators in [validation.ts](app/lib/validation.ts), so form code treats
  * amounts like any other field.
  *
- * Each failure gets its own message. Answering "must be at least GHS 0.01" to
+ * Each failure gets its own message. Answering "must be at least ₵0.01" to
  * someone who typed `abc` tells them to fix a bound that isn't the problem.
  */
 export function validateGhsAmount(
@@ -117,8 +117,20 @@ export function toAmountInput(pesewas: number): string {
   return `${sign}${cedis}.${String(rest).padStart(2, "0")}`;
 }
 
+/**
+ * The cedi sign, U+20B5.
+ *
+ * A literal, not `Intl`'s idea of the currency symbol — see `formatGhs` below.
+ * Written as an escape so it survives a file saved in the wrong encoding.
+ */
+export const CEDI = "₵";
+
 export interface FormatGhsOptions {
-  /** Currency prefix. `null` drops it, for tables that label the column instead. */
+  /**
+   * Currency prefix. `null` drops it, for tables that label the column
+   * instead; pass `"GHS"` where the three-letter code reads better than the
+   * sign (an export, or a line someone reads down a phone).
+   */
   symbol?: string | null;
   /**
    * Drop `.00` on whole-cedi amounts. Useful in dense views; leave it off for
@@ -129,17 +141,21 @@ export interface FormatGhsOptions {
 }
 
 /**
- * Pesewas → a display string, e.g. `GHS 1,050.50`.
+ * Pesewas → a display string, e.g. `₵1,050.50`.
  *
  * Formatted by hand rather than with `Intl.NumberFormat`. This app renders on
  * the server and hydrates in the browser, and the two runtimes do not always
  * ship the same ICU data — `GH₵` on one side and `GHS` on the other is a
- * hydration mismatch that only shows up on someone else's machine. Grouping
- * digits with a regex is dull, but it is the same string everywhere.
+ * hydration mismatch that only shows up on someone else's machine. A literal
+ * sign is the same string in both. Grouping digits with a regex is dull, but
+ * it is dull identically everywhere.
+ *
+ * A sign sits tight against its figure (`₵10.50`) and a letter code doesn't
+ * (`GHS 10.50`), so the space is decided by the symbol rather than fixed.
  */
 export function formatGhs(
   pesewas: number,
-  { symbol = "GHS", trimZeroPesewas = false }: FormatGhsOptions = {},
+  { symbol = CEDI, trimZeroPesewas = false }: FormatGhsOptions = {},
 ): string {
   const sign = pesewas < 0 ? "-" : "";
   const abs = Math.abs(Math.round(pesewas));
@@ -152,5 +168,6 @@ export function formatGhs(
       ? grouped
       : `${grouped}.${String(rest).padStart(2, "0")}`;
 
-  return `${sign}${symbol ? `${symbol} ` : ""}${body}`;
+  const prefix = symbol ? (/[a-z]$/i.test(symbol) ? `${symbol} ` : symbol) : "";
+  return `${sign}${prefix}${body}`;
 }

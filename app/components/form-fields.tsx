@@ -1,4 +1,4 @@
-import { Label, ListBox, Select } from "@heroui/react";
+import { Label, ListBox, Select, Tooltip } from "@heroui/react";
 import { ChevronDown } from "lucide-react";
 import { Link } from "react-router";
 import { TextInput } from "~/components/inputs";
@@ -162,7 +162,18 @@ export function FilterSelect({
   );
 }
 
-/** The same treatment as `IconAction`, for a row action that navigates. */
+const ICON_ACTION =
+  "flex size-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground";
+
+/**
+ * The same treatment as `IconAction`, for a row action that navigates.
+ *
+ * The label rides in a HeroUI `Tooltip` rather than the native `title`: the
+ * browser's version waits a second, can't be styled, and never appears on
+ * keyboard focus. `render` hands the trigger's props to the `Link` itself, so
+ * the hover/focus target *is* the anchor — the default wrapper `<div
+ * role="button">` around a link would be a second tab stop and the wrong role.
+ */
 export function IconLink({
   label,
   to,
@@ -173,14 +184,17 @@ export function IconLink({
   children: React.ReactNode;
 }) {
   return (
-    <Link
-      to={to}
-      title={label}
-      aria-label={label}
-      className="flex size-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground"
-    >
-      {children}
-    </Link>
+    <Tooltip>
+      <Tooltip.Trigger<"a">
+        className={ICON_ACTION}
+        render={(props) => (
+          <Link {...props} role={undefined} to={to} aria-label={label} />
+        )}
+      >
+        {children}
+      </Tooltip.Trigger>
+      <Tooltip.Content>{label}</Tooltip.Content>
+    </Tooltip>
   );
 }
 
@@ -195,14 +209,21 @@ export function IconAction({
   children: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      className="flex size-7 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground"
-    >
-      {children}
-    </button>
+    <Tooltip>
+      <Tooltip.Trigger<"button">
+        className={ICON_ACTION}
+        render={(props) => (
+          <button
+            {...props}
+            type="button"
+            onClick={onClick}
+            aria-label={label}
+          />
+        )}
+      >
+        {children}
+      </Tooltip.Trigger>
+      <Tooltip.Content>{label}</Tooltip.Content>
+    </Tooltip>
   );
 }

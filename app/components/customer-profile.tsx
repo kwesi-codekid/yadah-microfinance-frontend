@@ -61,6 +61,7 @@ export function CustomerProfile({
   editing,
   errors,
   showAssignment = true,
+  photoSlot,
 }: {
   /** Absent when registering — every field then starts blank. */
   customer?: Customer;
@@ -75,10 +76,18 @@ export function CustomerProfile({
    * collectors on the record page, who may not reassign anyone.
    */
   showAssignment?: boolean;
+  /**
+   * An upload slot to stand beside the identity fields. A picture of someone is
+   * identity in the same sense their name is, so registration puts it here
+   * rather than in a separate column of attachments. Passing it in rather than
+   * building it here keeps this component free of the upload plumbing — which
+   * form the slot posts under is the page's business, not the grid's.
+   */
+  photoSlot?: React.ReactNode;
 }) {
   const sections = (
     <>
-      <DetailSection title="Identity">
+      <DetailSection title="Identity" aside={photoSlot}>
         <Detail
           label="Full name"
           value={customer?.fullName}
@@ -335,11 +344,18 @@ export function CustomerProfile({
 function DetailSection({
   title,
   hint,
+  aside,
   children,
 }: {
   title: string;
   /** A rule of this group worth stating, shown only while editing it. */
   hint?: string;
+  /**
+   * Something taller than a field, stood beside the grid rather than in it —
+   * the photo slot. A card that size dropped into a cell would set the height
+   * of its whole row and leave the short fields beside it floating in space.
+   */
+  aside?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const editing = useContext(EditContext) !== null;
@@ -351,22 +367,37 @@ function DetailSection({
    */
   const Grid = editing ? "div" : "dl";
 
+  /* The fields flow across as the screen allows — up to four abreast on a wide
+     monitor — rather than down in two long columns. Six fields become two short
+     rows instead of three, which is most of what keeps the whole record on one
+     screen. One column fewer when an aside is taking some of the width.
+     The row gap has to stay well clear of the near-zero gap between a label and
+     its own value, or the label reads as belonging to the value above it and
+     the whole grid runs together. */
+  const grid = `grid min-w-0 grid-cols-1 gap-x-8 gap-y-5 ${
+    aside
+      ? "flex-1 md:grid-cols-2 2xl:grid-cols-3"
+      : "sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+  }`;
+
   return (
     <section>
       <h2 className="mb-3 border-b border-border pb-1.5 text-xs font-bold uppercase tracking-wide text-muted">
         {title}
       </h2>
       {editing && hint && <p className="-mt-1 mb-3 text-xs text-muted">{hint}</p>}
-      {/* The fields flow across as the screen allows — up to four abreast on a
-          wide monitor — rather than down in two long columns. Six fields become
-          two short rows instead of three, which is most of what keeps the whole
-          record on one screen.
-          The row gap has to stay well clear of the near-zero gap between a
-          label and its own value, or the label reads as belonging to the value
-          above it and the whole grid runs together. */}
-      <Grid className="grid grid-cols-1 gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-        {children}
-      </Grid>
+
+      {aside ? (
+        // A passport frame beside the fields. Capped at 9rem on a phone too —
+        // the aside is the width of a photo, not of the screen, so left to
+        // itself it would stretch to a full-width block above the form.
+        <div className="flex flex-col gap-x-6 gap-y-4 sm:flex-row">
+          <div className="w-36 shrink-0">{aside}</div>
+          <Grid className={grid}>{children}</Grid>
+        </div>
+      ) : (
+        <Grid className={grid}>{children}</Grid>
+      )}
     </section>
   );
 }
@@ -521,6 +552,7 @@ export function UploadSlot({
   currentUrl,
   error,
   onSelect,
+  compact,
 }: {
   field: string;
   title: string;
@@ -529,6 +561,13 @@ export function UploadSlot({
   error?: string;
   /** Tells the parent whether this slot is holding a file to send. */
   onSelect: (hasFile: boolean) => void;
+  /**
+   * Passport-photo sized, for standing among the fields rather than filling a
+   * column of its own: a fixed 3:4 box, a label in the same 11px uppercase as
+   * every field beside it, and no card around it. The full-size card is built
+   * for the attachments column and towers over a row of 36px inputs.
+   */
+  compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   /**
@@ -597,18 +636,41 @@ export function UploadSlot({
     accept(file);
   }
 
+  /* The picture, at whichever size this slot is being used at. The compact one
+     is a fixed 3:4 box so the layout doesn't jump between empty and filled —
+     the column version can grow to the image, but a passport frame among the
+     fields has to hold its place. */
+  const imageClass = compact
+    ? "aspect-3/4 w-full rounded-md border border-border object-cover"
+    : "h-auto max-h-64 w-full rounded-lg border border-border object-contain";
+
   return (
-    <div className="space-y-3 rounded-lg border-2 border-border bg-surface p-4">
+    <div
+      className={
+        compact
+          ? "space-y-1"
+          : "space-y-3 rounded-lg border-2 border-border bg-surface p-4"
+      }
+    >
       {/* The heading and the format rules are there to explain an empty slot.
           Once there is an image in it — stored, or picked and waiting — it
           speaks for itself, and the caption or the label below carries the
           rest. The input keeps `aria-label={title}`, so nothing is lost to a
-          screen reader. */}
-      {!preview && !currentUrl && (
-        <div>
-          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-          <p className="mt-0.5 text-xs text-muted">{hint}</p>
-        </div>
+          screen reader.
+
+          Compact keeps its label whatever the state, in the same 11px uppercase
+          as the fields beside it — dropping it would leave an unexplained box
+          in the middle of a labelled grid. */}
+      {compact ? (
+        <span className={DETAIL_LABEL}>{title}</span>
+      ) : (
+        !preview &&
+        !currentUrl && (
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+            <p className="mt-0.5 text-xs text-muted">{hint}</p>
+          </div>
+        )
       )}
 
       {/* Always mounted, never inside a branch: this input carries the file to
@@ -634,30 +696,36 @@ export function UploadSlot({
       />
 
       {preview ? (
-        <figure className="space-y-1.5">
+        <figure className={compact ? "space-y-1" : "space-y-1.5"}>
           <div className="relative">
-            {/* Sized to the card, not to the file: it fills the slot's width
-                and is capped at `max-h-64`, so a tall image can't stretch the
-                card down the page. `object-contain` keeps the whole picture
-                visible within that box — `object-cover` would crop an ID, and
-                a hard height would squash it. */}
+            {/* Sized to the slot, not to the file: full width, capped so a tall
+                image can't stretch the card down the page. `object-contain`
+                keeps the whole picture visible — `object-cover` would crop an
+                ID, and a hard height would squash it. The compact box is the
+                exception: it is a portrait frame for a face, where cropping is
+                what you want. */}
             <img
               src={preview}
               alt={`${title} to be uploaded`}
-              className="h-auto max-h-64 w-full rounded-lg border border-border object-contain"
+              className={imageClass}
             />
             <button
               type="button"
               onClick={remove}
               aria-label={`Remove the selected ${title.toLowerCase()}`}
               title="Remove"
-              className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/80"
+              className={[
+                "absolute flex items-center justify-center rounded-full bg-black/60 text-white transition-colors hover:bg-black/80",
+                compact ? "right-1 top-1 size-6" : "right-2 top-2 size-7",
+              ].join(" ")}
             >
-              <X size={14} />
+              <X size={compact ? 12 : 14} />
             </button>
           </div>
-          <figcaption className="text-xs font-medium text-success">
-            Selected — not uploaded yet
+          <figcaption
+            className={`font-medium text-success ${compact ? "text-[10px]" : "text-xs"}`}
+          >
+            {compact ? "Not uploaded yet" : "Selected — not uploaded yet"}
           </figcaption>
         </figure>
       ) : (
@@ -675,42 +743,77 @@ export function UploadSlot({
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
           className={[
-            "block cursor-pointer rounded-lg border-2 border-dashed p-3 text-center transition-colors",
+            "block cursor-pointer border-2 border-dashed text-center transition-colors",
             "peer-focus-visible:border-success peer-focus-visible:ring-2 peer-focus-visible:ring-success/30",
+            // Compact fills its 3:4 frame and centres whatever is in it, so an
+            // empty slot is the same size as a filled one.
+            // `relative` so a stored photo can fill the frame absolutely.
+            compact
+              ? "relative flex aspect-3/4 w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-md p-2"
+              : "rounded-lg p-3",
             dragging
               ? "border-success bg-success/10"
               : "border-border hover:border-success/60 hover:bg-background",
           ].join(" ")}
         >
-          {currentUrl && (
-            <img
-              src={currentUrl}
-              alt={`Current ${title.toLowerCase()}`}
-              className="mb-3 h-auto max-h-64 w-full rounded-lg border border-border object-contain"
-            />
-          )}
-          <span className="flex flex-col items-center gap-1 py-3">
-            <Upload size={18} className="text-muted" aria-hidden="true" />
-            <span className="text-xs font-medium text-foreground">
-              {currentUrl
-                ? "Click or drop an image to replace"
-                : "Click to choose a file, or drop one here"}
-            </span>
-            {/* Only worth saying while the slot is empty — it is the same rule
-                the header states, and repeating it over a stored image is
-                noise. */}
-            {!currentUrl && (
-              <span className="text-[11px] text-muted">
-                JPEG, PNG or WebP · up to 5 MB
+          {currentUrl &&
+            (compact ? (
+              // Fills the frame rather than sitting above a prompt: at this
+              // size there is only room for one of the two.
+              <img
+                src={currentUrl}
+                alt={`Current ${title.toLowerCase()}`}
+                className="absolute inset-0 size-full rounded-md object-cover"
+              />
+            ) : (
+              <img
+                src={currentUrl}
+                alt={`Current ${title.toLowerCase()}`}
+                className="mb-3 h-auto max-h-64 w-full rounded-lg border border-border object-contain"
+              />
+            ))}
+
+          {compact ? (
+            // Icon and one short word. The format rules live below the box, so
+            // there is nothing here competing for a 9rem-wide space.
+            !currentUrl && (
+              <>
+                <Upload size={16} className="text-muted" aria-hidden="true" />
+                <span className="text-[11px] font-medium text-foreground">
+                  Add photo
+                </span>
+              </>
+            )
+          ) : (
+            <span className="flex flex-col items-center gap-1 py-3">
+              <Upload size={18} className="text-muted" aria-hidden="true" />
+              <span className="text-xs font-medium text-foreground">
+                {currentUrl
+                  ? "Click or drop an image to replace"
+                  : "Click to choose a file, or drop one here"}
               </span>
-            )}
-          </span>
+              {/* Only worth saying while the slot is empty — it is the same
+                  rule the header states, and repeating it over a stored image
+                  is noise. */}
+              {!currentUrl && (
+                <span className="text-[11px] text-muted">
+                  JPEG, PNG or WebP · up to 5 MB
+                </span>
+              )}
+            </span>
+          )}
         </label>
+      )}
+
+      {/* Compact says the rules under the box instead of inside it. Only while
+          empty: once there is a picture, the box has explained itself. */}
+      {compact && !preview && !currentUrl && (
+        <p className="text-[10px] leading-tight text-muted">{hint}</p>
       )}
 
       {/* Outside the label — a link nested in one would fight it for the
           click, and this opens the stored original rather than the picker. */}
-      {!preview && currentUrl && (
+      {!compact && !preview && currentUrl && (
         <a
           href={currentUrl}
           target="_blank"

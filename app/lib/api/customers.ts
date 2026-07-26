@@ -12,9 +12,13 @@ export type { CustomerInput };
  *
  * Access differs from staff: listing is open to every role, but collectors only
  * ever see the customers assigned to them (the API scopes it, not us). Writes
- * are office-only (admin + manager) with one exception — the assigned collector
- * may upload a customer's photo. Each call takes the caller's access token and
- * returns the parsed success body; failures throw `ApiError`.
+ * are office-only (admin + manager). Each call takes the caller's access token
+ * and returns the parsed success body; failures throw `ApiError`.
+ *
+ * There are no upload endpoints here any more. `POST /customers/{id}/photo` and
+ * `POST /customers/{id}/id-document` were withdrawn in favour of a general
+ * [`/uploads/images`](app/lib/api/uploads.ts); the customer record now just
+ * holds the URLs those uploads return.
  */
 
 export interface CustomerListResult {
@@ -58,7 +62,18 @@ export function getCustomer(
   return apiFetch(`/customers/${id}`, { accessToken });
 }
 
-/** POST /customers (office only) */
+/**
+ * POST /customers (office only)
+ *
+ * 409 `PHONE_TAKEN` / `ID_TAKEN` when the number or the ID already belongs to
+ * someone — the two collisions worth catching, since both mean the person is
+ * probably already registered. 422 `INVALID_COLLECTOR` for an
+ * `assignedCollectorId` that isn't an active collector.
+ *
+ * Pictures are not sent here. Upload them with
+ * [uploadImage](app/lib/api/uploads.ts) and put the URLs it returns in
+ * `photoUrl` / `idDocumentFrontUrl` / `idDocumentBackUrl`.
+ */
 export function createCustomer(
   accessToken: string,
   input: CustomerInput,
@@ -70,7 +85,9 @@ export function createCustomer(
  * PATCH /customers/{id} (office only)
  *
  * Send only what changed. Setting `assignedCollectorId` is the reassignment
- * flow and is audited as such by the API.
+ * flow and is audited as such by the API. Same 409s as create, and the same
+ * route for pictures — a replacement photo is an uploaded URL written here,
+ * not a multipart body.
  */
 export function updateCustomer(
   accessToken: string,
@@ -80,42 +97,6 @@ export function updateCustomer(
   return apiFetch(`/customers/${id}`, {
     method: "PATCH",
     json: input,
-    accessToken,
-  });
-}
-
-/**
- * POST /customers/{id}/photo — office roles or the assigned collector.
- * JPEG/PNG/WebP, max 5 MB; replaces any existing photo.
- *
- * The field name is `photo` for both upload endpoints — including the ID
- * document one, where it reads like a misnomer. It is what the API expects.
- */
-export function uploadCustomerPhoto(
-  accessToken: string,
-  id: string,
-  file: File,
-): Promise<{ customer: Customer }> {
-  const body = new FormData();
-  body.set("photo", file);
-  return apiFetch(`/customers/${id}/photo`, {
-    method: "POST",
-    formData: body,
-    accessToken,
-  });
-}
-
-/** POST /customers/{id}/id-document (office only). Same limits as the photo. */
-export function uploadCustomerIdDocument(
-  accessToken: string,
-  id: string,
-  file: File,
-): Promise<{ customer: Customer }> {
-  const body = new FormData();
-  body.set("photo", file);
-  return apiFetch(`/customers/${id}/id-document`, {
-    method: "POST",
-    formData: body,
     accessToken,
   });
 }

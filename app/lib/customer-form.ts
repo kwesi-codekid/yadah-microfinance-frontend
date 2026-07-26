@@ -170,6 +170,25 @@ const API_PATH_TO_FIELD: Record<string, string> = {
 export function fieldErrorsFromFailure(
   failure: ApiFailure,
 ): Record<string, string> {
+  /**
+   * The two 409s are about a field just as much as a 400 is — they mean this
+   * phone or this ID already belongs to somebody — but they arrive as a bare
+   * code with no `details` to map. Put them on the input that caused them: a
+   * banner saying "Phone already registered" over twenty fields leaves the user
+   * to work out which one, and the answer is usually "this person is already on
+   * the system", which is worth saying plainly.
+   */
+  if (failure.status === 409) {
+    if (failure.code === "PHONE_TAKEN")
+      return {
+        phone: "This phone number is already registered to another customer.",
+      };
+    if (failure.code === "ID_TAKEN")
+      return {
+        idNumber: "This ID number is already registered to another customer.",
+      };
+  }
+
   if (!Array.isArray(failure.details)) return {};
   const fieldErrors: Record<string, string> = {};
   for (const issue of failure.details) {

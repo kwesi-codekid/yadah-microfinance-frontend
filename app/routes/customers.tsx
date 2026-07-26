@@ -8,9 +8,10 @@ import {
   useNavigationType,
   useSearchParams,
 } from "react-router";
-import { Button } from "@heroui/react";
+import { Button, Tooltip } from "@heroui/react";
 import {
   Eye,
+  PiggyBank,
   Pencil,
   UserPlus,
   Ban,
@@ -472,6 +473,11 @@ function RowActions({ customer }: { customer: Customer }) {
         <IconLink label="View" to={`/customers/${customer.id}`}>
           <Eye size={16} />
         </IconLink>
+        {/* Accounts, not "Susu": the page holds every product the customer
+            saves into, and it is where a new cycle is opened each month. */}
+        <IconLink label="Accounts" to={`/customers/${customer.id}/accounts`}>
+          <PiggyBank size={16} />
+        </IconLink>
         <IconLink label="Edit" to={`/customers/${customer.id}?edit`}>
           <Pencil size={16} />
         </IconLink>
@@ -529,20 +535,29 @@ function StatusForm({
             confirmed submit goes through `requestSubmit()` with no submitter,
             so a name/value on the button would never reach the action. */}
         <input type="hidden" name="intent" value={intent} />
-        <button
-          type={needsConfirm ? "button" : "submit"}
-          onClick={needsConfirm ? () => setConfirming(true) : undefined}
-          title={label}
-          aria-label={label}
-          className={[
-            "flex size-7 items-center justify-center rounded-lg transition-colors",
-            danger
-              ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-              : "text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40",
-          ].join(" ")}
-        >
-          {children}
-        </button>
+        {/* Same hover label as the neutral row icons, in the accent this
+            action carries. */}
+        <Tooltip>
+          <Tooltip.Trigger<"button">
+            className={[
+              "flex size-7 items-center justify-center rounded-lg transition-colors",
+              danger
+                ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                : "text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40",
+            ].join(" ")}
+            render={(props) => (
+              <button
+                {...props}
+                type={needsConfirm ? "button" : "submit"}
+                onClick={needsConfirm ? () => setConfirming(true) : undefined}
+                aria-label={label}
+              />
+            )}
+          >
+            {children}
+          </Tooltip.Trigger>
+          <Tooltip.Content>{label}</Tooltip.Content>
+        </Tooltip>
       </Form>
 
       {needsConfirm && (

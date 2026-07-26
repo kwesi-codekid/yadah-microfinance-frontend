@@ -16,11 +16,15 @@ export default [
     // No `customers/:id/edit`: editing happens in place on the record itself,
     // behind `?edit`, so the fields turn into inputs where they already sit.
     route("customers/:id", "routes/customer-detail.tsx"),
+    // Everything a customer is saving into. An account belongs to a customer,
+    // so this is also where one is opened — there is no `susu/new`.
+    route("customers/:id/accounts", "routes/customer-accounts.tsx"),
 
-    // Susu. An account belongs to a customer, so there is no `susu/new` — a
-    // cycle is opened from the customer's own page, where the person it
-    // belongs to is on screen.
-    route("susu", "routes/susu.tsx"),
+    // One account, with its statement. Kept off `customers/:id/accounts/...`
+    // deliberately: susu deposits and (later) savings withdrawals are
+    // different shapes, so each product keeps its own detail route and every
+    // account has exactly one address. There is no cross-customer list above
+    // it — accounts are reached through the customer who holds them.
     route("susu/:id", "routes/susu-account.tsx"),
     // The field flow: one cash amount split across everything a customer is
     // saving into. Its own URL rather than a tab on the susu list — it is the
