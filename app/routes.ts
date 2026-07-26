@@ -4,6 +4,12 @@ export default [
   index("routes/home.tsx"),
   route("login", "routes/login.tsx"),
   route("logout", "routes/logout.tsx"),
+  // Outside the app shell on purpose. Reached voluntarily from the sidebar, or
+  // forced by `mustChangePassword` — and when it's forced every other route
+  // redirects back to it, so a sidebar here would be nothing but dead links.
+  // Its path is `CHANGE_PASSWORD_PATH` in session.server.ts, which is what the
+  // guard redirects to; the two have to agree.
+  route("change-password", "routes/change-password.tsx"),
 
   // Authenticated app shell (sidebar + top bar). Every page nested here is
   // behind the layout's requireUser loader.
@@ -26,11 +32,10 @@ export default [
     // account has exactly one address. There is no cross-customer list above
     // it — accounts are reached through the customer who holds them.
     route("susu/:id", "routes/susu-account.tsx"),
-    // The field flow: one cash amount split across everything a customer is
-    // saving into. Its own URL rather than a tab on the susu list — it is the
-    // screen a collector opens first and returns to all day.
-    route("collections", "routes/collections.tsx"),
-
+    // Savings sits beside susu for the same reason: one address per account,
+    // and the two products' detail pages are different shapes — a cycle of 31
+    // days against an open-ended balance with a fee on the way out.
+    route("savings/:id", "routes/savings-account.tsx"),
     route("staff", "routes/staff.tsx"),
   ]),
 ] satisfies RouteConfig;

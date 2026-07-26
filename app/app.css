@@ -56,6 +56,15 @@
 
   --color-crimson: #c0293a;
 
+  /* The canvas the content area scrolls on.
+
+     Separate from `--background` rather than a lighter `--background`,
+     because that token does two unrelated jobs: it paints the page *and* it is
+     the hover fill on a dozen icon buttons that sit on white (`hover:bg-background`).
+     Lightening it far enough to calm the page would have taken those hovers
+     down to invisible. */
+  --color-canvas: var(--canvas);
+
   /* Category ramp for charts, spend breakdowns and chips — the logo ring in
      clockwise order, so a multi-series chart reads as the mark unrolled.
      Use in order; don't reach past cat-7 (add a second ramp instead). */
@@ -78,8 +87,15 @@
 [data-theme="light"],
 [data-theme="default"] {
   /* Canvas is grey, cards are white — the contrast between the two is what
-     makes the layout read as panels rather than one flat page. */
+     makes the layout read as panels rather than one flat page. The content
+     area uses `--canvas`, a lighter grey: panels there carry
+     `border-2 border-border` of their own, so they hold their edges on far
+     less contrast than the shell needs. */
   --background: #f4f5f7;
+  /* Halfway between the shell grey and white. `#fafbfc` was tried and read as
+     flat — at that point the canvas has no colour left to distinguish it from
+     the panels on top of it. */
+  --canvas: #f7f8fa;
   --foreground: #161a1f;
 
   --surface: #ffffff;
@@ -121,6 +137,10 @@
 .dark,
 [data-theme="dark"] {
   --background: #0b0d10;
+  /* Unchanged from `--background` here. The dark canvas is already near-black
+     and the cards above it are the lighter surface, so there is no grey wash
+     to take down — the split exists for the light theme. */
+  --canvas: #0b0d10;
   --foreground: #f4f5f7;
 
   --surface: #14171a;

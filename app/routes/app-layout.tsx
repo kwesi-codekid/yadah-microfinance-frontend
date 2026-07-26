@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
-import { Form, Outlet, useLoaderData } from "react-router";
+import { Form, Link, Outlet, useLoaderData } from "react-router";
 import { Popover } from "@heroui/react";
-import { ChevronDown, LogOut, PanelLeftClose, PanelLeftOpen, User } from "lucide-react";
+import {
+  ChevronDown,
+  KeyRound,
+  LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
+  User,
+} from "lucide-react";
 import type { Route } from "./+types/app-layout";
 import { Sidebar } from "~/components/sidebar";
 import { MobileNav } from "~/components/mobile-nav";
@@ -86,7 +93,7 @@ export default function AppLayout() {
             the rail gives it a left edge to turn against; on mobile the panel
             runs to the viewport edge and a corner there is a notch out of
             nothing. Bottom padding clears the floating tab bar. */}
-        <main className="flex-1 overflow-y-auto bg-background pb-24 lg:rounded-tl-lg lg:pb-0">
+        <main className="flex-1 overflow-y-auto bg-canvas pb-24 lg:rounded-tl-lg lg:pb-0">
           <Outlet />
         </main>
       </div>
@@ -138,6 +145,13 @@ function UserMenu({ name, role }: { name: string; role: string }) {
             <User size={16} />
             Profile
           </button>
+          {/* The voluntary way in. The same page opens by force when an admin
+              has reset this password, but nobody should have to wait for that
+              to change one they'd rather not keep. */}
+          <Link to="/change-password" className={MENU_ITEM}>
+            <KeyRound size={16} />
+            Change password
+          </Link>
           <Form method="post" action="/logout">
             <button type="submit" className={MENU_ITEM}>
               <LogOut size={16} />

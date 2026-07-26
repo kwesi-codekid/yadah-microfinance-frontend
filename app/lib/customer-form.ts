@@ -133,7 +133,6 @@ export function readCustomerForm(form: FormData): {
           address: kinAddress,
         }
       : undefined,
-    assignedCollectorId: text("assignedCollectorId") || undefined,
   };
 
   return { input, fieldErrors };

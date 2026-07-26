@@ -1,5 +1,10 @@
+import { readIdempotencyKey } from "~/lib/idempotency";
 import { parseGhsAmount, validateGhsAmount } from "~/lib/money";
-import { isDepositChannel, type DepositChannel } from "~/lib/susu-client";
+import {
+  isDepositChannel,
+  SUSU_MIN_DAILY_AMOUNT,
+  type DepositChannel,
+} from "~/lib/susu-client";
 
 /**
  * Readers for the susu forms, collecting field errors.
@@ -21,12 +26,17 @@ export function readOpenAccountForm(form: FormData): {
   const fieldErrors: Record<string, string> = {};
   const raw = String(form.get("dailyAmount") ?? "");
 
-  // No upper bound is invented here: the API sets none, and a ceiling picked by
-  // this app would eventually refuse a legitimate account. The protection
-  // against a fat-fingered `50000` for `500.00` is the confirmation step, which
-  // states the amount, the 31-day total, and that neither can be changed
-  // afterwards without closing the account.
-  const error = validateGhsAmount(raw, { label: "Daily amount" });
+  // The floor is the API's own (`minimum: 500`), so the message names the real
+  // rule rather than inventing one. No upper bound is invented either: the API
+  // sets none, and a ceiling picked by this app would eventually refuse a
+  // legitimate account. The protection against a fat-fingered `50000` for
+  // `500.00` is the confirmation step, which states the amount, the 31-day
+  // total, and that neither can be changed afterwards without closing the
+  // account.
+  const error = validateGhsAmount(raw, {
+    label: "Daily amount",
+    min: SUSU_MIN_DAILY_AMOUNT,
+  });
   if (error) fieldErrors.dailyAmount = error;
 
   return { dailyAmount: parseGhsAmount(raw) ?? 0, fieldErrors };
@@ -100,20 +110,3 @@ export function readCollectAllForm(form: FormData): {
   return { amount: parseGhsAmount(raw) ?? 0, channel, idempotencyKey, fieldErrors };
 }
 
-/**
- * The key comes from a hidden field the loader filled in, so a missing or
- * malformed one is a bug in this app, not something the user typed. It is still
- * checked rather than passed through: without it the API would reject the
- * request anyway, and the whole double-charge protection would be off.
- */
-function readIdempotencyKey(
-  form: FormData,
-  fieldErrors: Record<string, string>,
-): string {
-  const key = String(form.get("idempotencyKey") ?? "").trim();
-  if (key.length < 8 || key.length > 128) {
-    fieldErrors.idempotencyKey =
-      "This form went stale. Reload the page and try again.";
-  }
-  return key;
-}

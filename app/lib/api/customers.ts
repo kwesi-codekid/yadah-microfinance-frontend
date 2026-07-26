@@ -10,10 +10,15 @@ export type { CustomerInput };
 /**
  * Customer (`/customers`) endpoint wrappers.
  *
- * Access differs from staff: listing is open to every role, but collectors only
- * ever see the customers assigned to them (the API scopes it, not us). Writes
- * are office-only (admin + manager). Each call takes the caller's access token
- * and returns the parsed success body; failures throw `ApiError`.
+ * Access differs from staff: **all roles see all customers** — the API used to
+ * narrow a collector's list to the customers assigned to them, and no longer
+ * does. Writes stay office-only (admin + manager). Each call takes the caller's
+ * access token and returns the parsed success body; failures throw `ApiError`.
+ *
+ * Collector assignment is gone from the API entirely: there is no
+ * `assignedCollectorId` on the record, in either write body, or as a list
+ * filter. Any collector may collect from any customer, so there is nothing left
+ * to assign — see [susu.ts](app/lib/api/susu.ts), which was relaxed the same way.
  *
  * There are no upload endpoints here any more. `POST /customers/{id}/photo` and
  * `POST /customers/{id}/id-document` were withdrawn in favour of a general
@@ -32,7 +37,6 @@ export interface ListCustomersParams {
   page?: number;
   limit?: number;
   status?: CustomerStatus;
-  assignedCollectorId?: string;
   search?: string;
 }
 
@@ -45,8 +49,6 @@ export function listCustomers(
   if (params.page) q.set("page", String(params.page));
   if (params.limit) q.set("limit", String(params.limit));
   if (params.status) q.set("status", params.status);
-  if (params.assignedCollectorId)
-    q.set("assignedCollectorId", params.assignedCollectorId);
   if (params.search) q.set("search", params.search);
   const qs = q.toString();
   return apiFetch<CustomerListResult>(`/customers${qs ? `?${qs}` : ""}`, {
@@ -67,8 +69,7 @@ export function getCustomer(
  *
  * 409 `PHONE_TAKEN` / `ID_TAKEN` when the number or the ID already belongs to
  * someone — the two collisions worth catching, since both mean the person is
- * probably already registered. 422 `INVALID_COLLECTOR` for an
- * `assignedCollectorId` that isn't an active collector.
+ * probably already registered.
  *
  * Pictures are not sent here. Upload them with
  * [uploadImage](app/lib/api/uploads.ts) and put the URLs it returns in
@@ -84,10 +85,8 @@ export function createCustomer(
 /**
  * PATCH /customers/{id} (office only)
  *
- * Send only what changed. Setting `assignedCollectorId` is the reassignment
- * flow and is audited as such by the API. Same 409s as create, and the same
- * route for pictures — a replacement photo is an uploaded URL written here,
- * not a multipart body.
+ * Send only what changed. Same 409s as create, and the same route for pictures
+ * — a replacement photo is an uploaded URL written here, not a multipart body.
  */
 export function updateCustomer(
   accessToken: string,

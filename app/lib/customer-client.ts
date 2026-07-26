@@ -89,7 +89,6 @@ export interface Customer {
   idDocumentFrontUrl?: string;
   idDocumentBackUrl?: string;
   registeredById: string;
-  assignedCollectorId?: string;
   status: CustomerStatus;
   createdAt: string;
 }
@@ -117,7 +116,6 @@ export interface CustomerInput {
   employerOrBusiness?: string;
   purposeOfAccount?: string;
   nextOfKin?: NextOfKin;
-  assignedCollectorId?: string;
   /**
    * Image URLs from `POST /uploads/images`, not files. The customer endpoints
    * take no multipart body at all — a picture is uploaded on its own and only

@@ -81,16 +81,18 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done
 
 ### Customers (`tags: Customers`)
 
-Access: **office** = admin + manager. Collectors may list — scoped by the API to
-their own assigned customers — and nothing else. They used to be able to replace
-a photo; see the note under the table.
+Access: **office** = admin + manager. Collectors may read and nothing else —
+**every role now sees every customer**, the API's own words being *"All roles see
+all customers."* The scoping that once narrowed a collector to their assigned
+customers is gone, and `assignedCollectorId` with it. Collectors used to be able
+to replace a photo; see the note under the table.
 
 | # | Method | Path | Summary | Access | Client fn | Status |
 |---|--------|------|---------|--------|-----------|--------|
 | 14 | POST | `/customers` | Register a customer | **office** | `createCustomer()` | ✅ wired (`/customers/new`) |
 | 15 | GET | `/customers` | List customers (paginated) | all roles | `listCustomers()` | ✅ wired (table) |
 | 16 | GET | `/customers/{id}` | Get one customer | all roles | `getCustomer()` | ✅ wired (detail page) |
-| 17 | PATCH | `/customers/{id}` | Update profile / reassign collector | **office** | `updateCustomer()` | ✅ wired (`?edit`, and image URLs) |
+| 17 | PATCH | `/customers/{id}` | Update customer profile | **office** | `updateCustomer()` | ✅ wired (`?edit`, and image URLs) |
 | 18 | POST | `/customers/{id}/deactivate` | Deactivate (idempotent) | **office** | `deactivateCustomer()` | ✅ wired |
 | 19 | POST | `/customers/{id}/activate` | Reactivate | **office** | `activateCustomer()` | ✅ wired (status filter) |
 
@@ -131,6 +133,16 @@ customer exits on.
 the handle a customer reads down a phone, and the only way to look an account up
 without knowing its `id`. Deposits can also answer 422 `ACCOUNT_NOT_ACTIVE`.
 
+Two changes from the 2026-07-26 pull:
+
+- **`dailyAmount` has a floor of `500`** (GHS 5). It used to accept a single
+  pesewa. Mirrored as `SUSU_MIN_DAILY_AMOUNT` in
+  [susu-client.ts](app/lib/susu-client.ts) and enforced by `readOpenAccountForm`
+  — without it the form takes GHS 1.00 and the API answers a 400 whose message
+  names no field.
+- **All roles see all accounts, and any collector may record a deposit on any of
+  them.** Same relaxation as customers; see the note under that table.
+
 | # | Method | Path | Summary | Access | Client fn | Status |
 |---|--------|------|---------|--------|-----------|--------|
 | 22 | POST | `/susu/accounts` | Open an account | **office** | `openSusuAccount()` | ✅ wired (`/customers/:id/accounts`) |
@@ -150,10 +162,45 @@ render differs between SSR and hydration.
 
 ### Savings (`tags: Savings`)
 
-**Not yet integrated** (7 endpoints, all live on staging). Balances are pesewas;
-`availableToWithdraw` is computed server-side as balance − GHS 50 minimum
-balance − GHS 10 fee, never negative. Deposits have a GHS 10 minimum;
-withdrawals and closure are office-only.
+An open-ended balance, not a cycle — which is the whole of the difference from
+susu. Money goes in any day (**GHS 10 minimum** a deposit); money comes out
+against three rules that between them explain every figure on the screens:
+
+| Rule | Detail |
+|------|--------|
+| Minimum balance | **GHS 50** must stay in an open account. Only closure releases it. |
+| Withdrawal fee | **GHS 10**, flat, on every withdrawal — and once more on closure. |
+| One per day | One withdrawal per **Accra calendar day**, and a closure counts as one. |
+
+`availableToWithdraw` is computed server-side as balance − minimum − fee, never
+negative, and is **read rather than recomputed** — a balance can look ample and
+still refuse a withdrawal, which is why the account page shows the split.
+
+Access splits on direction: all roles see all accounts and anyone may pay *in*;
+opening, withdrawing and closing are office-only.
+
+| # | Method | Path | Summary | Access | Client fn | Status |
+|---|--------|------|---------|--------|-----------|--------|
+| 30 | POST | `/savings/accounts` | Open (optional `initialDeposit`) | **office** | `openSavingsAccount()` | ✅ wired (`/customers/:id/accounts`) |
+| 31 | GET | `/savings/accounts` | List accounts (paginated) | all roles | `listSavingsAccounts()` | ✅ wired (savings section) |
+| 32 | GET | `/savings/accounts/{id}` | Detail with `availableToWithdraw` | all roles | `getSavingsAccount()` | ✅ wired (`/savings/:id`) |
+| 33 | GET | `/savings/accounts/{id}/transactions` | Statement, newest first | all roles | `listSavingsTxns()` | ✅ wired (statement) |
+| 34 | POST | `/savings/accounts/{id}/deposits` | Record a deposit | any collector + office | `recordSavingsDeposit()` | ✅ wired (deposit drawer) |
+| 35 | POST | `/savings/accounts/{id}/withdrawals` | Process a withdrawal | **office** | `recordSavingsWithdrawal()` | ✅ wired (withdraw drawer) |
+| 36 | POST | `/savings/accounts/{id}/close` | Close = final payout | **office** | `closeSavingsAccount()` | ✅ wired (confirm + figures) |
+
+> **`accountNumber` is ten digits here, not six.** A field built for a susu
+> number silently refuses a savings one, which is why the lookup field on
+> `/customers/:id/accounts` takes its length from the selected product and the
+> product switch clears whatever was typed.
+>
+> **`amount` on a withdrawal is what the customer *receives*.** The fee is
+> debited on top, so the balance falls by `amount + 1000`. Sending the total to
+> debit would short the customer by ten cedis.
+>
+> **Idempotency:** endpoints 34 and 35 require a key, and so does 30 when it
+> carries an `initialDeposit` — the opening deposit is recorded atomically with
+> the account, so a retry must not open a second one.
 
 ---
 
@@ -265,7 +312,7 @@ withdrawals and closure are office-only.
 ## Data models (`components.schemas`)
 
 ```ts
-// PublicUser — required: id, name, username, phone, role
+// PublicUser — required: id, name, username, phone, role, mustChangePassword
 type PublicUser = {
   id: string;
   name: string;
@@ -273,6 +320,11 @@ type PublicUser = {
   phone: string;
   email?: string;
   role: "admin" | "manager" | "collector";
+  // Set by an admin's reset, cleared by POST /auth/password/change. There is no
+  // `status` here — a user's active/disabled state is a GET /users filter only,
+  // never a field on the record, so the staff table shows the status it filtered
+  // by rather than reading one per row.
+  mustChangePassword: boolean;
 };
 
 // AuthTokens
@@ -292,11 +344,20 @@ type ErrorEnvelope = {
 ```
 
 > ⚠️ **Still missing from the spec:** the API is named for "Susu collection,
-> savings, and loans", and as of the 2026-07-25 pull Auth, Users, Customers,
+> savings, and loans", and as of the 2026-07-26 pull Auth, Users, Customers,
 > Susu and Savings are all published — **loans are not**. Re-pull before
 > building those screens. The version string is still `0.1.0` even though the
 > surface has grown three times, so the version is not a reliable signal that
 > nothing changed; diff the paths.
+>
+> ⚠️ **And do not trust the paths alone either.** The 2026-07-26 pull moved
+> nothing in the path list — all 31 the same — while dropping a *field* the
+> frontend wrote on every customer save (`assignedCollectorId`), raising a
+> *minimum* the open-account form validated against (`dailyAmount` 1 → 500), and
+> adding a *required* field the session had to start carrying
+> (`mustChangePassword`). The client types here are hand-written, so `tsc` sees
+> none of that: diff `components.schemas` and the request bodies, not just the
+> paths.
 
 ---
 
@@ -332,7 +393,29 @@ type ErrorEnvelope = {
 - [x] Post-login landing: `/dashboard` inside the [app-layout.tsx](app/routes/app-layout.tsx) shell.
       Still a placeholder — it prints the session user back at them. `GET /susu/summary`
       is what belongs there.
-- [ ] Password change / forgot / reset — three endpoints now in the spec, no UI.
+- [x] **Forced password change.** `PublicUser` now carries a required
+      `mustChangePassword`, set by an admin's reset and cleared by
+      `POST /auth/password/change`. `requireUser` is the gate: while the flag is set, every
+      authenticated route redirects to
+      [change-password.tsx](app/routes/change-password.tsx), which is the only exemption —
+      no route can be reached around it, because they all call `requireUser`. `/logout` never
+      does, so signing out stays available; the page offers it.
+
+      Two things the endpoint's shape forces:
+      - A `401` there is ambiguous. `INVALID_CREDENTIALS` (wrong current password) and an
+        expired access token are the same status, and `withAuth` retries a 401 by spending the
+        refresh token — so a typo would have logged the user out. The action branches on `code`
+        and turns that one into a field error before `withAuth` ever sees it.
+      - The change makes the user in the session cookie stale, and the guard reads the flag from
+        there. `withAuth` now hands its callback a `setUser`, so the refreshed `/auth/me` user is
+        written into the *same* session it holds. Committing it separately would have overwritten
+        a token rotation with the pre-refresh pair off the request cookie.
+- [x] Also reachable voluntarily, from the user menu — nobody should wait for an admin reset to
+      change a password they'd rather not keep.
+- [ ] Forgot / reset password — [auth.ts](app/lib/api/auth.ts) wraps `forgotPassword` and
+      `resetPassword`, but there is no UI: a signed-out user who has forgotten their password
+      still can't get in on their own. Phone → OTP → new password, and the OTP step is the same
+      dance `/login` already runs.
 
 ### Phase 3 — Users / staff management
 - [x] `/staff` list route — paginated table (reuse [data-table.tsx](app/components/data-table.tsx)); filters: role, status, live search.
@@ -378,28 +461,30 @@ type ErrorEnvelope = {
 - [x] Deactivate / activate (no delete exists — history stays intact).
 - [x] 403/404 from a loader render as real error pages, not "unexpected error"
       (`throwAsRouteError` in [client.ts](app/lib/api/client.ts)).
-- [x] Registration doesn't ask who collects — the Assignment section is off on `/customers/new`
-      and a customer is created unassigned. A collector is set later from the record, if at all.
-- [x] Auto-assigning the registrar **as collector** is dropped, not deferred. It could never
-      have fired: `POST /customers` is office-only and `assignedCollectorId` must be an *active
-      collector* (422 INVALID_COLLECTOR), so an admin/manager's own id was never a legal value.
-- [x] The registrar *is* captured, just not through that field. `registeredById` is absent from
-      the request body and present on the response — the API sets it from the token that called
-      `POST /customers`, so it is already the signed-in user on every record ever created. The
-      record page now shows it as **Registered by** in the Assignment section, resolved through
-      one `GET /users/{id}` (the collector list can't name them — the registrar is an admin or
-      manager). The two are different questions: `registeredById` is who signed the customer up,
-      `assignedCollectorId` is who collects from them.
-- [ ] **Blocked by the API:** the intent is that any collector may collect from any customer, but
-      the API still scopes a collector to the customers assigned to them — so an unassigned
-      customer is today visible to *no* collector rather than all of them. Until that scoping is
-      relaxed, someone registered here has to be assigned from the record page before they can be
-      collected from.
-- [ ] Collector select pages at 100 — the API's ceiling. Needs paging past that.
+- [x] **Collector assignment is gone — the whole concept, not just the scoping.** The
+      2026-07-26 spec pull has no `assignedCollectorId` on `Customer`, in either write body,
+      or as a `GET /customers` filter, and says plainly: *"All roles see all customers."*
+      `GET /susu/accounts` says the same, and recording a deposit now admits *"any collector
+      or office staff"*. This is the resolution of the "Blocked by the API" item that used to
+      sit here — the backend didn't relax the scoping, it removed what the scoping was for.
+
+      Ripped out of the frontend accordingly: the field off both types, the query param off
+      `listCustomers`, the "Filter by collector" select and the Collector column off the list,
+      the reassignment dropdown off the record. The **Assignment** section is now **Record** —
+      "Registered by" and the customer id, which is all that was left in it.
+
+      Two `GET /users?role=collector` calls per page load went with it (customers list, customer
+      record). They existed only to name a field that no longer exists, and with them goes the
+      "Collector select pages at 100" item — there is no collector select left to page.
+- [x] The registrar is still captured. `registeredById` is absent from the request body and
+      present on the response — the API sets it from the token that called `POST /customers`, so
+      it is the signed-in user on every record ever created. Shown as **Registered by** in the
+      Record section, resolved through one `GET /users/{id}` (office roles only — `/users` is
+      admin+manager, so a collector would get a 403 that sinks the page).
 - [x] Susu / savings accounts belonging to a customer — they hang off `/customers/:id/accounts`,
       reached from the Accounts row action and the button on the detail page. One page per
-      customer with a section per product, not a product picker in front of it. Savings is
-      the second section once its endpoints are wired.
+      customer with a product filter over one list, not a product picker in front of it —
+      see Phase 3.3.
 
 ### Phase 3.2 — Susu
 - [x] Money helpers (Phase 0) — the prerequisite, now unblocked and done.
@@ -425,12 +510,13 @@ type ErrorEnvelope = {
       building a `Date`: local parsing shifts the day west of UTC, and locale/timezone
       formatting differs between the SSR runtime and the browser.
 - [x] [susu-cycle.tsx](app/components/susu-cycle.tsx) — `CycleGrid`, `CycleBar`, `StatusPill`.
-- [x] `/customers/:id/accounts` — everything one customer saves into, a section per product,
-      status filter and paging over the susu table, plus open-account. A customer opens a
-      fresh cycle roughly monthly (sometimes several at once), so the list is unbounded and
-      is paged rather than shown whole. The daily amount is immutable, so opening confirms
-      with the amount, the 31-day total, and what closing costs — a ceiling this app
-      invented would eventually refuse a legitimate account, a confirmation never does.
+- [x] `/customers/:id/accounts` — everything one customer saves into, with a status filter,
+      an account-number lookup, paging and open-account. A customer opens a fresh cycle
+      roughly monthly (sometimes several at once), so the list is unbounded and is paged
+      rather than shown whole. The daily amount is immutable, so opening confirms with the
+      amount, the 31-day total, and what closing costs — a ceiling this app invented would
+      eventually refuse a legitimate account, a confirmation never does. Savings joined the
+      same list behind a product switch in Phase 3.3.
 - [x] ~~`/susu` — accounts table, status filter, pagination.~~ **Removed.** An account is
       reached through the customer who holds it; a cross-customer ledger was a second way in
       that nobody's day started from. `/collections` is the collector's daily entry point and
@@ -457,6 +543,116 @@ type ErrorEnvelope = {
       either an API roll-up or a walk of every page.
 - [ ] No offline handling. A collector out of signal loses the submit — the idempotency
       key makes a retry safe, but nothing queues it for them.
+
+### Phase 3.3 — Savings
+- [x] **Two things lifted out of susu first**, because savings needs them and neither
+      belonged to susu: the payment channel enum → [channel.ts](app/lib/channel.ts), and
+      idempotency-key minting/reading → [idempotency.ts](app/lib/idempotency.ts).
+      [susu-client.ts](app/lib/susu-client.ts) re-exports both under the names it used to
+      own, so no call site changed.
+- [x] Client-safe types, the three product rules as named constants, and the fee/floor
+      arithmetic → [savings-client.ts](app/lib/savings-client.ts). `SAVINGS_MIN_BALANCE`,
+      `SAVINGS_FEE` and `SAVINGS_MIN_DEPOSIT` are hard-coded in the API's *descriptions*
+      rather than returned as fields, so they are named once here instead of retyped as
+      literals across four screens.
+- [x] Endpoint wrappers → [savings.ts](app/lib/api/savings.ts), mirroring
+      [susu.ts](app/lib/api/susu.ts).
+- [x] Form readers → [savings-form.ts](app/lib/savings-form.ts), isomorphic like the susu
+      ones: `readWithdrawalForm` runs in the action *and* against the typed value on screen,
+      so "more than is available" is one rule.
+- [x] `SavingsCard` in [account-card.tsx](app/components/account-card.tsx) — deliberately the
+      same object as the susu card, since the two sit in one grid and a different shape would
+      read as a different app. Leaf green for open, the same navy for closed. The bottom strip
+      is not 31 boxes but the balance split into available and held back, which is the savings
+      answer to the question the susu ticks answer.
+- [x] **Savings joins `/customers/:id/accounts` as a product filter over one list**, not as a
+      second section. It was built as a stacked section first, and that was wrong: it put two
+      of every control on the page — two status filters, two Open buttons, two paginations —
+      and made the second product something you scrolled to. Susu and savings are one question
+      ("what is this customer saving into?") asked of two ledgers, so `?product=` selects the
+      ledger and the single filter, lookup field, Open button and card grid below all follow
+      it. Only the selected product is fetched, where two sections loaded both every visit.
+- [x] The switch is two links, not a dropdown — it is the page's primary axis, and a dropdown
+      hides the existence of the other product behind a click. Real links, so each product has
+      a shareable URL and the pair works with JavaScript off; susu is the default and keeps the
+      bare path.
+- [x] It sits in the filter bar, first, left of the lookup field it reframes — switching product
+      changes what a number typed there would even mean. Sized off the shared `FIELD` constant
+      and a 2px border, exactly as the input and the status select are, so the three share one
+      height by sharing one recipe rather than by three numbers that happen to agree today.
+      `FilterSelect` gave up HeroUI's `Select` over the same constant.
+- [x] Product-specific filters reset on the way across. Susu has three statuses to savings' two
+      (`completed` has no meaning without a cycle) and the account number is six digits against
+      ten, so `status`, `accountNumber` and `page` are all dropped when the product changes —
+      and the loader validates `status` against the *selected* product rather than in general,
+      so a hand-edited URL falls back to `active` instead of being sent to be rejected.
+- [x] The lookup field now covers savings too, which the two-section layout had skipped. Its
+      length, `maxLength` and empty-state wording all follow the product.
+- [x] No idle help line under it — the placeholder names the field and `maxLength` enforces the
+      digit count, so a line reciting both was standing instruction nobody needed twice. The
+      two surprising things stay: nothing happens until the number is whole, and a whole one
+      overrides the status filter. The line holds its height while empty, so the cards don't
+      hop as it comes and goes.
+- [x] Open account (office) — the opening deposit is *optional*, the one amount field in the
+      app where blank is a valid answer. Sent with its idempotency key so a retry can't open a
+      second account with a second deposit in it.
+- [x] **Both Open account forms are drawers, not modals**, matching the deposit, withdrawal and
+      susu-deposit forms — opening an account is the same kind of act and was the odd one out.
+      Not only cosmetic: `ConfirmModal` renders in a portal, so the field couldn't sit in the
+      `<Form>` that posts it and each dialog mirrored its state into a hidden input on a second
+      form, submitted by `requestSubmit`. `SideDrawer` renders in place, so the field carries
+      its own `name`, Enter submits, and the button can show a pending state instead of the
+      dialog vanishing on click and the outcome arriving as a toast.
+- [x] `/savings/:id` — statement of signed amounts, the fee column and a running balance, with
+      the three transaction types told apart by more than a minus sign.
+- [x] ~~Money panel where the susu page puts its cycle chips — balance, available now, and what
+      the minimum and fee hold back.~~ **Removed by request**, along with the prose above it
+      that said the same thing. Worth knowing what went with it: **the balance is no longer
+      stated anywhere on this page.** It survives as the `Balance after` on the newest statement
+      row, and `availableToWithdraw` still governs and is printed by the withdrawal form — so
+      nothing is unreachable, but the account's headline figure is now something you read out
+      of a table column. If it is wanted back, beside the account number in the trail is a
+      lighter home for it than a panel was.
+- [x] Record deposit (any collector), withdraw and close (office), each branching on
+      `replayed` rather than the status code. `EXCEEDS_AVAILABLE` lands on the field with the
+      API's own figure; `WITHDRAWAL_LIMIT` is caught *before* the submit by reading today's
+      Accra day off the statement, so the button is disabled with a sentence rather than the
+      submit being refused.
+- [x] **Withdraw and Close are never disabled — they alert instead.** They *were* disabled on
+      the two rules that block a cash-out, which was fine while the money panel stood beside
+      them explaining the figures. With that panel gone the buttons were grey with nothing on
+      the page saying why, and an account sitting on exactly the ₵50 minimum read as a broken
+      page: click Withdraw, nothing happens. Both now always click, and
+      `withdrawBlockedReason` answers with a toast naming the rule and the figures. Closing is
+      exempt from the available-balance rule — releasing the minimum is what closing *is*.
+- [x] The page carries no standing explanation of either rule now: the minimum-balance note,
+      the money panel and the daily-limit note have all gone by request, so **the toast on the
+      click is the only place either rule is stated.** Nothing is unreachable — the API
+      enforces both and the withdrawal drawer still prints what is available — but a teller
+      cannot read the rules off this screen before acting, only after.
+- [x] Two idempotency keys per page load, not one — deposit and withdrawal are separate
+      endpoints, and sharing a key would leave one holding a spent one after the other fired.
+- [x] **Every movement of money confirms first.** Closing already did; susu deposits, savings
+      deposits and savings withdrawals now do too, each showing the figures it is about to
+      commit — the deposit its total and the cycle or balance after, the withdrawal what the
+      customer receives, the fee, and what the balance drops to. None of the three is
+      reversible: the API has no un-deposit, only a second transaction.
+- [x] Two details that pattern needs. The confirm submits with `useSubmit(formEl)` rather than
+      `requestSubmit()`, because the drawer's `onSubmit` is intercepted to raise the
+      confirmation — Enter in the amount field has to ask too, or it becomes the one route
+      that skips it — and `requestSubmit` would re-fire that handler and bounce forever. And
+      the modal carries `z-60`: its backdrop and the drawer's panel are both `z-50`, so which
+      paints on top was down to React Aria portalling to the end of `body`. Stated rather than
+      inherited.
+- [ ] **Not verified against real data.** Typecheck and build pass and the routes register,
+      but there are no API credentials in the repo, so no savings account has been opened,
+      deposited into, or closed through these screens. The arithmetic on the withdraw drawer
+      (receives / fee / leaves the balance / balance after) is the part most worth watching
+      the first time it runs.
+- [ ] No savings figures on the dashboard. `GET /susu/summary` reconciles susu only, and the
+      API publishes no savings equivalent — so a day's savings deposits are invisible to the
+      end-of-day count.
+- [ ] No cross-customer savings lookup by `accountNumber`, same gap as susu's.
 
 ### Phase 3.5 — Responsive & mobile (cross-cutting, non-negotiable)
 > **Mobile-first.** Collectors work from phones in the field; admins/managers on desktop. Every screen must work from ~360px up to wide desktop. Design mobile layout first, then enhance at `sm`/`md`/`lg`/`xl`.

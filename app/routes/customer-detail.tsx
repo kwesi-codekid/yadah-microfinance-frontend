@@ -40,33 +40,24 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  // Collectors may open a customer assigned to them; the API returns 403
-  // otherwise, which surfaces as this route's error boundary.
+  // Every role may open any customer — the API no longer scopes collectors to
+  // the customers assigned to them. A 404 still surfaces as this route's error
+  // boundary.
   const user = await requireUser(request);
   const office = isOffice(user);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
-    const [customer, collectors] = await Promise.all([
-      customersApi.getCustomer(token, params.id),
-      // Only to name the assigned collector — and only office roles may ask.
-      office
-        ? usersApi.listUsers(token, {
-            role: "collector",
-            status: "active",
-            limit: 100,
-          })
-        : null,
-    ]);
+    const customer = await customersApi.getCustomer(token, params.id);
 
     /**
      * Who registered this customer. The API sets `registeredById` itself, from
      * the token of whoever called `POST /customers` — it is not a field the
      * form sends, and it is the one piece of provenance on the record.
      *
-     * Fetched one-by-one rather than read off the list above: the registrar is
-     * an admin or manager, and that list is collectors only. `catch` rather
-     * than `throw` — a staff member since deleted, or an id this user may not
-     * look up, should cost the line its name, not the page its render.
+     * Looked up one id at a time, and only for office roles: `/users` is
+     * admin+manager only, so asking as a collector earns a 403 that would sink
+     * the whole page. `catch` rather than `throw` — a staff member since
+     * deleted should cost the line its name, not the page its render.
      */
     const registrar =
       office && customer.customer.registeredById
@@ -78,24 +69,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
     return {
       customer: customer.customer,
-      collectors: collectors?.items ?? [],
       registrarName: registrar?.name ?? null,
     };
-  }).catch(throwAsRouteError); // 404, or 403 for someone else's customer
-
-  const collector = result.collectors.find(
-    (c) => c.id === result.customer.assignedCollectorId,
-  );
+  }).catch(throwAsRouteError); // 404
 
   return data(
     {
       customer: result.customer,
-      collectorName: collector?.name ?? null,
-      // The same list, trimmed to what the reassignment dropdown needs. It was
-      // already fetched to name the collector above, so editing costs no extra
-      // request — which is half the point of editing here rather than on a page
-      // of its own.
-      collectors: result.collectors.map((c) => ({ id: c.id, name: c.name })),
       registrarName: result.registrarName,
       canManage: office,
     },
@@ -231,8 +211,7 @@ export default function CustomerDetail({
   loaderData,
   actionData,
 }: Route.ComponentProps) {
-  const { customer, collectorName, collectors, registrarName, canManage } =
-    loaderData;
+  const { customer, registrarName, canManage } = loaderData;
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
   // Which upload slots are holding a file — only to say so in the save bar,
@@ -286,12 +265,10 @@ export default function CustomerDetail({
   const profile = (
     <CustomerProfile
       customer={customer}
-      collectors={collectors}
-      collectorName={collectorName}
       registrarName={registrarName}
       editing={editing}
       errors={actionData?.fieldErrors}
-      showAssignment={canManage}
+      showRecord={canManage}
       // At the end of the Identity row, as on registration — a picture of
       // someone is identity in the same sense their name is. An upload slot
       // while editing, the picture itself when not; same frame either way, so

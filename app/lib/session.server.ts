@@ -12,6 +12,13 @@ import { env } from "~/lib/env.server";
 
 const THIRTY_DAYS = 60 * 60 * 24 * 30;
 
+/**
+ * Where a user carrying `mustChangePassword` is held until they replace it.
+ * Named here because two things have to agree on it: the guard that redirects
+ * to it, and the route that must not redirect to itself.
+ */
+export const CHANGE_PASSWORD_PATH = "/change-password";
+
 type SessionData = {
   user: AuthUser;
   accessToken: string;
@@ -37,6 +44,11 @@ function getSession(request: Request) {
 /**
  * Persist a fresh authenticated session and redirect. Use after a successful
  * login / OTP verification.
+ *
+ * A user whose password an admin has reset lands on `/change-password` instead
+ * of wherever they were headed, with that destination carried in `?redirectTo`
+ * so they arrive there once they're done. They would be sent straight back by
+ * `requireUser` anyway; going there directly saves the bounce.
  */
 export async function createUserSession({
   user,
@@ -51,7 +63,10 @@ export async function createUserSession({
   session.set("user", user);
   session.set("accessToken", tokens.accessToken);
   session.set("refreshToken", tokens.refreshToken);
-  return redirect(redirectTo, {
+  const destination = user.mustChangePassword
+    ? `${CHANGE_PASSWORD_PATH}?${new URLSearchParams({ redirectTo })}`
+    : redirectTo;
+  return redirect(destination, {
     headers: { "Set-Cookie": await storage.commitSession(session) },
   });
 }
@@ -67,6 +82,16 @@ export async function getOptionalUser(
 /**
  * Require an authenticated user or redirect to /login, preserving the
  * originally requested URL in `?redirectTo`.
+ *
+ * Also the gate on `mustChangePassword`. An admin who resets a staff password
+ * knows that password, so a session running on it is a credential two people
+ * hold; the API flags it and expects the frontend to force the change. Enforced
+ * here rather than in a layout because every authenticated route already calls
+ * this, so there is no page that can be reached around it — including the ones
+ * that would otherwise let someone work all day on the reset password.
+ *
+ * `/change-password` is the one exemption, or the guard would redirect to
+ * itself. `/logout` never calls this, so signing out stays available.
  */
 export async function requireUser(request: Request): Promise<AuthUser> {
   const user = await getOptionalUser(request);
@@ -76,6 +101,15 @@ export async function requireUser(request: Request): Promise<AuthUser> {
     const params = new URLSearchParams({ redirectTo });
     throw redirect(`/login?${params}`);
   }
+
+  const url = new URL(request.url);
+  if (user.mustChangePassword && url.pathname !== CHANGE_PASSWORD_PATH) {
+    const params = new URLSearchParams({
+      redirectTo: url.pathname + url.search,
+    });
+    throw redirect(`${CHANGE_PASSWORD_PATH}?${params}`);
+  }
+
   return user;
 }
 
@@ -114,6 +148,22 @@ const isUnauthorized = (error: unknown) =>
   error instanceof ApiError && error.status === 401;
 
 /**
+ * The handle `withAuth` gives its callback for writing back to the session it
+ * is already holding.
+ *
+ * It exists for exactly one case: an API call that changes the signed-in user's
+ * own record, where the copy in the cookie is now stale. Committing that from
+ * the outside would mean re-reading the cookie off the request — which still
+ * carries the *pre-refresh* tokens — and writing it back over the rotated pair
+ * `withAuth` just obtained, revoking the session at its next renewal. Same
+ * session object, one commit, no lost rotation.
+ */
+export interface AuthSessionHandle {
+  /** Replace the stored user. The commit is `withAuth`'s to make. */
+  setUser: (user: AuthUser) => void;
+}
+
+/**
  * Run an authenticated API call, renewing the access token if it has expired.
  *
  * Access tokens last ~15 minutes while the session cookie lasts 30 days, so
@@ -136,7 +186,7 @@ const isUnauthorized = (error: unknown) =>
  */
 export async function withAuth<T>(
   request: Request,
-  call: (accessToken: string) => Promise<T>,
+  call: (accessToken: string, session: AuthSessionHandle) => Promise<T>,
 ): Promise<{ data: T; headers?: { "Set-Cookie": string } }> {
   const session = await getSession(request);
   const accessToken = session.get("accessToken");
@@ -144,8 +194,25 @@ export async function withAuth<T>(
 
   if (!accessToken) throw await loginRedirect(request, session);
 
+  // Set when the callback rewrites the stored user, so a call that renewed no
+  // token still gets its `Set-Cookie`. Callbacks that don't touch it — which is
+  // all of them but the password change — cost nothing.
+  let userChanged = false;
+  const handle: AuthSessionHandle = {
+    setUser(user) {
+      session.set("user", user);
+      userChanged = true;
+    },
+  };
+
   try {
-    return { data: await call(accessToken) };
+    const result = await call(accessToken, handle);
+    return userChanged
+      ? {
+          data: result,
+          headers: { "Set-Cookie": await storage.commitSession(session) },
+        }
+      : { data: result };
   } catch (error) {
     if (!isUnauthorized(error)) throw error;
     if (!refreshToken) throw await loginRedirect(request, session);
@@ -165,7 +232,7 @@ export async function withAuth<T>(
     // disabled or its access pulled. Nothing left to renew.
     let result: T;
     try {
-      result = await call(tokens.accessToken);
+      result = await call(tokens.accessToken, handle);
     } catch (retryError) {
       if (isUnauthorized(retryError)) throw await loginRedirect(request, session);
       throw retryError;

@@ -30,7 +30,6 @@ import { FIELD, FilterSelect, IconLink } from "~/components/form-fields";
 import { notify } from "~/components/toast";
 import { ApiError } from "~/lib/api/client";
 import * as customersApi from "~/lib/api/customers";
-import * as usersApi from "~/lib/api/users";
 import type { Customer, CustomerStatus } from "~/lib/customer-client";
 import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 
@@ -43,8 +42,9 @@ const FILTERS_ID = "customer-filters";
 
 // ---- loader ----------------------------------------------------------------
 export async function loader({ request }: Route.LoaderArgs) {
-  // Every role may list: the API scopes collectors to their own customers, so
-  // there is nothing to guard here beyond being signed in.
+  // Every role may list, and every role sees everyone: the API no longer
+  // narrows a collector's list to customers assigned to them, so there is
+  // nothing to guard here beyond being signed in.
   const user = await requireUser(request);
   const url = new URL(request.url);
   const sp = url.searchParams;
@@ -54,48 +54,20 @@ export async function loader({ request }: Route.LoaderArgs) {
   const search = sp.get("search")?.trim() || undefined;
   const status: CustomerStatus =
     statusParam === "inactive" ? "inactive" : "active";
-  const assignedCollectorId = sp.get("collector")?.trim() || undefined;
   const office = isOffice(user);
 
-  const { data: result, headers } = await withAuth(request, async (token) => {
-    // Both are GETs, so `withAuth` replaying them after a token refresh is safe.
-    const [customers, collectors] = await Promise.all([
-      customersApi.listCustomers(token, {
-        page,
-        limit,
-        status,
-        assignedCollectorId,
-        search,
-      }),
-      // `/users` is admin+manager only — asking as a collector earns a 403 that
-      // would sink the whole page. They have no collector filter to populate
-      // anyway, since every customer they can see is already theirs.
-      //
-      // 100 is the API's per-page ceiling. Past that many active collectors
-      // this needs paging through, or the filter quietly stops listing people
-      // who exist.
-      office
-        ? usersApi.listUsers(token, {
-            role: "collector",
-            status: "active",
-            limit: 100,
-          })
-        : null,
-    ]);
-    return { customers, collectors: collectors?.items ?? [] };
-  });
+  // No collector list is fetched any more. It existed to populate a "filter by
+  // collector" dropdown and to name the assigned collector in the table, and
+  // the API has since dropped assignment entirely — so that was one `/users`
+  // request per page load spent naming a field that no longer exists.
+  const { data: result, headers } = await withAuth(request, (token) =>
+    customersApi.listCustomers(token, { page, limit, status, search }),
+  );
 
   return data(
     {
-      result: result.customers,
-      collectors: result.collectors,
-      filters: {
-        page,
-        limit,
-        status,
-        collector: assignedCollectorId ?? "",
-        search: search ?? "",
-      },
+      result,
+      filters: { page, limit, status, search: search ?? "" },
       canManage: office,
     },
     { headers },
@@ -162,7 +134,7 @@ export async function action({ request }: Route.ActionArgs) {
 
 // ---- component -------------------------------------------------------------
 export default function Customers({ loaderData }: Route.ComponentProps) {
-  const { result, collectors, filters, canManage } = loaderData;
+  const { result, filters, canManage } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const navigationType = useNavigationType();
@@ -171,15 +143,10 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
   // catches up on a debounce. Seeded from the URL so a shared/reloaded link
   // shows the term it filtered by.
   const [search, setSearch] = useState(filters.search);
-  const activeFilters =
-    (filters.collector ? 1 : 0) + (filters.status === "inactive" ? 1 : 0);
+  const activeFilters = filters.status === "inactive" ? 1 : 0;
   const [filtersOpen, setFiltersOpen] = useState(activeFilters > 0);
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
-
-  // Collector id → name, for the table column. Collectors don't get the list
-  // (no `/users` access), and don't need it: every row is theirs.
-  const collectorNames = new Map(collectors.map((c) => [c.id, c.name]));
 
   // The term the in-flight navigation is fetching, or null when idle.
   const pendingSearch =
@@ -314,21 +281,6 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
           id={FILTERS_ID}
           className={`${filtersOpen ? "flex" : "hidden"} w-full flex-wrap items-end gap-3 sm:flex sm:w-auto`}
         >
-          {/* Collectors have no use for this: the API already narrows their
-              list to their own customers, so every option but "all" is empty. */}
-          {canManage && (
-            <FilterSelect
-              name="collector"
-              label="Filter by collector"
-              value={filters.collector}
-              onChange={(value) => setParam({ collector: value, page: null })}
-              options={[
-                { value: "", label: "All collectors" },
-                ...collectors.map((c) => ({ value: c.id, label: c.name })),
-              ]}
-            />
-          )}
-
           {/* No "all" for status in the API, so this is a two-way switch rather
               than a filter you clear. Active is the default and stays out of
               the URL — and this is the only route to a deactivated customer. */}
@@ -353,9 +305,7 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
 
       <DataTable
         columns={
-          canManage
-            ? ["Name", "Phone", "ID", "Collector", "Actions"]
-            : ["Name", "Phone", "ID"]
+          canManage ? ["Name", "Phone", "ID", "Actions"] : ["Name", "Phone", "ID"]
         }
         ariaLabel="Customer directory"
         isLoading={navigation.state === "loading" && !searching}
@@ -410,16 +360,9 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
               {c.identification?.idNumber ?? "—"}
             </Table.Cell>
             {canManage && (
-              <>
-                <Table.Cell className="px-4 py-2 text-muted">
-                  {c.assignedCollectorId
-                    ? (collectorNames.get(c.assignedCollectorId) ?? "Unknown")
-                    : "Unassigned"}
-                </Table.Cell>
-                <Table.Cell className="px-4 py-2">
-                  <RowActions customer={c} />
-                </Table.Cell>
-              </>
+              <Table.Cell className="px-4 py-2">
+                <RowActions customer={c} />
+              </Table.Cell>
             )}
           </Table.Row>
         ))}

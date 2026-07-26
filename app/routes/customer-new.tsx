@@ -56,15 +56,11 @@ export async function action({ request }: Route.ActionArgs) {
   if (Object.keys(fieldErrors).length) return data<ActionData>({ fieldErrors });
 
   /**
-   * Nobody is assigned at registration: the page posts no `assignedCollectorId`,
-   * so `readCustomerForm` leaves it undefined and the customer is created
-   * unassigned. A collector is set later from the record, if at all.
-   *
-   * This is not the auto-assignment the tracker once planned — that would have
-   * put the registrar on the record, which the API refuses: `POST /customers`
-   * is office-only, and the field must be an *active collector* (422
-   * INVALID_COLLECTOR), so an admin or manager's own id is never legal. Who
-   * registered someone is recorded by the API as `registeredById` regardless.
+   * Registration asks nothing about who collects. It never really did — the
+   * plan was once to assign the registrar, which the API always refused — and
+   * the question is now gone from the API altogether: any collector may collect
+   * from any customer, so there is no assignment to make here or later. Who
+   * registered someone is still recorded, by the API, as `registeredById`.
    */
 
   try {
@@ -216,13 +212,13 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
           {/* `editing` with no customer behind it: the register form is the
               record's own edit view with every field starting blank.
 
-              Assignment is left off — a customer is registered unassigned and
-              a collector is set later from the record, so there is nothing to
-              ask here. */}
+              The Record section is left off — it reports who registered the
+              customer and their id, neither of which exists until this form is
+              submitted. */}
           <div className="space-y-7 lg:col-span-2 xl:col-span-3">
             <CustomerProfile
               editing
-              showAssignment={false}
+              showRecord={false}
               errors={actionData?.fieldErrors}
               photoSlot={
                 <UploadSlot

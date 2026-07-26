@@ -1,7 +1,6 @@
 import {
   LayoutDashboard,
   Users,
-  HandCoins,
   UserCog,
   type LucideIcon,
 } from "lucide-react";
@@ -26,20 +25,12 @@ export type NavItem = {
 
 export const NAV: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, end: true },
-  // Every role: the API scopes collectors to their own assigned customers.
+  // Every role, and every role sees everyone — the API no longer scopes a
+  // collector's list to customers assigned to them.
   { to: "/customers", label: "Customers", icon: Users },
-  // Collect sits above the ledgers on purpose: it is the one destination a
-  // collector needs all day, and the tab bar keeps the first few items.
-  {
-    to: "/collections",
-    label: "Collect",
-    icon: HandCoins,
-    roles: ["collector", "manager", "admin"],
-  },
   // No Susu or Savings entry: an account belongs to a customer and is reached
   // through one, at `/customers/:id/accounts`. A cross-customer ledger would be
-  // a second way in that nobody's day starts from — the collector's does start
-  // from Collect, which is above.
+  // a second way in that nobody's day starts from.
   {
     to: "/staff",
     label: "Staff",

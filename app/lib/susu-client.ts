@@ -15,13 +15,28 @@
  * Source of truth: GET https://yadah-backend-staging.adamusgh.com/api/v1/openapi.json
  */
 
+import {
+  isPaymentChannel,
+  PAYMENT_CHANNEL_LABELS,
+  PAYMENT_CHANNELS,
+  type PaymentChannel,
+} from "~/lib/channel";
 import { formatGhs } from "~/lib/money";
 
 /** The API declares this as a `const 31`, not a configurable field. */
 export const SUSU_CYCLE_TARGET = 31;
 
+/**
+ * The smallest daily amount an account may be opened at — GHS 5, in pesewas.
+ *
+ * `POST /susu/accounts` declares `dailyAmount: { minimum: 500 }`. It used to
+ * accept a single pesewa, so this is checked here as well as there: without it
+ * the form takes GHS 1.00, and the server answers a 400 whose message says
+ * nothing about which field it means.
+ */
+export const SUSU_MIN_DAILY_AMOUNT = 500;
+
 export type SusuAccountStatus = "active" | "completed" | "closed";
-export type DepositChannel = "cash" | "paystack" | "momo";
 
 export const SUSU_ACCOUNT_STATUSES: SusuAccountStatus[] = [
   "active",
@@ -29,19 +44,20 @@ export const SUSU_ACCOUNT_STATUSES: SusuAccountStatus[] = [
   "closed",
 ];
 
-export const DEPOSIT_CHANNELS: DepositChannel[] = ["cash", "paystack", "momo"];
-
 export const SUSU_ACCOUNT_STATUS_LABELS: Record<SusuAccountStatus, string> = {
   active: "Active",
   completed: "Completed",
   closed: "Closed",
 };
 
-export const DEPOSIT_CHANNEL_LABELS: Record<DepositChannel, string> = {
-  cash: "Cash",
-  paystack: "Paystack",
-  momo: "Mobile money",
-};
+/**
+ * The channel enum now lives in [channel.ts](app/lib/channel.ts) — savings
+ * deposits take the same one, so it isn't susu's to own. Re-exported under the
+ * names this module used to define so existing imports still resolve.
+ */
+export type DepositChannel = PaymentChannel;
+export const DEPOSIT_CHANNELS = PAYMENT_CHANNELS;
+export const DEPOSIT_CHANNEL_LABELS = PAYMENT_CHANNEL_LABELS;
 
 /** The `SusuAccount` schema. */
 export interface SusuAccount {
@@ -147,9 +163,7 @@ export function isSusuAccountStatus(v: unknown): v is SusuAccountStatus {
   );
 }
 
-export function isDepositChannel(v: unknown): v is DepositChannel {
-  return typeof v === "string" && (DEPOSIT_CHANNELS as string[]).includes(v);
-}
+export const isDepositChannel = isPaymentChannel;
 
 /* ------------------------------------------------------------------ *
  * Cycle arithmetic
@@ -258,24 +272,13 @@ export function describeAccount(account: SusuAccount): string {
 
 /* ------------------------------------------------------------------ *
  * Idempotency
+ *
+ * Moved to [idempotency.ts](app/lib/idempotency.ts) — savings deposits and
+ * withdrawals need the same key, so it isn't susu's to own either. Re-exported
+ * here for the call sites that already import it from this module.
  * ------------------------------------------------------------------ */
 
-/**
- * Mint a key for a deposit or collect-all request.
- *
- * Both endpoints require one (8–128 chars) and answer a repeat with the
- * *original* result instead of taking the money twice — which is the whole
- * point on a phone with one bar of signal, where a collector taps "Record"
- * again because the first tap seemed to do nothing.
- *
- * That protection only works if the retry carries the *same* key, so generate
- * this **in the loader** and render it into a hidden field. A key minted in the
- * action is new on every submit and protects nothing; a key minted during
- * render differs between the server's HTML and the browser's hydration.
- */
-export function newIdempotencyKey(): string {
-  return crypto.randomUUID();
-}
+export { newIdempotencyKey } from "~/lib/idempotency";
 
 /* ------------------------------------------------------------------ *
  * Error details

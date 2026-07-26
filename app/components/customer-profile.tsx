@@ -72,20 +72,14 @@ const EditContext = createContext<{
 
 export function CustomerProfile({
   customer,
-  collectors = [],
-  collectorName,
   registrarName,
   editing,
   errors,
-  showAssignment = true,
+  showRecord = true,
   photoSlot,
 }: {
   /** Absent when registering — every field then starts blank. */
   customer?: Customer;
-  /** Active collectors, for the assignment dropdown. Unused when hidden. */
-  collectors?: { id: string; name: string }[];
-  /** Names the assigned collector in the read-only view. */
-  collectorName?: string | null;
   /**
    * Names whoever registered the customer. Never editable — the API sets
    * `registeredById` from the token that created the record.
@@ -94,10 +88,12 @@ export function CustomerProfile({
   editing: boolean;
   errors?: Record<string, string>;
   /**
-   * Off for registration, where a customer starts unassigned, and off for
-   * collectors on the record page, who may not reassign anyone.
+   * Provenance — who registered this customer, and the record's id. Off for
+   * registration, where there is no record yet, and off for collectors, who
+   * can't resolve a staff id to a name (`/users` is office-only) and would see
+   * a section of dashes.
    */
-  showAssignment?: boolean;
+  showRecord?: boolean;
   /**
    * An upload slot to stand beside the identity fields. A picture of someone is
    * identity in the same sense their name is, so registration puts it here
@@ -342,40 +338,25 @@ export function CustomerProfile({
         />
       </DetailSection>
 
-      {showAssignment && (
-        <DetailSection
-          title="Assignment"
-          hint="Who collects from this customer. Can be left unassigned and set later."
-        >
-          <Detail
-            label="Assigned collector"
-            value={
-              customer?.assignedCollectorId
-                ? (collectorName ?? "Unknown collector")
-                : undefined
-            }
-            empty="Unassigned"
-            field={{
-              name: "assignedCollectorId",
-              value: customer?.assignedCollectorId ?? "",
-              placeholder: "Unassigned",
-              options: collectors.map((c) => ({ value: c.id, label: c.name })),
-            }}
-          />
+      {showRecord && customer && (
+        <DetailSection title="Record">
           {/* Neither of these takes a `field`: they are facts about the record
               rather than details of it, so they stay read-only on both sides of
               the toggle, and there is nothing to show before it exists.
 
               Who registered someone is set by the API from the token that
-              created them — it can't be chosen, only reported. */}
-          {customer && (
-            <Detail
-              label="Registered by"
-              value={registrarName ?? undefined}
-              empty={customer.registeredById ? "Unknown staff" : "—"}
-            />
-          )}
-          {customer && <Detail label="Customer ID" value={customer.id} mono />}
+              created them — it can't be chosen, only reported.
+
+              This section used to lead with an "Assigned collector" dropdown.
+              The API dropped collector assignment altogether — any collector may
+              now collect from any customer — so there is nothing left to choose
+              here, only provenance to report. */}
+          <Detail
+            label="Registered by"
+            value={registrarName ?? undefined}
+            empty={customer.registeredById ? "Unknown staff" : "—"}
+          />
+          <Detail label="Customer ID" value={customer.id} mono />
         </DetailSection>
       )}
     </>

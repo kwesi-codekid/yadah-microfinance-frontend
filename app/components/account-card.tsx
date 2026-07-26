@@ -4,6 +4,11 @@ import { Skeleton } from "@heroui/react";
 import { ArrowUpRight, Eye, EyeOff } from "lucide-react";
 import { formatDate } from "~/lib/format";
 import { CEDI, formatGhs } from "~/lib/money";
+import {
+  lockedBalance,
+  type SavingsAccount,
+  type SavingsAccountStatus,
+} from "~/lib/savings-client";
 import type { SusuAccount, SusuAccountStatus } from "~/lib/susu-client";
 
 /**
@@ -215,4 +220,167 @@ function TickStrip({ account }: { account: SusuAccount }) {
 /** Placeholder at the card's exact proportions, so the grid doesn't jump. */
 export function AccountCardSkeleton() {
   return <Skeleton className="aspect-[1.586] w-full rounded-lg" />;
+}
+
+/* ------------------------------------------------------------------ *
+ * Savings
+ * ------------------------------------------------------------------ */
+
+/**
+ * Two more hues from the same logo ring, so a savings card is told from a susu
+ * card at a glance without reading either. Leaf green for an open account, and
+ * the same navy susu uses for closed — a settled account is a settled account
+ * whichever product it was.
+ */
+const SAVINGS_FACE: Record<SavingsAccountStatus, string> = {
+  active: "bg-leaf",
+  closed: "bg-navy-dark",
+};
+
+/**
+ * One savings account, drawn as a card.
+ *
+ * Deliberately the same object as `AccountCard` — ID-1 proportions, mark
+ * top-left, hero figure across the middle, three stats and a strip along the
+ * bottom edge — because the two sit in one grid on the customer's accounts page
+ * and a different shape would read as a different app.
+ *
+ * What differs is what the parts *mean*, and that follows the product:
+ *
+ * - The hero is the **balance**, where susu's is what has been saved into a
+ *   cycle. Both answer "what is in this?", which is what the slot is for.
+ * - The strip is not 31 boxes — there is no cycle to count. It splits the
+ *   balance into what can be withdrawn and what the GHS 50 minimum and the
+ *   GHS 10 fee hold back, which is the savings equivalent of the question susu
+ *   answers with marked days: how much of this is really mine today?
+ */
+export function SavingsCard({ account }: { account: SavingsAccount }) {
+  // Balances start hidden — same reasoning as the susu card: these are read at
+  // a counter with whoever is next in the queue standing behind.
+  const [showBalance, setShowBalance] = useState(false);
+  const ref = account.accountNumber;
+  const closed = account.status === "closed";
+
+  return (
+    <article
+      className={[
+        "group relative flex aspect-[1.586] flex-col justify-between overflow-hidden rounded-lg p-4 text-white shadow-sm",
+        "transition-[transform,box-shadow] duration-200 hover:-translate-y-1 hover:shadow-lg motion-reduce:transition-none motion-reduce:hover:translate-y-0",
+        SAVINGS_FACE[account.status],
+      ].join(" ")}
+    >
+      <div aria-hidden="true" className="absolute inset-0" style={SHEEN} />
+
+      <Link
+        to={`/savings/${account.id}`}
+        aria-label={`Savings account ${ref}, balance ${formatGhs(account.balance)}, ${formatGhs(account.availableToWithdraw)} available to withdraw, ${account.status}. View details.`}
+        className="absolute inset-0 z-10 rounded-lg outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent"
+      />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div>
+          <p className="font-heading text-sm font-extrabold tracking-tight">
+            YADAH
+          </p>
+          {/* Ten digits, not six. Printed whole for the same reason the susu
+              number is: quoting it is how an account gets looked up. */}
+          <p className={`${LABEL} mt-0.5 text-white/70`}>Savings · {ref}</p>
+        </div>
+        <span className="flex items-center gap-1 text-xs font-medium text-white/80 transition-colors group-hover:text-white">
+          View details
+          <ArrowUpRight
+            size={14}
+            className="transition-transform duration-200 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-x-0 motion-reduce:group-hover:translate-y-0"
+          />
+        </span>
+      </div>
+
+      <div className="relative">
+        <p className={`${LABEL} text-white/60`}>Balance</p>
+        <div className="mt-0.5 flex items-center gap-2">
+          <p className="truncate font-sen text-xl font-semibold tabular-nums">
+            {showBalance ? formatGhs(account.balance) : `${CEDI}••••••`}
+          </p>
+          <button
+            type="button"
+            className="relative z-20 flex size-8 shrink-0 items-center justify-center rounded-full text-white/70 transition-colors hover:bg-white/15 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white"
+            aria-pressed={showBalance}
+            aria-label={showBalance ? "Hide balance" : "Show balance"}
+            onClick={() => setShowBalance((prev) => !prev)}
+          >
+            {showBalance ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </div>
+      </div>
+
+      <div className="relative space-y-2.5">
+        <div className="flex items-end justify-between gap-2">
+          <div>
+            <p className={`${LABEL} text-white/60`}>Available</p>
+            {/* Money, so it answers to the same toggle as the balance above —
+                hiding one and printing the other makes the toggle a
+                decoration. A closed account has nothing available, and saying
+                "₵0.00" invites the question of why. */}
+            <p className="font-sen text-xs tabular-nums text-white/90">
+              {closed
+                ? "—"
+                : showBalance
+                  ? formatGhs(account.availableToWithdraw)
+                  : `${CEDI}••••`}
+            </p>
+          </div>
+          <div>
+            <p className={`${LABEL} text-white/60`}>
+              {closed ? "Closed" : "Opened"}
+            </p>
+            <p className="font-sen text-xs tabular-nums text-white/90">
+              {formatDate(
+                closed && account.closedAt ? account.closedAt : account.openedAt,
+              )}
+            </p>
+          </div>
+          <div className="text-right">
+            <p className={`${LABEL} text-white/60`}>Status</p>
+            <p className="font-sen text-xs font-semibold capitalize tabular-nums">
+              {account.status}
+            </p>
+          </div>
+        </div>
+
+        <AvailableStrip account={account} />
+      </div>
+    </article>
+  );
+}
+
+/**
+ * The balance split in two: what a withdrawal could take today, and what the
+ * minimum balance and the fee hold back.
+ *
+ * Continuous rather than the susu card's discrete ticks, because what it
+ * measures is continuous — a proportion of an amount, not a count of days.
+ * Decorative to a screen reader: the card's own aria-label already gives both
+ * figures.
+ *
+ * An empty account has nothing to divide and draws as an empty track, which is
+ * the truth rather than a bar at 0% of nothing.
+ */
+function AvailableStrip({ account }: { account: SavingsAccount }) {
+  const locked = lockedBalance(account);
+  const percent =
+    account.balance > 0
+      ? Math.round((account.availableToWithdraw / account.balance) * 100)
+      : 0;
+
+  return (
+    <div aria-hidden="true" className="flex h-1.5 gap-0.5 overflow-hidden">
+      <span
+        className="rounded-xs bg-white/90 transition-[width] duration-300 motion-reduce:transition-none"
+        style={{ width: `${percent}%` }}
+      />
+      <span
+        className={`flex-1 rounded-xs ${locked > 0 ? "bg-white/25" : "bg-white/10"}`}
+      />
+    </div>
+  );
 }

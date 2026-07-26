@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { data, Form, useNavigation } from "react-router";
+import { data, Form, useNavigation, useSubmit } from "react-router";
 import { Button } from "@heroui/react";
 import { HandCoins, Lock, TriangleAlert, X } from "lucide-react";
 import type { Route } from "./+types/susu-account";
@@ -19,7 +19,7 @@ import {
 import * as customersApi from "~/lib/api/customers";
 import * as susuApi from "~/lib/api/susu";
 import * as usersApi from "~/lib/api/users";
-import { accraToday, formatDate, formatDateTime } from "~/lib/format";
+import { accraToday, formatDate } from "~/lib/format";
 import { formatGhs } from "~/lib/money";
 import { readDepositForm } from "~/lib/susu-form";
 import {
@@ -43,8 +43,8 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  // A collector may open an account belonging to one of their customers; the
-  // API answers 403 otherwise, which surfaces as this route's error boundary.
+  // Any signed-in role may open any account — the API no longer scopes
+  // collectors to their own customers.
   const user = await requireUser(request);
   const office = isOffice(user);
 
@@ -64,7 +64,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       customer: customer.customer,
       staff: staff?.items ?? [],
     };
-  }).catch(throwAsRouteError); // 404, or 403 for someone else's customer
+  }).catch(throwAsRouteError); // 404
 
   const staffNames: Record<string, string> = {};
   for (const member of result.staff) staffNames[member.id] = member.name;
@@ -306,8 +306,8 @@ export default function SusuAccountDetail({
         />
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Collectors record deposits too — the API scopes them to their own
-              customers — so this is gated on the account, not the role. */}
+          {/* Collectors record deposits too — any collector, on any account —
+              so this is gated on the account, not the role. */}
           {account.status === "active" && (
             <Button
               type="button"
@@ -375,7 +375,7 @@ export default function SusuAccountDetail({
       <section className="mt-8">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-xs font-bold uppercase tracking-wide text-muted">
-            Statement
+            Transaction history
           </h2>
 
           {/* The way out, for anyone who doesn't guess that clicking the lit
@@ -404,7 +404,7 @@ export default function SusuAccountDetail({
         )}
 
         <DataTable
-          columns={["When", "Days", "Amount", "Channel", "Recorded by"]}
+          columns={["Date", "Days", "Amount", "Channel", "Recorded by"]}
           ariaLabel="Deposit history"
           // No filtered-empty case to handle: only a paid chip is clickable,
           // and the position it names always belongs to exactly one deposit.
@@ -417,7 +417,7 @@ export default function SusuAccountDetail({
           {visible.map((deposit) => (
             <Table.Row key={deposit.id} id={deposit.id}>
               <Table.Cell className="px-4 py-2 text-muted">
-                {formatDateTime(deposit.createdAt)}
+                {formatDate(deposit.createdAt)}
               </Table.Cell>
               <Table.Cell className="px-4 py-2 tabular-nums text-muted">
                 {/* A catch-up covers a range — showing `12–15` rather than `4`
@@ -476,8 +476,11 @@ function DepositDrawer({
   onClose: () => void;
 }) {
   const navigation = useNavigation();
+  const submit = useSubmit();
   const submitting = navigation.state === "submitting";
   const [days, setDays] = useState("1");
+  const [confirming, setConfirming] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
   const left = remainingDeposits(account);
 
   // The same reader the action runs, run here against the typed value — so the
@@ -489,10 +492,24 @@ function DepositDrawer({
   const { fieldErrors: liveErrors } = readDepositForm(probe, left);
   const dayCount = Number(days);
   const total = Number.isInteger(dayCount) ? dayCount * account.dailyAmount : 0;
+  const ready = Object.keys(liveErrors).length === 0;
 
   // The footer sits outside the form the drawer scrolls, so the submit button
   // points back at it by id.
   const formId = "record-deposit";
+
+  /**
+   * Send it, without going through the form's own submit event.
+   *
+   * `submit(formElement)` reads the form's fields and navigates directly; a
+   * `requestSubmit()` here would fire `onSubmit` again, which is the thing that
+   * opened this confirmation in the first place, and the two would bounce off
+   * each other forever.
+   */
+  function confirmAndSend() {
+    setConfirming(false);
+    if (formRef.current) submit(formRef.current, { method: "post" });
+  }
 
   return (
     <SideDrawer
@@ -510,18 +527,76 @@ function DepositDrawer({
           >
             Cancel
           </Button>
+          {/* Opens the confirmation rather than submitting. Money is being
+              taken from someone standing at the counter, and a deposit is not
+              undoable — the API has no reversal, only a second deposit. */}
           <Button
-            type="submit"
-            form={formId}
+            type="button"
             className="rounded-md bg-success"
-            isDisabled={submitting || Object.keys(liveErrors).length > 0}
+            isDisabled={submitting || !ready}
+            onPress={() => setConfirming(true)}
           >
             {submitting ? "Recording…" : "Record deposit"}
           </Button>
         </>
       }
     >
-      <Form id={formId} method="post" className="space-y-5">
+      <ConfirmModal
+        isOpen={confirming}
+        onOpenChange={setConfirming}
+        title="Record this deposit?"
+        closeLabel="Back"
+        // The modal's backdrop and the drawer's panel are both `z-50`, so
+        // which one paints on top comes down to DOM order — the modal portals
+        // to the end of `body` and wins, but only by accident of where React
+        // Aria mounts it. Stated outright instead: this opens *over* the
+        // drawer that summoned it.
+        className="z-60"
+        footer={
+          <Button
+            size="sm"
+            className="rounded-md bg-success"
+            onPress={confirmAndSend}
+          >
+            Record deposit
+          </Button>
+        }
+      >
+        <div className="space-y-3 text-sm text-muted">
+          <p>
+            Collecting{" "}
+            <span className="font-medium text-foreground">
+              {formatGhs(total)}
+            </span>{" "}
+            {dayCount > 1
+              ? `for ${dayCount} days of this cycle.`
+              : "for one day of this cycle."}
+          </p>
+          <dl className="space-y-2 rounded-lg border border-border bg-background p-3">
+            <Figure label="Daily amount" value={formatGhs(account.dailyAmount)} />
+            {dayCount > 1 && <Figure label="Days" value={`× ${dayCount}`} />}
+            <Figure label="Collecting" value={formatGhs(total)} strong />
+            <Figure
+              label="Cycle after this"
+              value={`${Math.min(account.cycleTarget, account.depositsCount + dayCount)} / ${account.cycleTarget}`}
+            />
+          </dl>
+          <p>Count the cash before confirming — a deposit can't be reversed.</p>
+        </div>
+      </ConfirmModal>
+
+      {/* `onSubmit` is intercepted so that Enter in the day field asks for
+          confirmation too, rather than being the one route that skips it. */}
+      <Form
+        id={formId}
+        ref={formRef}
+        method="post"
+        className="space-y-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (ready) setConfirming(true);
+        }}
+      >
         <input type="hidden" name="intent" value="deposit" />
         {/* The whole point of the key: this exact value survives a retry, so a
             second tap on a bad connection replays the first deposit instead of

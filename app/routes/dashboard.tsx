@@ -94,14 +94,6 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
             Signed in as {ROLE_LABELS[user.role]}.
           </p>
         </div>
-
-        <Link
-          to="/collections"
-          className="flex min-h-11 items-center gap-1.5 rounded-md bg-success px-4 text-sm font-medium text-success-foreground transition-opacity hover:opacity-90"
-        >
-          <HandCoins size={16} />
-          Collect
-        </Link>
       </div>
 
       {/* The two numbers a day is reconciled on: what was taken, and how many
