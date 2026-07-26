@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { data, Form, Link, useNavigation } from "react-router";
+import { data, Form, useNavigation } from "react-router";
 import { Button } from "@heroui/react";
 import { HandCoins, Lock, TriangleAlert } from "lucide-react";
 import type { Route } from "./+types/susu-account";
+import { Breadcrumbs } from "~/components/breadcrumbs";
 import { DataTable, Table } from "~/components/data-table";
 import { FIELD, FieldError, SelectField } from "~/components/form-fields";
 import { TextInput } from "~/components/inputs";
 import { ConfirmModal } from "~/components/modals";
-import { PageHeader } from "~/components/page-header";
-import { CycleGrid, StatusPill } from "~/components/susu-cycle";
+import { CycleCalendar } from "~/components/susu-cycle";
 import { notify } from "~/components/toast";
 import {
   throwAsRouteError,
@@ -18,7 +18,7 @@ import {
 import * as customersApi from "~/lib/api/customers";
 import * as susuApi from "~/lib/api/susu";
 import * as usersApi from "~/lib/api/users";
-import { formatDate, formatDateTime } from "~/lib/format";
+import { accraToday, formatDate, formatDateTime } from "~/lib/format";
 import { formatGhs } from "~/lib/money";
 import { readDepositForm } from "~/lib/susu-form";
 import {
@@ -78,6 +78,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       },
       staffNames,
       canManage: office,
+      /**
+       * Accra's calendar day, decided here rather than in the component. The
+       * calendar renders on the server and again in the browser, and asking
+       * the clock in both places draws two different "today"s either side of
+       * midnight — a hydration mismatch on someone else's machine.
+       */
+      today: accraToday(),
       /**
        * Minted here, per page load, and carried in a hidden field — see
        * `newIdempotencyKey`. A retry of the same submit reuses it and the API
@@ -226,9 +233,15 @@ export default function SusuAccountDetail({
   loaderData,
   actionData,
 }: Route.ComponentProps) {
-  const { account, deposits, customer, staffNames, canManage, idempotencyKey } =
-    loaderData;
-  const left = remainingDeposits(account);
+  const {
+    account,
+    deposits,
+    customer,
+    staffNames,
+    canManage,
+    idempotencyKey,
+    today,
+  } = loaderData;
   const closed = account.status === "closed";
 
   useEffect(() => {
@@ -240,105 +253,51 @@ export default function SusuAccountDetail({
 
   return (
     <div className="mx-auto w-full px-6 py-8">
-      <PageHeader
-        backTo={`/customers/${customer.id}/accounts`}
-        backLabel={`${customer.fullName}'s accounts`}
-        title={customer.fullName}
-        subtitle={`${formatGhs(account.dailyAmount)} daily · opened ${formatDate(account.openedAt)}`}
-        actions={
-          canManage &&
-          !closed && <CloseButton account={account} name={customer.fullName} />
-        }
-      />
+      {/* The trail replaces the heading block and the row of links under it:
+          every one of those was a way back to the customer or their other
+          accounts, which is what a breadcrumb is. The account number is the
+          last crumb because it is what a customer quotes — the `id` in the URL
+          means nothing to anyone. */}
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <Breadcrumbs
+          items={[
+            { label: "Customers", to: "/customers" },
+            { label: customer.fullName, to: `/customers/${customer.id}` },
+            {
+              label: "Accounts",
+              to: `/customers/${customer.id}/accounts?status=all`,
+            },
+            { label: `Susu ${account.accountNumber}` },
+          ]}
+        />
 
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <StatusPill account={account} />
-        <Link
-          to={`/customers/${customer.id}`}
-          className="text-sm text-muted underline hover:text-foreground"
-        >
-          Customer profile
-        </Link>
-        <Link
-          to={`/customers/${customer.id}/accounts?status=all`}
-          className="text-sm text-muted underline hover:text-foreground"
-        >
-          All their accounts
-        </Link>
+        {canManage && !closed && (
+          <CloseButton account={account} name={customer.fullName} />
+        )}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          <Card title="Cycle progress">
-            <CycleGrid account={account} deposits={deposits} />
-          </Card>
+      {/* One column, not two: the Money card is hidden for now (see
+          `MoneyCard` below) and a two-thirds column with nothing beside it
+          would leave a third of the page empty. Restore the grid when the card
+          comes back. */}
+      <div className="space-y-6">
+        {/* No card around it: each month is already a bordered card of its
+            own, and a box inside a box put two borders around every date. */}
+        <CycleCalendar account={account} deposits={deposits} today={today} />
 
-          {/* Only an active account takes deposits. A completed cycle is full
-              and a closed one is paid out — offering the form on either would
-              be offering a button the API refuses. */}
-          {account.status === "active" && (
-            <DepositForm
-              account={account}
-              idempotencyKey={idempotencyKey}
-              fieldErrors={actionData?.fieldErrors}
-            />
-          )}
-        </div>
+        {/* Only an active account takes deposits. A completed cycle is full
+            and a closed one is paid out — offering the form on either would
+            be offering a button the API refuses. */}
+        {account.status === "active" && (
+          <DepositForm
+            account={account}
+            idempotencyKey={idempotencyKey}
+            fieldErrors={actionData?.fieldErrors}
+          />
+        )}
 
-        <div className="space-y-6">
-          <Card title="Money">
-            <dl className="space-y-3">
-              <Figure
-                label="Saved so far"
-                value={formatGhs(account.totalDeposited)}
-                strong
-              />
-              <Figure
-                label="Full cycle"
-                value={formatGhs(cycleTargetAmount(account))}
-              />
-              {left > 0 && (
-                <Figure
-                  label="Still to collect"
-                  value={formatGhs(left * account.dailyAmount)}
-                />
-              )}
-
-              {closed ? (
-                <>
-                  <Figure
-                    label="Commission kept"
-                    value={formatGhs(account.commissionAmount ?? 0)}
-                  />
-                  <Figure
-                    label="Paid out"
-                    value={formatGhs(account.payoutAmount ?? 0)}
-                    strong
-                  />
-                  <Figure
-                    label="Closed"
-                    value={formatDate(account.closedAt)}
-                  />
-                </>
-              ) : (
-                <>
-                  {/* The two numbers every withdrawal conversation starts with.
-                      Commission is one day's deposit whatever day they leave
-                      on, so both are knowable before anyone commits. */}
-                  <Figure
-                    label="Commission at closure"
-                    value={formatGhs(account.dailyAmount)}
-                  />
-                  <Figure
-                    label="Payout if closed today"
-                    value={formatGhs(projectedPayout(account))}
-                    strong
-                  />
-                </>
-              )}
-            </dl>
-          </Card>
-        </div>
+        {/* Hidden for now — put this line back to show it again. */}
+        {/* <MoneyCard account={account} /> */}
       </div>
 
       <section className="mt-8">
@@ -564,6 +523,68 @@ function CloseButton({
         </div>
       </ConfirmModal>
     </>
+  );
+}
+
+/**
+ * What the cycle is worth, and what closing it would pay.
+ *
+ * Currently not rendered — the call site in the page above is commented out.
+ * Kept whole rather than deleted because nothing about it is wrong: every
+ * figure here is either stored on the account or derived from the daily
+ * amount, so bringing it back is uncommenting one line.
+ */
+function MoneyCard({ account }: { account: SusuAccount }) {
+  const left = remainingDeposits(account);
+  const closed = account.status === "closed";
+
+  return (
+    <Card title="Money">
+      <dl className="space-y-3">
+        <Figure
+          label="Saved so far"
+          value={formatGhs(account.totalDeposited)}
+          strong
+        />
+        <Figure label="Full cycle" value={formatGhs(cycleTargetAmount(account))} />
+        {left > 0 && (
+          <Figure
+            label="Still to collect"
+            value={formatGhs(left * account.dailyAmount)}
+          />
+        )}
+
+        {closed ? (
+          <>
+            <Figure
+              label="Commission kept"
+              value={formatGhs(account.commissionAmount ?? 0)}
+            />
+            <Figure
+              label="Paid out"
+              value={formatGhs(account.payoutAmount ?? 0)}
+              strong
+            />
+            <Figure label="Closed" value={formatDate(account.closedAt)} />
+          </>
+        ) : (
+          <>
+            {/* The two numbers every withdrawal conversation starts with.
+                Commission is one day's deposit whatever day they leave on, so
+                both are knowable before anyone commits. */}
+            <Figure
+              label="Commission at closure"
+              value={formatGhs(account.dailyAmount)}
+            />
+            <Figure
+              label="Payout if closed today"
+              value={formatGhs(projectedPayout(account))}
+              strong
+            />
+          </>
+        )}
+      </dl>
+    </Card>
   );
 }
 

@@ -1,23 +1,23 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   data,
   Form,
-  Link,
   useNavigation,
+  useNavigationType,
   useSearchParams,
 } from "react-router";
 import { Button } from "@heroui/react";
-import { Plus, WalletCards } from "lucide-react";
+import { LoaderCircle, Plus, Search, WalletCards, X } from "lucide-react";
 import type { Route } from "./+types/customer-accounts";
 import {
   AccountCard,
   AccountCardSkeleton,
 } from "~/components/account-card";
+import { Breadcrumbs } from "~/components/breadcrumbs";
 import { CollectionFooter, EmptyState } from "~/components/data-table";
 import { FIELD, FieldError, FilterSelect } from "~/components/form-fields";
 import { TextInput } from "~/components/inputs";
 import { ConfirmModal } from "~/components/modals";
-import { PageHeader } from "~/components/page-header";
 import { notify } from "~/components/toast";
 import {
   throwAsRouteError,
@@ -72,8 +72,29 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     isSusuAccountStatus(statusParam) || statusParam === "all"
       ? statusParam
       : "active";
+
+  /**
+   * The number printed on the customer's card — six digits, exactly.
+   *
+   * Digits only and truncated here rather than trusted: the field is the one
+   * place a counter types, and `?accountNumber=abc` is a URL anyone can hand
+   * over. A partial number is dropped instead of sent, because the API matches
+   * the whole number and a prefix would come back as "no such account" when
+   * the truth is "keep typing".
+   */
+  const typed = (sp.get("accountNumber") ?? "").replace(/\D/g, "").slice(0, 6);
+  const accountNumber = typed.length === 6 ? typed : undefined;
+
+  /**
+   * A number search ignores the status filter.
+   *
+   * Someone reading a number off a card doesn't know whether that cycle is
+   * still running, and an empty page for an account that plainly exists is the
+   * worst answer this screen can give. The filter is what you browse with; the
+   * number is what you look up.
+   */
   const status: SusuAccountStatus | undefined =
-    selected === "all" ? undefined : selected;
+    accountNumber || selected === "all" ? undefined : selected;
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     // The customer is fetched for their name and status, not decoration: an
@@ -86,6 +107,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         page,
         limit,
         status,
+        // Scoped to this customer either way: a number belonging to someone
+        // else returns nothing here rather than another person's account.
+        accountNumber,
       }),
     ]);
     return { customer: customer.customer, susu };
@@ -95,7 +119,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     {
       customer: result.customer,
       susu: result.susu,
-      filters: { page, limit, status: selected },
+      // `typed` rather than `accountNumber`: the field is seeded from this, and
+      // a half-typed number has to survive a reload the same as a whole one.
+      filters: { page, limit, status: selected, accountNumber: typed },
+      /** Whether the six digits actually narrowed the list. */
+      searchingNumber: accountNumber !== undefined,
       canManage: office,
     },
     { headers },
@@ -163,12 +191,60 @@ export default function CustomerAccounts({
   loaderData,
   actionData,
 }: Route.ComponentProps) {
-  const { customer, susu, filters, canManage } = loaderData;
+  const { customer, susu, filters, searchingNumber, canManage } = loaderData;
   const navigation = useNavigation();
+  const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const pageCount = Math.max(1, Math.ceil(susu.total / susu.limit));
   const loading = navigation.state === "loading";
+
+  // The field types against local state; the URL (and so the loader) catches
+  // up on a debounce. Seeded from the URL so a shared or reloaded link shows
+  // the number it filtered by.
+  const [number, setNumber] = useState(filters.accountNumber);
+  /** Typed, but not yet the whole number — nothing has been sent. */
+  const partial = number.length > 0 && number.length < 6;
+
+  const commitNumber = useCallback(
+    (value: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value) next.set("accountNumber", value);
+          else next.delete("accountNumber");
+          // A different number is a different result set — page 1 again.
+          next.delete("page");
+          return next;
+        },
+        { replace: true, preventScrollReset: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // One request per pause in typing, and only for a number the loader will
+  // actually use: six digits, or empty to clear.
+  useEffect(() => {
+    if (number === filters.accountNumber) return;
+    if (number.length > 0 && number.length < 6) return;
+    const timer = setTimeout(() => commitNumber(number), 300);
+    return () => clearTimeout(timer);
+  }, [number, filters.accountNumber, commitNumber]);
+
+  // Back/forward moves the URL out from under the field, so adopt it. Our own
+  // updates above are REPLACE navigations, which never land here.
+  useEffect(() => {
+    if (navigationType === "POP") setNumber(filters.accountNumber);
+  }, [navigationType, filters.accountNumber]);
+
+  // The number the in-flight navigation is fetching, or null when idle.
+  const pending =
+    navigation.state === "loading" && navigation.location
+      ? (new URLSearchParams(navigation.location.search).get("accountNumber") ??
+        "")
+      : null;
+  const searching = pending !== null && pending !== filters.accountNumber;
 
   useEffect(() => {
     if (actionData?.ok) notify.success(actionData.message ?? "Done.");
@@ -188,14 +264,111 @@ export default function CustomerAccounts({
 
   return (
     <div className="mx-auto w-full px-6 py-8">
-      <PageHeader
-        backTo="/customers"
-        backLabel="Customers"
-        title={customer.fullName}
-        subtitle="Accounts"
-        actions={
-          canManage &&
-          customer.status === "active" && (
+      {/* No page heading and no section heading: the cards carry the product
+          on their own faces. The trail does the work the heading used to —
+          whose accounts these are, and the way back up to them — in one line
+          instead of a block. */}
+      <Breadcrumbs
+        className="mb-5"
+        items={[
+          { label: "Customers", to: "/customers" },
+          { label: customer.fullName, to: `/customers/${customer.id}` },
+          { label: "Accounts" },
+        ]}
+      />
+
+      <section>
+        {/* Tops aligned, not centres: the field carries a line of help under
+            it, and centring would drop the filter and the button half a line
+            below the input they sit beside. */}
+        <div className="mb-4 flex flex-wrap items-start gap-3">
+          {/* A real GET form, so the field and the filter still work with
+              JavaScript off — each carries the `name` the loader reads. The
+              Open account button stays outside it: it posts, and a form inside
+              a form is neither valid nor submittable. */}
+          <Form
+            method="get"
+            className="flex flex-1 flex-wrap items-start gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              // Enter searches now rather than waiting out the debounce.
+              if (!partial) commitNumber(number);
+            }}
+          >
+            <div className="w-full max-w-60">
+              <div className="relative">
+                <TextInput
+                  name="accountNumber"
+                  aria-label="Search by account number"
+                  value={number}
+                  // Digits only, six at most — the field can't be made to hold
+                  // something the API would reject.
+                  onChange={(value) =>
+                    setNumber(value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  inputProps={{
+                    // `numeric` so a phone offers a keypad, not a keyboard.
+                    inputMode: "numeric",
+                    autoComplete: "off",
+                    maxLength: 6,
+                    placeholder: "Account number",
+                    className: `${FIELD} py-1 pl-8 ${number ? "pr-8" : ""} tabular-nums`,
+                  }}
+                />
+                {searching ? (
+                  <LoaderCircle
+                    size={14}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-2.5 my-auto animate-spin text-success"
+                  />
+                ) : (
+                  <Search
+                    size={14}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-2.5 my-auto text-success"
+                  />
+                )}
+                {number && (
+                  <button
+                    type="button"
+                    aria-label="Clear account number"
+                    onClick={() => setNumber("")}
+                    className="absolute inset-y-0 right-2 my-auto flex size-5 items-center justify-center rounded-full text-muted transition-colors hover:bg-background hover:text-foreground"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+              {/* Said once, where it applies: six digits or nothing, and the
+                  filter steps aside for a number. */}
+              <p className="mt-1 text-xs text-muted">
+                {partial
+                  ? `${6 - number.length} more ${6 - number.length === 1 ? "digit" : "digits"} to search.`
+                  : searchingNumber
+                    ? "Searching every status."
+                    : "Six digits, from the customer's card."}
+              </p>
+            </div>
+
+            <div className="ml-auto">
+              <FilterSelect
+                name="status"
+                label="Filter by status"
+                value={filters.status}
+                onChange={(value) => setParam({ status: value, page: null })}
+                options={[
+                  { value: "active", label: "Active accounts" },
+                  { value: "completed", label: "Completed accounts" },
+                  { value: "closed", label: "Closed accounts" },
+                  { value: "all", label: "All accounts" },
+                ]}
+              />
+            </div>
+          </Form>
+
+          {/* The button moves down here with the heading gone — the filter and
+              the one action that changes this list sit on the same rule. */}
+          {canManage && customer.status === "active" && (
             <OpenAccountButton
               // Remounts once the account exists, which clears the amount out
               // of the dialog. A rejected submit leaves the total unchanged, so
@@ -203,52 +376,14 @@ export default function CustomerAccounts({
               key={susu.total}
               error={actionData?.fieldErrors?.dailyAmount}
             />
-          )
-        }
-      />
-
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <Link
-          to={`/customers/${customer.id}`}
-          className="text-sm text-muted underline hover:text-foreground"
-        >
-          Customer profile
-        </Link>
-        {canManage && customer.status !== "active" && (
-          <span className="text-sm text-muted">
-            Reactivate this customer to open an account.
-          </span>
-        )}
-      </div>
-
-      {/* Susu. The heading carries the product even with one section on the
-          page — it is what makes room for savings read as a gap rather than an
-          omission. */}
-      <section>
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="font-heading text-lg font-semibold text-foreground">
-              Susu
-            </h2>
-            <p className="mt-0.5 text-sm text-muted">
-              Each account is one cycle of {SUSU_CYCLE_TARGET} days at a fixed
-              daily amount.
-            </p>
-          </div>
-
-          <FilterSelect
-            name="status"
-            label="Filter by status"
-            value={filters.status}
-            onChange={(value) => setParam({ status: value, page: null })}
-            options={[
-              { value: "active", label: "Active accounts" },
-              { value: "completed", label: "Completed accounts" },
-              { value: "closed", label: "Closed accounts" },
-              { value: "all", label: "All accounts" },
-            ]}
-          />
+          )}
         </div>
+
+        {canManage && customer.status !== "active" && (
+          <p className="mb-4 text-sm text-muted">
+            Reactivate this customer to open an account.
+          </p>
+        )}
 
         {/* Cards, not rows: an account has four facts worth reading and a
             shape everyone already knows how to hold. The grid fills to the
@@ -267,12 +402,16 @@ export default function CustomerAccounts({
             <EmptyState
               content={{
                 icon: <WalletCards size={64} strokeWidth={1.5} />,
-                title:
-                  filters.status === "active"
+                // A number that found nothing is its own answer: the filter
+                // wasn't what hid it, so don't send anyone to change it.
+                title: searchingNumber
+                  ? `No account ${filters.accountNumber}`
+                  : filters.status === "active"
                     ? "No active susu account"
                     : "No susu accounts found",
-                subtext:
-                  filters.status === "active"
+                subtext: searchingNumber
+                  ? `${customer.fullName} holds no account with that number. Check the digits, or clear the search.`
+                  : filters.status === "active"
                     ? "Open one to start a 31-day cycle — or switch the filter to see finished ones."
                     : "Nothing matches this filter.",
               }}
@@ -308,7 +447,7 @@ export default function CustomerAccounts({
 }
 
 /**
- * Open a cycle, from the page header.
+ * Open a cycle, from the bar above the list.
  *
  * The daily amount is fixed for the life of the cycle — the only way to change
  * it is to close the account and open another — so the dialog does double duty:
@@ -337,7 +476,8 @@ function OpenAccountButton({ error }: { error?: string }) {
       <Button
         type="button"
         size="sm"
-        className="min-h-6 rounded-md bg-success"
+        // 32px, the height of the filter select it now stands beside.
+        className="min-h-8 rounded-md bg-success px-3"
         onPress={() => setOpen(true)}
       >
         <Plus size={14} />

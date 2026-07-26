@@ -1,7 +1,7 @@
 FROM node:24-alpine AS development-dependencies-env
 COPY . /app
 WORKDIR /app
-RUN npm ci
+RUN npm ci --include=dev
 
 FROM node:24-alpine AS production-dependencies-env
 COPY ./package.json package-lock.json /app/
@@ -19,4 +19,7 @@ COPY ./package.json package-lock.json /app/
 COPY --from=production-dependencies-env /app/node_modules /app/node_modules
 COPY --from=build-env /app/build /app/build
 WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
 CMD ["npm", "run", "start"]
