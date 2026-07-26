@@ -7,7 +7,7 @@ import {
   useSearchParams,
 } from "react-router";
 import { Button } from "@heroui/react";
-import { PiggyBank, Plus } from "lucide-react";
+import { Plus, WalletCards } from "lucide-react";
 import type { Route } from "./+types/customer-accounts";
 import {
   AccountCard,
@@ -266,7 +266,7 @@ export default function CustomerAccounts({
           <div className="rounded-2xl border-2 border-border bg-surface">
             <EmptyState
               content={{
-                icon: <PiggyBank size={64} strokeWidth={1.5} />,
+                icon: <WalletCards size={64} strokeWidth={1.5} />,
                 title:
                   filters.status === "active"
                     ? "No active susu account"

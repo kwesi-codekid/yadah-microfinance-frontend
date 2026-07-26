@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { data, Form, Link, useNavigation, useSearchParams } from "react-router";
 import { Button } from "@heroui/react";
-import { Ban, Pencil, PiggyBank, RotateCcw } from "lucide-react";
+import { Ban, Pencil, RotateCcw, WalletCards } from "lucide-react";
 import type { Route } from "./+types/customer-detail";
 import {
   CustomerProfile,
@@ -391,7 +391,7 @@ export default function CustomerDetail({
                 to={`/customers/${customer.id}/accounts`}
                 className="flex min-h-9 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-background"
               >
-                <PiggyBank size={14} />
+                <WalletCards size={14} />
                 Accounts
               </Link>
               {/* A search param on this same page, not a route of its own —

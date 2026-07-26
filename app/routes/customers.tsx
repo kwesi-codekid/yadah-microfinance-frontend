@@ -11,7 +11,7 @@ import {
 import { Button, Tooltip } from "@heroui/react";
 import {
   Eye,
-  PiggyBank,
+  WalletCards,
   Pencil,
   UserPlus,
   Ban,
@@ -487,9 +487,11 @@ function RowActions({ customer }: { customer: Customer }) {
           <Eye size={16} />
         </IconLink>
         {/* Accounts, not "Susu": the page holds every product the customer
-            saves into, and it is where a new cycle is opened each month. */}
+            saves into, and it is where a new cycle is opened each month. The
+            wallet of cards is what's literally on the other side of the click
+            — a piggy bank says "saving", which is the whole app. */}
         <IconLink label="Accounts" to={`/customers/${customer.id}/accounts`}>
-          <PiggyBank size={16} />
+          <WalletCards size={16} />
         </IconLink>
         <IconLink label="Edit" to={`/customers/${customer.id}?edit`}>
           <Pencil size={16} />

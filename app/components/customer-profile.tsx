@@ -16,6 +16,7 @@ import {
 } from "~/lib/customer-client";
 import { MAX_UPLOAD_BYTES, UPLOAD_TYPES } from "~/lib/customer-form";
 import { formatDate } from "~/lib/format";
+import { formatGhanaCard, formatGhanaPostGps } from "~/lib/validation";
 
 /**
  * The customer record, as a grid of fields that reads or edits.
@@ -47,6 +48,17 @@ type EditField = {
   options?: { value: string; label: string }[];
   /** Uppercase as they type — for the fields whose API pattern demands it. */
   uppercase?: boolean;
+  /**
+   * Rewrite the value on every keystroke — the hyphen masks in
+   * [validation.ts](app/lib/validation.ts). Must be idempotent, since it runs
+   * over its own output each time.
+   */
+  format?: (value: string) => string;
+  /**
+   * Told when a dropdown changes, for the one field that decides how another
+   * behaves: the ID type sets whether the number beneath it is masked.
+   */
+  onChange?: (value: string) => void;
 };
 
 /**
@@ -95,6 +107,17 @@ export function CustomerProfile({
    */
   photoSlot?: React.ReactNode;
 }) {
+  /**
+   * The chosen ID type, tracked because it decides how the number under it
+   * behaves: only a Ghana Card has a fixed shape worth punctuating, and the
+   * other three are free-form document numbers that must be left exactly as
+   * typed. Seeded from the record so an existing Ghana Card is masked from the
+   * moment the form opens.
+   */
+  const [idType, setIdType] = useState<string>(
+    customer?.identification?.idType ?? "",
+  );
+
   const sections = (
     <>
       <DetailSection title="Identity" aside={photoSlot}>
@@ -191,9 +214,10 @@ export function CustomerProfile({
             name: "ghanaPostGps",
             value: customer?.ghanaPostGps,
             placeholder: "GA-183-9832",
-            // The API's pattern demands uppercase; do it as they type rather
-            // than rejecting them for it on submit.
+            // The API's pattern demands uppercase *and* the hyphens; do both
+            // as they type rather than rejecting them for it on submit.
             uppercase: true,
+            format: formatGhanaPostGps,
           }}
         />
         <Detail
@@ -226,6 +250,7 @@ export function CustomerProfile({
             value: customer?.identification?.idType ?? "",
             placeholder: "Select",
             options: ID_TYPES.map((t) => ({ value: t, label: ID_TYPE_LABELS[t] })),
+            onChange: setIdType,
           }}
         />
         <Detail
@@ -234,7 +259,12 @@ export function CustomerProfile({
           field={{
             name: "idNumber",
             value: customer?.identification?.idNumber,
-            placeholder: "GHA-123456789-0",
+            // A Ghana Card's shape is fixed, so it punctuates itself and the
+            // placeholder can show the finished article. The rest are whatever
+            // is printed on the document.
+            placeholder:
+              idType === "ghana-card" ? "GHA-123456789-0" : "As printed on the ID",
+            format: idType === "ghana-card" ? formatGhanaCard : undefined,
           }}
         />
         <Detail
@@ -485,6 +515,7 @@ function Detail({
               // submit leaves the record — and so the key — unchanged, which is
               // what keeps the corrected-but-not-yet-saved entry on screen.
               key={field.value}
+              onChange={(e) => field.onChange?.(e.currentTarget.value)}
               aria-invalid={error ? true : undefined}
               aria-describedby={error ? `${id}-error` : undefined}
               className={`${DETAIL_INPUT} ${border} appearance-none py-1 pr-8`}
@@ -512,6 +543,20 @@ function Detail({
             placeholder={field.placeholder}
             inputMode={field.inputMode}
             autoComplete="off"
+            // Punctuates in place on an uncontrolled input: the mask is applied
+            // to the element's own value rather than held in React state, so
+            // nothing else about these fields has to change. Guarded on
+            // inequality so a keystroke that changes nothing doesn't move the
+            // caret to the end for no reason.
+            onInput={
+              field.format
+                ? (e) => {
+                    const el = e.currentTarget;
+                    const next = field.format!(el.value);
+                    if (next !== el.value) el.value = next;
+                  }
+                : undefined
+            }
             aria-required={field.required || undefined}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `${id}-error` : undefined}

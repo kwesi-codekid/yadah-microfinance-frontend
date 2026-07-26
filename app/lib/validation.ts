@@ -75,3 +75,58 @@ export function validateOtp(value: string): string | null {
   if (!OTP_RE.test(value.trim())) return "Enter the 6-digit code.";
   return null;
 }
+
+/* ------------------------------------------------------------------ *
+ * Input masks
+ *
+ * The two fields with a fixed shape punctuate themselves as they are typed,
+ * so nobody has to reach for the hyphen key and nobody gets rejected for
+ * leaving it out. Both are written against the patterns above, and both are
+ * idempotent — running one over its own output changes nothing, which is what
+ * lets them be applied on every keystroke.
+ *
+ * They only ever *add* punctuation and case. Anything that isn't a letter or a
+ * digit is dropped, so pasting `GHA-123456789-0` or `gha 123456789 0` lands in
+ * the same place.
+ *
+ * One known limitation: rewriting the value sends the caret to the end, so
+ * editing the middle of an already-typed number jumps to the end. Fine for
+ * typing left to right, which is how these are entered.
+ * ------------------------------------------------------------------ */
+
+/** `GHA-123456789-0` — the prefix is constant, so typing digits alone works. */
+export function formatGhanaCard(value: string): string {
+  const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const digits = clean.replace(/[^0-9]/g, "").slice(0, 10);
+
+  // Nothing to hang a prefix on yet — let them type G, GH, GHA.
+  if (!digits) return clean.slice(0, 3);
+
+  const serial = digits.slice(0, 9);
+  const check = digits.slice(9);
+  return check ? `GHA-${serial}-${check}` : `GHA-${serial}`;
+}
+
+/**
+ * `GA-183-9832` — two letters, then 3–4 digits, then 4.
+ *
+ * The middle group's length isn't knowable until the end, so the split is
+ * decided from the total: seven digits means 3+4, eight means 4+4. Typing an
+ * eighth digit therefore shifts the second hyphen left by one. It looks odd for
+ * one keystroke and it always lands on a valid address, which beats guessing
+ * wrong and leaving the user to fix punctuation they never asked for.
+ */
+export function formatGhanaPostGps(value: string): string {
+  const clean = value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const letters = clean.replace(/[^A-Z]/g, "").slice(0, 2);
+  const digits = clean.replace(/[^0-9]/g, "").slice(0, 8);
+
+  // The region code comes first and is always two letters; until both are
+  // there, there is nothing to punctuate.
+  if (letters.length < 2 || !digits) return letters;
+
+  const split = digits.length > 7 ? 4 : 3;
+  const head = digits.slice(0, split);
+  const tail = digits.slice(split);
+  return tail ? `${letters}-${head}-${tail}` : `${letters}-${head}`;
+}
