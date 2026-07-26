@@ -38,6 +38,14 @@ export function formatDate(iso?: string): string {
   return `${Number(day)} ${MONTHS[Number(month) - 1]} ${year}`;
 }
 
+/** `2026-07-25T09:14:00Z` → `Jul 2026`. For labelling a run of days. */
+export function formatMonth(iso?: string): string {
+  if (!iso) return "";
+  const [year, month] = iso.slice(0, 7).split("-");
+  if (!year || !month) return "";
+  return `${MONTHS[Number(month) - 1]} ${year}`;
+}
+
 /** `2026-07-25T14:05:00Z` → `25 Jul 2026, 2:05 pm`. */
 export function formatDateTime(iso?: string): string {
   const date = formatDate(iso);

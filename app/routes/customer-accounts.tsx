@@ -398,7 +398,7 @@ export default function CustomerAccounts({
             ))}
           </ul>
         ) : susu.items.length === 0 ? (
-          <div className="rounded-2xl border-2 border-border bg-surface">
+          <div className="rounded-lg border-2 border-border bg-surface">
             <EmptyState
               content={{
                 icon: <WalletCards size={64} strokeWidth={1.5} />,

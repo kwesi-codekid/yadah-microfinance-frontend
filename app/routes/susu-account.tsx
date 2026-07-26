@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { data, Form, useNavigation } from "react-router";
 import { Button } from "@heroui/react";
-import { HandCoins, Lock, TriangleAlert } from "lucide-react";
+import { HandCoins, Lock, TriangleAlert, X } from "lucide-react";
 import type { Route } from "./+types/susu-account";
 import { Breadcrumbs } from "~/components/breadcrumbs";
 import { DataTable, Table } from "~/components/data-table";
@@ -9,7 +9,7 @@ import { FIELD, FieldError, SelectField } from "~/components/form-fields";
 import { TextInput } from "~/components/inputs";
 import { ConfirmModal } from "~/components/modals";
 import { SideDrawer } from "~/components/side-drawer";
-import { CycleCalendar } from "~/components/susu-cycle";
+import { CycleChips } from "~/components/susu-cycle";
 import { notify } from "~/components/toast";
 import {
   throwAsRouteError,
@@ -241,10 +241,38 @@ export default function SusuAccountDetail({
     staffNames,
     canManage,
     idempotencyKey,
-    today,
   } = loaderData;
   const closed = account.status === "closed";
   const [recording, setRecording] = useState(false);
+
+  /**
+   * Statement filter: one cycle position, picked by clicking its chip.
+   *
+   * Component state rather than a search param, which is what the rest of the
+   * app's filters use, for two reasons specific to this page:
+   *
+   * - There is nothing to ask the server. `listSusuDeposits` takes only `page`
+   *   and `limit`, and the loader already pulls the whole cycle — at most 31
+   *   rows — so every deposit is in hand and filtering is an array filter.
+   * - A search param navigates, which revalidates this loader, which remints
+   *   `idempotencyKey`. The deposit drawer is keyed on it, so filtering while
+   *   the drawer was open would remount it and bin whatever was typed.
+   */
+  const [seq, setSeq] = useState<number | null>(null);
+  const filtering = seq !== null;
+
+  function clearFilter() {
+    setSeq(null);
+  }
+
+  // A chip asks for one position, and one position belongs to exactly one
+  // deposit — the catch-up that covered it, if that is what paid it.
+  const visible =
+    seq === null
+      ? deposits
+      : deposits.filter(
+          (deposit) => deposit.seqStart <= seq && seq <= deposit.seqEnd,
+        );
 
   useEffect(() => {
     if (actionData?.ok) notify.success(actionData.message ?? "Done.");
@@ -317,25 +345,76 @@ export default function SusuAccountDetail({
         />
       )}
 
-      {/* The statement leads. It is the reconciliation record — the thing
-          someone opening this page is checking a passbook against — and the
-          calendar is the same deposits drawn rather than listed. Two or three
-          month cards above it pushed the figures below the fold on every
-          visit, including the ones where nobody was looking at dates. */}
-      <section>
-        <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted">
-          Statement
-        </h2>
+      {/* The cycle leads: one panel about four rows deep, so the state of the
+          account and the first few deposits land on the same screen. The month
+          grid this replaced was two or three cards tall, which is what pushed
+          the statement below the fold and sent it above the cycle in the first
+          place — at this height the ordering can go back to the way it reads:
+          where the cycle stands, then the deposits that got it there. */}
+      {/* No visible heading: the panel opens with "Day 12 of 31", which says
+          what a "Cycle" label would have said and says it with the numbers in
+          it. The label stays on the section for screen readers, which get no
+          such hint from the layout. */}
+      <section aria-label="Cycle">
+        <CycleChips
+          account={account}
+          deposits={deposits}
+          selectedSeq={seq}
+          // A toggle: clicking the day already isolated clears the filter,
+          // so the chip that turned the statement down to one row is also
+          // the way back — without hunting for the Clear button.
+          onSelectSeq={(next) =>
+            setSeq((prev) => (prev === next ? null : next))
+          }
+        />
+
+        {/* Hidden for now — put this line back to show it again. */}
+        {/* <MoneyCard account={account} /> */}
+      </section>
+
+      <section className="mt-8">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-muted">
+            Statement
+          </h2>
+
+          {/* The way out, for anyone who doesn't guess that clicking the lit
+              chip again is the other one. */}
+          {filtering && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="min-h-8 rounded-md"
+              onPress={clearFilter}
+            >
+              <X size={14} />
+              Clear
+            </Button>
+          )}
+        </div>
+
+        {/* Said only while it applies: which day is showing, and how much of
+            the statement it is hiding. */}
+        {filtering && (
+          <p className="mb-2 text-xs text-muted">
+            Showing {visible.length} of {deposits.length} deposits — day {seq}{" "}
+            of the cycle.
+          </p>
+        )}
+
         <DataTable
           columns={["When", "Days", "Amount", "Channel", "Recorded by"]}
           ariaLabel="Deposit history"
+          // No filtered-empty case to handle: only a paid chip is clickable,
+          // and the position it names always belongs to exactly one deposit.
           emptyContent={{
             icon: <HandCoins size={20} />,
             title: "No deposits yet",
             subtext: "The first deposit will appear here.",
           }}
         >
-          {deposits.map((deposit) => (
+          {visible.map((deposit) => (
             <Table.Row key={deposit.id} id={deposit.id}>
               <Table.Cell className="px-4 py-2 text-muted">
                 {formatDateTime(deposit.createdAt)}
@@ -367,21 +446,6 @@ export default function SusuAccountDetail({
             </Table.Row>
           ))}
         </DataTable>
-      </section>
-
-      {/* Full width, same as the statement: the months are a grid that wants
-          the whole line — three across on a wide screen — and a 31-day cycle
-          spans two or three of them. Nothing can sit beside this. */}
-      <section className="mt-8">
-        <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted">
-          Cycle
-        </h2>
-        {/* No card around it: each month is already a bordered card of its
-            own, and a box inside a box put two borders around every date. */}
-        <CycleCalendar account={account} deposits={deposits} today={today} />
-
-        {/* Hidden for now — put this line back to show it again. */}
-        {/* <MoneyCard account={account} /> */}
       </section>
     </div>
   );

@@ -1,4 +1,4 @@
-import { formatDate } from "~/lib/format";
+import { formatDate, formatMonth } from "~/lib/format";
 import { formatGhs } from "~/lib/money";
 import {
   buildCycleCalendar,
@@ -27,6 +27,214 @@ import {
  * visits that never happened, and reconciling a statement against them is
  * exactly where that lie gets found.
  */
+
+/**
+ * The cycle as 31 chips — the paper susu card, which is literally a row of
+ * numbered boxes a collector marks off.
+ *
+ * One chip is one *position* in the cycle, not one visit. That distinction is
+ * the whole reason the calendar next door exists, so it has to be handled
+ * rather than ignored: a single payment covering four days fills four chips,
+ * because four positions really were covered, and those four carry a dashed
+ * edge to say they arrived as one payment rather than four trips to the
+ * counter. Solid means somebody walked in that day.
+ *
+ * What a chip cannot show is *when*. Position 12 is position 12 whether it was
+ * paid on time or three weeks late, so the date lives in each chip's title and
+ * screen-reader text, and the statement above carries every one in full.
+ */
+export function CycleChips({
+  account,
+  deposits,
+  selectedSeq = null,
+  onSelectSeq,
+}: {
+  account: SusuAccount;
+  /** Every deposit on the cycle — `limit: 100`, same as the calendar wants. */
+  deposits: SusuDeposit[];
+  /**
+   * The cycle position picked by clicking a chip, if any. A position rather
+   * than a date, because several positions can share one date — every day of
+   * a catch-up does — and selecting by date lit the whole run when only one
+   * day had been clicked.
+   */
+  selectedSeq?: number | null;
+  /**
+   * Called with a paid chip's position when it is clicked. Omit and the chips
+   * are read-only — they stay plain text, not buttons that do nothing.
+   */
+  onSelectSeq?: (seq: number) => void;
+}) {
+  const filtering = selectedSeq != null;
+  // Position -> the deposit that covered it. A catch-up spans seqStart..seqEnd,
+  // so one deposit claims several positions.
+  const bySeq = new Map<number, SusuDeposit>();
+  for (const deposit of deposits) {
+    for (let seq = deposit.seqStart; seq <= deposit.seqEnd; seq += 1) {
+      bySeq.set(seq, deposit);
+    }
+  }
+
+  const hasCatchUp = deposits.some((deposit) => deposit.daysCovered > 1);
+
+  /**
+   * The chips in runs of one month, so the row can be labelled.
+   *
+   * Contiguous by construction: positions fill in order and time only moves
+   * forwards, so every position paid in July sits before every position paid
+   * in August, and the tail nobody has paid yet is the last run of all. That
+   * is what lets a run be a column span rather than a scattered set.
+   */
+  const runs: { key: string; label: string; span: number }[] = [];
+  for (let seq = 1; seq <= account.cycleTarget; seq += 1) {
+    const deposit = bySeq.get(seq);
+    // Grouped on the raw `YYYY-MM`, not on the label — a cycle that ran over a
+    // year end would otherwise merge two Januaries into one run.
+    const key = deposit ? deposit.createdAt.slice(0, 7) : "";
+    const label = deposit ? formatMonth(deposit.createdAt) : "Not yet";
+    const last = runs[runs.length - 1];
+    if (last && last.key === key) last.span += 1;
+    else runs.push({ key, label, span: 1 });
+  }
+
+  // One set of columns, shared by the month band and the chips, so a label
+  // sits exactly over the days it covers.
+  const columns = {
+    gridTemplateColumns: `repeat(${account.cycleTarget}, minmax(0, 1fr))`,
+  };
+
+  return (
+    <div className="rounded-lg border-2 border-border bg-surface p-3">
+      {/* Count, total and key all on one line. Each was a row of its own and
+          the panel ran to four — for thirty-one numbers, a legend and a figure
+          that between them say one sentence. The key sits here rather than
+          under the chips because it is the least of the three and gets the
+          leftover width; below `sm` it wraps to its own line, which is the one
+          place the space is actually free. */}
+      <div className="mb-2.5 flex flex-wrap items-baseline gap-x-4 gap-y-1.5">
+        <p className="text-sm font-semibold tabular-nums text-foreground">
+          Day {account.depositsCount} of {account.cycleTarget}
+        </p>
+        <p className="text-xs tabular-nums text-muted">
+          {formatGhs(account.totalDeposited)} saved
+        </p>
+
+        <ul className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted">
+          <ChipKey className="border-success bg-success" label="Paid" />
+          {/* Only worth explaining the dashed chips when there are some. */}
+          {hasCatchUp && (
+            <ChipKey
+              className="border-dashed border-success bg-success/20"
+              label="Catch-up"
+            />
+          )}
+          <ChipKey
+            className="border-transparent bg-background"
+            label="Not yet"
+          />
+        </ul>
+      </div>
+
+      {/* The whole cycle on one line, chips stretched to fill it, so the row
+          reads as a bar divided into 31 rather than a bag of pills. It stops
+          shrinking at 46rem and scrolls sideways below that — squeezing 31
+          two-digit numbers into a phone's width makes them unreadable, and a
+          timeline is a thing people expect to scroll. */}
+      <div className="overflow-x-auto">
+        <div className="min-w-184">
+          {/* Month band. Same columns as the chips, each label spanning its
+              own run, so the tick marks where a month begins. */}
+          <ul className="mb-1 grid gap-1" style={columns}>
+            {runs.map((run) => (
+              <li
+                key={run.key || "unpaid"}
+                style={{ gridColumn: `span ${run.span}` }}
+                className="truncate border-l-2 border-border pl-1.5 text-[10px] font-bold uppercase tracking-wide text-muted"
+              >
+                {run.label}
+              </li>
+            ))}
+          </ul>
+
+          <ul className="grid gap-1" style={columns}>
+        {Array.from({ length: account.cycleTarget }, (_, index) => {
+          const seq = index + 1;
+          const deposit = bySeq.get(seq);
+          const catchUp = deposit ? deposit.daysCovered > 1 : false;
+          const picked = seq === selectedSeq;
+
+          const face = deposit
+            ? catchUp
+              ? "border-dashed border-success bg-success/20 text-foreground"
+              : "border-success bg-success text-success-foreground"
+            : "border-transparent bg-background text-muted";
+
+          // While a day is picked, the rest fade rather than recolour: a
+          // greyed-out green chip still reads as paid, where repainting it
+          // would read as a day nobody paid.
+          const dimmed = filtering && !picked ? "opacity-35" : "";
+          const ringed = picked ? "ring-2 ring-accent" : "";
+
+          const spoken = deposit
+            ? `Day ${seq}: paid ${formatDate(deposit.createdAt)}${
+                catchUp
+                  ? `, one of ${deposit.daysCovered} days covered together`
+                  : ""
+              }`
+            : `Day ${seq}: not yet paid`;
+
+          const chip = `flex w-full items-center justify-center rounded-full border-2 py-0.5 text-[11px] font-semibold tabular-nums transition-opacity ${face} ${dimmed} ${ringed}`;
+
+          // Only a paid day has something to filter to. An unpaid one stays a
+          // plain span — a disabled button here would be 20-odd focus stops
+          // that lead nowhere.
+          if (!deposit || !onSelectSeq) {
+            return (
+              <li key={seq} className="min-w-0">
+                <span title={spoken} className={chip}>
+                  <span aria-hidden="true">{seq}</span>
+                  <span className="sr-only">{spoken}</span>
+                </span>
+              </li>
+            );
+          }
+
+          return (
+            <li key={seq} className="min-w-0">
+              <button
+                type="button"
+                // Pressed, not selected: this is a toggle, and clicking the
+                // day already isolated is how you clear it.
+                aria-pressed={picked}
+                title={`${spoken}. Click to show this day only.`}
+                onClick={() => onSelectSeq(seq)}
+                className={`${chip} cursor-pointer hover:ring-2 hover:ring-accent/50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent`}
+              >
+                <span aria-hidden="true">{seq}</span>
+                <span className="sr-only">{spoken}. Show this day only.</span>
+              </button>
+            </li>
+          );
+        })}
+        </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One swatch in the key, shaped like the chips it explains. */
+function ChipKey({ className, label }: { className: string; label: string }) {
+  return (
+    <li className="flex items-center gap-1">
+      <span
+        aria-hidden="true"
+        className={`inline-block h-3 w-5 rounded-full border-2 ${className}`}
+      />
+      {label}
+    </li>
+  );
+}
 
 export function CycleCalendar({
   account,

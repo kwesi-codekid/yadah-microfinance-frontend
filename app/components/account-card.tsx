@@ -96,7 +96,7 @@ export function AccountCard({ account }: { account: SusuAccount }) {
        above it. */
     <article
       className={[
-        "group relative flex aspect-[1.586] flex-col justify-between overflow-hidden rounded-2xl p-4 text-white shadow-sm",
+        "group relative flex aspect-[1.586] flex-col justify-between overflow-hidden rounded-lg p-4 text-white shadow-sm",
         "transition-[transform,box-shadow] duration-200 hover:-translate-y-1 hover:shadow-lg motion-reduce:transition-none motion-reduce:hover:translate-y-0",
         FACE[account.status],
       ].join(" ")}
@@ -106,7 +106,7 @@ export function AccountCard({ account }: { account: SusuAccount }) {
       <Link
         to={`/susu/${account.id}`}
         aria-label={`Susu account ${ref}, ${formatGhs(account.dailyAmount)} daily, ${account.depositsCount} of ${account.cycleTarget} days paid, ${account.status}. View details.`}
-        className="absolute inset-0 z-10 rounded-2xl outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent"
+        className="absolute inset-0 z-10 rounded-lg outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent"
       />
 
       {/* Everything above the sheen. */}
@@ -136,7 +136,7 @@ export function AccountCard({ account }: { account: SusuAccount }) {
               the card's proportions, not push the strip off the bottom edge.
               The dots run to about the width of a four-figure balance, so
               revealing one barely moves the row. */}
-          <p className="truncate font-sen text-3xl font-semibold tabular-nums">
+          <p className="truncate font-sen text-xl font-semibold tabular-nums">
             {showBalance ? formatGhs(account.totalDeposited) : `${CEDI}••••••`}
           </p>
           <button
@@ -214,5 +214,5 @@ function TickStrip({ account }: { account: SusuAccount }) {
 
 /** Placeholder at the card's exact proportions, so the grid doesn't jump. */
 export function AccountCardSkeleton() {
-  return <Skeleton className="aspect-[1.586] w-full rounded-2xl" />;
+  return <Skeleton className="aspect-[1.586] w-full rounded-lg" />;
 }
