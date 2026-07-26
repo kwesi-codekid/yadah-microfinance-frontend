@@ -26,27 +26,21 @@ export function Sidebar({
   return (
     <aside
       className={[
-        "flex h-screen flex-col border-r-2 border-border bg-surface text-foreground transition-[width] duration-200 shadow-none",
+        // No right border: the rail and the top bar are one white shell, and
+        // the grey content panel beside it is its own edge. A rule here would
+        // sit a line against that panel's rounded corner.
+        "flex h-screen flex-col bg-surface text-foreground transition-[width] duration-200 shadow-none",
         collapsed ? "w-16" : "w-56",
         className,
       ].join(" ")}
     >
-      {/* Brand */}
-      <div
-        className={[
-          "flex h-12 shrink-0 items-center gap-2 border-b-2 border-border px-3",
-          collapsed ? "justify-center" : "",
-        ].join(" ")}
-      >
-        <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-success/10"
-          aria-hidden="true"
-        >
-          <img src="/favicon.png" alt="" className="size-5" />
-        </span>
+      {/* Brand. `justify-center` in both states, not `text-center` when
+          expanded: this is a flex container, so the wordmark is a flex item and
+          text alignment can't move it — it sat against the left padding. */}
+      <div className="flex h-12 shrink-0 items-center justify-center px-3 mt-4">
         {!collapsed && (
-          <span className="truncate font-heading font-bold ">
-            YADAH
+          <span className="truncate font-heading font-bold text-success">
+            YADAH DYNAMICS
           </span>
         )}
       </div>

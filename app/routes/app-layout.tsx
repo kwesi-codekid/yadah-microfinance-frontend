@@ -45,9 +45,14 @@ export default function AppLayout() {
       {/* Desktop rail; below lg the bottom tab bar takes over. */}
       <Sidebar collapsed={collapsed} user={user} className="hidden lg:flex" />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* White bar over the grey canvas, matching the surface of the rail. */}
-        <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b-2 border-border bg-surface px-6 shadow-none">
+      {/* White, so the grey panel below can round its top-left corner against
+          something. The rail, this column and the bar are all one continuous
+          white shell; the only thing that reads as a separate surface is the
+          content panel. */}
+      <div className="flex min-w-0 flex-1 flex-col bg-surface">
+        {/* No bottom border: the grey panel's edge is the separation, and a
+            line here would cut straight across its rounded corner. */}
+        <header className="flex h-12 shrink-0 items-center justify-between gap-3 bg-surface px-6 shadow-none">
           <button
             type="button"
             onClick={toggle}
@@ -75,10 +80,13 @@ export default function AppLayout() {
             <UserMenu  name={user.name} role={ROLE_LABELS[user.role]} />
           </div>
         </header>
-        {/* White like the rail and top bar, rather than the grey canvas — the
-            page content sits directly on the surface. Bottom padding clears
-            the floating tab bar; desktop drops it. */}
-        <main className="flex-1 overflow-y-auto bg-surface pb-24 lg:pb-0">
+        {/* The grey canvas, inset into the white shell as a rounded panel with
+            no border. The corner is what marks the boundary — a hairline there
+            would only draw the eye to the seam. Rounded from `lg` up, where
+            the rail gives it a left edge to turn against; on mobile the panel
+            runs to the viewport edge and a corner there is a notch out of
+            nothing. Bottom padding clears the floating tab bar. */}
+        <main className="flex-1 overflow-y-auto bg-background pb-24 lg:rounded-tl-lg lg:pb-0">
           <Outlet />
         </main>
       </div>
