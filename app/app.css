@@ -1,0 +1,203 @@
+@import "tailwindcss";
+@import "@heroui/styles";
+
+/* ---------------------------------------------------------------------------
+   Yadah palette
+   ---------------------------------------------------------------------------
+   Every hue below is sampled from the logo — the ring of linked people around
+   the cedi coins (public/favicon.png) — then set light: white cards floating on
+   a cool grey canvas, one warm orange doing all the work, and the rest of the
+   ring held back for categories and status.
+
+   Logo source hues, read clockwise around the ring:
+     navy #014171 · orange #e57602 · gold #e5a600
+     green #2b6a31 · teal #178175 · red #b8232f
+   --------------------------------------------------------------------------- */
+
+@theme {
+  --font-sans: "Nunito", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-heading: "Montserrat", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-sen: "Sen", ui-sans-serif, system-ui, sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  /* Brand — the logo's orange, brightened for a light UI. `brand` is a FILL
+     colour (white label on top, as on the primary button). For orange *text*
+     on a white surface use `brand-dark`, which is the same hue darkened until
+     it clears 4.5:1 — `brand` itself only reaches ~2.9:1 against white. */
+  --color-brand-50: #fff5ec;
+  --color-brand-100: #ffe8d4;
+  --color-brand-200: #fecfa8;
+  --color-brand-300: #fdad70;
+  --color-brand-400: #fb8a3c;
+  --color-brand: #f4741e;
+  --color-brand-light: #fdad70;
+  --color-brand-dark: #b8480a;
+  --color-brand-foreground: #ffffff;
+
+  /* Gold — the coins at the centre of the mark. Reserved for money emphasis
+     and warnings, never for primary actions (that's `brand`). */
+  --color-gold: #e5a600;
+  --color-gold-light: #ffd24d;
+  --color-gold-dark: #8f6600; /* AA on white */
+
+  /* The rest of the ring. `teal` is the deep green used on the balance card. */
+  --color-teal: #178175;
+  --color-teal-light: #2aa393;
+  --color-teal-dark: #0f5f56;
+
+  --color-leaf: #2b6a31;
+  --color-leaf-light: #3f9a49;
+
+  --color-navy: #014171;
+  --color-navy-light: #1c5f96;
+  --color-navy-dark: #012c4d;
+
+  --color-crimson: #c0293a;
+
+  /* Category ramp for charts, spend breakdowns and chips — the logo ring in
+     clockwise order, so a multi-series chart reads as the mark unrolled.
+     Use in order; don't reach past cat-7 (add a second ramp instead). */
+  --color-cat-1: #f4741e; /* orange */
+  --color-cat-2: #e5a600; /* gold   */
+  --color-cat-3: #f5cf3f; /* yellow */
+  --color-cat-4: #3f9a49; /* green  */
+  --color-cat-5: #178175; /* teal   */
+  --color-cat-6: #1c5f96; /* navy   */
+  --color-cat-7: #c0293a; /* red    */
+}
+
+/* HeroUI runtime tokens. These are what every HeroUI component and every
+   `bg-surface` / `text-muted` / `border-border` utility resolves to, so the
+   whole app follows from this block. Declared unlayered on purpose — HeroUI
+   ships its defaults inside `@layer base`, so unlayered rules win. */
+:root,
+.light,
+.default,
+[data-theme="light"],
+[data-theme="default"] {
+  /* Canvas is grey, cards are white — the contrast between the two is what
+     makes the layout read as panels rather than one flat page. */
+  --background: #f4f5f7;
+  --foreground: #161a1f;
+
+  --surface: #ffffff;
+  --surface-foreground: var(--foreground);
+  --surface-secondary: #fafbfc;
+  --surface-tertiary: #f1f2f5;
+
+  --overlay: #ffffff;
+  --overlay-foreground: var(--foreground);
+
+  --muted: #6b7280; /* 4.8:1 on white — safe for secondary text */
+
+  --border: #e8eaee;
+  --separator: #eef0f3;
+  --default: #f1f2f5;
+
+  /* Fields carry a visible hairline in this theme (HeroUI defaults to none). */
+  --field-background: #ffffff;
+  --field-border: #e2e5ea;
+  --field-border-width: 1px;
+
+  --accent: #f4741e;
+  --accent-foreground: #ffffff;
+
+  --success: #1f8a41;
+  --success-foreground: #ffffff;
+  --warning: #e5a600;
+  --warning-foreground: #161a1f;
+  --danger: #c0293a;
+  --danger-foreground: #ffffff;
+
+  --link: #b8480a;
+
+  /* 12px corners on controls and fields; cards go larger via `rounded-2xl`. */
+  --radius: 0.75rem;
+  --field-radius: 0.75rem;
+}
+
+.dark,
+[data-theme="dark"] {
+  --background: #0b0d10;
+  --foreground: #f4f5f7;
+
+  --surface: #14171a;
+  --surface-secondary: #1a1e22;
+  --surface-tertiary: #212529;
+  --overlay: #14171a;
+
+  --muted: #9aa1ab;
+  --border: #23262b;
+  --separator: #1c1f23;
+  --default: #212529;
+
+  --field-background: #14171a;
+  --field-border: #2a2e34;
+
+  /* Lifted orange — the light-theme fill is too dense on a dark surface. */
+  --accent: #fb8a3c;
+  --accent-foreground: #161a1f;
+
+  --success: #34b160;
+  --success-foreground: #161a1f;
+  --warning: #f0bc3a;
+  --warning-foreground: #161a1f;
+  --danger: #e35566;
+  --danger-foreground: #161a1f;
+
+  --link: #fdad70;
+}
+
+html,
+body {
+  @apply bg-background text-foreground;
+
+  @media (prefers-color-scheme: dark) {
+    color-scheme: dark;
+  }
+}
+
+/* Invalid fields: one red border and nothing else.
+
+   By default HeroUI draws the error *outside* the field — `invalid-field-ring`
+   adds a 1px `outline-danger` unfocused and a 2px `ring-danger` on focus — while
+   the field keeps its own border colour underneath. Two colours, stacked.
+   Its hover rule (`.input:hover:not(:focus):not(:focus-visible)`) also repaints
+   the border, so per-field utilities have to out-rank a 4-deep selector.
+
+   Declared unlayered instead: layer order is compared before specificity, so
+   this beats HeroUI's `components` layer AND Tailwind's `utilities` layer
+   without a single `!important`. Same trick the theme tokens above use. */
+.input[data-invalid="true"] {
+  border-color: var(--danger);
+  outline: none;
+  box-shadow: none;
+}
+
+/* Focus still has to be visible on an invalid field — killing the box-shadow
+   above removes HeroUI's focus ring, so put one back in the same red. */
+.input[data-invalid="true"]:focus,
+.input[data-invalid="true"][data-focused="true"] {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 25%, transparent);
+}
+
+/* Keep the default heading font in the `base` layer so utility classes like
+   `font-sen` / `font-sans` can still override it on individual elements
+   (unlayered rules would otherwise beat Tailwind's layered utilities). */
+@layer base {
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+/* First-paint hidden state for the mobile login sheet, so its Framer Motion
+   entrance can't flash the card in its final position before JS runs. Scoped
+   to mobile + motion-OK only; Framer's inline styles take over the moment it
+   animates in, and desktop / reduced-motion users never see the hidden state. */
+@media (max-width: 1023px) and (prefers-reduced-motion: no-preference) {
+  .login-sheet {
+    transform: translateY(100%);
+  }
+}
