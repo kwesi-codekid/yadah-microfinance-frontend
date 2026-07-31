@@ -358,12 +358,18 @@ export default function CustomerDetail({
         // someone mid-form would throw away everything typed, and the bar at
         // the foot of the page owns the two actions that do apply.
         actions={
-          canManage &&
           !editing && (
             <>
               {/* First in the row: what someone is saving is asked far more
                   often than what their profile says, and opening a cycle
-                  starts from that page too. */}
+                  starts from that page too.
+
+                  Every role, not just office. A collector's whole job is on
+                  the other side of this link — the account page is where a
+                  deposit is recorded, and any collector may now collect on any
+                  account. Office-only, it was a customer directory a collector
+                  could read and nothing they could act on. Opening an account
+                  is still office-only; that is gated on the page itself. */}
               <Link
                 to={`/customers/${customer.id}/accounts`}
                 className="flex min-h-9 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-background"
@@ -371,16 +377,20 @@ export default function CustomerDetail({
                 <WalletCards size={14} />
                 Accounts
               </Link>
-              {/* A search param on this same page, not a route of its own —
-                  the fields turn into inputs where they already sit. */}
-              <Link
-                to="?edit"
-                className="flex min-h-9 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-background"
-              >
-                <Pencil size={14} />
-                Edit
-              </Link>
-              <StatusButton customer={customer} />
+              {canManage && (
+                <>
+                  {/* A search param on this same page, not a route of its own —
+                      the fields turn into inputs where they already sit. */}
+                  <Link
+                    to="?edit"
+                    className="flex min-h-9 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-background"
+                  >
+                    <Pencil size={14} />
+                    Edit
+                  </Link>
+                  <StatusButton customer={customer} />
+                </>
+              )}
             </>
           )
         }

@@ -25,6 +25,14 @@ interface DataTableProps {
   ariaLabel?: string;
   /** Tailwind max-height for the scroll area. */
   heightClass?: string;
+  /**
+   * Extra classes on the table's own wrapper.
+   *
+   * For fitting the table into a layout — `flex-auto` inside a flex column
+   * lets it grow into the height it is given, which is how two tables in one
+   * grid row end up the same height.
+   */
+  className?: string;
   emptyContent?: EmptyContent;
   bottomContent?: ReactNode;
   /**
@@ -55,6 +63,7 @@ export const DataTable = ({
   isLoading,
   ariaLabel = "Data table",
   heightClass = "max-h-[60vh]",
+  className = "",
   emptyContent,
   bottomContent,
   paginated,
@@ -68,6 +77,16 @@ export const DataTable = ({
 }: DataTableProps) => {
   // Controlled (server) mode: the caller owns page/size and fetches each page.
   const controlled = pageProp !== undefined && onPageChange !== undefined;
+
+  /**
+   * Whether the table owns a scroll area at all.
+   *
+   * `max-h-none` is how a caller says "this page already scrolls, don't put a
+   * second scroller inside it" — the dashboard does exactly that for both of
+   * its record tables. It has to change the box's flex behaviour too, not just
+   * the max-height; see the comment on the bordered box below.
+   */
+  const capped = heightClass !== "max-h-none";
 
   const [internalPage, setInternalPage] = useState(1);
   const [internalSize, setInternalSize] = useState(pageSizeOptions[0] ?? 10);
@@ -104,12 +123,46 @@ export const DataTable = ({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className={`flex min-w-0 flex-col gap-4 ${className}`}>
       {/* The bordered box holds only the scrollable table; the pager sits
-          outside it, spaced by the wrapper's `gap-4`. */}
-      <div className="w-full overflow-hidden  rounded-lg border-2 border-border bg-surface ">
+          outside it, spaced by the wrapper's `gap-4`.
+
+          `grow shrink-0` when the height is uncapped, and not `flex-auto`.
+          Both grow into spare height — which is how two tables in one grid row
+          end up the same height — but `flex-auto` can still *shrink*: this box
+          carries `overflow-hidden`, and an overflow other than `visible`
+          resolves a flex item's automatic minimum size to 0 rather than to its
+          content. So the row could be squeezed under its own rows, and the
+          scroll area inside (`overflow-auto`) would answer with a vertical
+          scrollbar of its own — a scroller inside a page that already scrolls,
+          two bars, and a wheel that stops the page dead over the rows.
+          `shrink-0` is what actually floors it at the content height.
+
+          With a cap (`max-h-[60vh]`) the inner scroller is the point, so the
+          box is left free to take the height it is given. */}
+      <div
+        /* `dark:bg-canvas` on all three layers: the box, the scrollport and
+           the table itself. In the light theme a white table on the grey
+           canvas is the panel/page split the layout is built on; in the dark
+           one the canvas is near-black already, and lifting the table to
+           `--surface` leaves a grey slab floating on the page beside cards
+           that don't. The `border-2` holds the edge either way. */
+        className={`w-full overflow-hidden rounded-lg border-2 border-border bg-surface dark:bg-canvas ${
+          capped ? "flex-auto" : "shrink-0 grow"
+        }`}
+      >
         <Table variant="secondary" className="w-full shadow-none">
-          <Table.ScrollContainer className={`${heightClass} overflow-auto bg-surface`}>
+          <Table.ScrollContainer
+            /* Uncapped means the caller owns the scrolling, so this must not be
+               able to become a scrollport at all — `overflow-auto` here grows a
+               bar the moment anything constrains the box, which is the exact
+               thing `max-h-none` is passed to prevent. HeroUI's own
+               `.table__scroll-container` sets `overflow-x-auto`; Tailwind's
+               utilities layer out-ranks its components layer, so this wins. */
+            className={`${heightClass} bg-surface dark:bg-canvas ${
+              capped ? "overflow-auto" : "overflow-visible"
+            }`}
+          >
             {/* HeroUI sets `text-sm` and a bottom border on `.table__cell`
                 itself, so both have to be out-ranked here — a descendant
                 selector on the container does that for every caller's cells at
@@ -117,7 +170,7 @@ export const DataTable = ({
                 (a `th`, untouched by these), and rows read as a list. */}
             <Table.Content
               aria-label={ariaLabel}
-              className="w-full bg-surface [&_td]:border-b-0 [&_td]:text-xs"
+              className="w-full bg-surface [&_td]:border-b-0 [&_td]:text-xs dark:bg-canvas"
             >
               <Table.Header>
                 {columns.map((column, index) => (
@@ -125,7 +178,14 @@ export const DataTable = ({
                     key={column}
                     id={column}
                     isRowHeader={index === 0}
-                    className="sticky top-0 z-10 rounded-none border-b border-border bg-surface-secondary px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-foreground"
+                    /* Sticky only when the table owns a scroll area. Sticky
+                       resolves against the nearest scrollport, so with
+                       `max-h-none` there isn't one and `top-0` would pin the
+                       header to the *page* instead — the header detaches from
+                       its own rows and rides over whatever is above it. */
+                    className={`rounded-none border-b border-border bg-surface-secondary px-4 py-2.5 text-left text-xs font-bold uppercase tracking-wide text-foreground ${
+                      capped ? "sticky top-0 z-10" : ""
+                    }`}
                   >
                     {column}
                   </Table.Column>

@@ -6,12 +6,12 @@
    ---------------------------------------------------------------------------
    Every hue below is sampled from the logo — the ring of linked people around
    the cedi coins (public/favicon.png) — then set light: white cards floating on
-   a cool grey canvas, one warm orange doing all the work, and the rest of the
+   a cool grey canvas, one deep red doing all the work, and the rest of the
    ring held back for categories and status.
 
    Logo source hues, read clockwise around the ring:
-     navy #014171 · orange #e57602 · gold #e5a600
-     green #2b6a31 · teal #178175 · red #b8232f
+     navy #014171 · gold #e5a600 · yellow #f5cf3f · green #2b6a31
+     teal #178175 · red #b8232f · steel #6b8fae (the chain)
    --------------------------------------------------------------------------- */
 
 @theme {
@@ -22,18 +22,27 @@
   --font-sen: "Sen", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 
-  /* Brand — the logo's orange, brightened for a light UI. `brand` is a FILL
-     colour (white label on top, as on the primary button). For orange *text*
-     on a white surface use `brand-dark`, which is the same hue darkened until
-     it clears 4.5:1 — `brand` itself only reaches ~2.9:1 against white. */
-  --color-brand-50: #fff5ec;
-  --color-brand-100: #ffe8d4;
-  --color-brand-200: #fecfa8;
-  --color-brand-300: #fdad70;
-  --color-brand-400: #fb8a3c;
-  --color-brand: #f4741e;
-  --color-brand-light: #fdad70;
-  --color-brand-dark: #b8480a;
+  /* Brand — the logo's red, straight off the ring rather than brightened.
+     `brand` is a FILL colour (white label on top, 6.3:1) and, unlike the
+     orange it replaced, it is also safe as *text* on white at the same ratio —
+     the orange only reached ~2.9:1, which is the reason `brand-dark` exists.
+     `brand-dark` is kept for hovers and for text that has to sit on the pale
+     tints (`bg-brand/15`), where the base hue is too light to carry.
+
+     Known tension, stated rather than hidden: `--danger` (#c0293a) is now the
+     same colour to the eye — 1.09:1 against `brand`. Nothing red is
+     load-bearing on its own in this app (destructive actions carry their own
+     words and a confirm step, and primary actions are green), but if the two
+     ever need to be told apart at a glance, this is the pair to move — not the
+     brand. */
+  --color-brand-50: #fdf3f4;
+  --color-brand-100: #fbe1e3;
+  --color-brand-200: #f5bcc0;
+  --color-brand-300: #e98d94;
+  --color-brand-400: #d4515e;
+  --color-brand: #b8232f;
+  --color-brand-light: #e98d94;
+  --color-brand-dark: #8c1420;
   --color-brand-foreground: #ffffff;
 
   /* Gold — the coins at the centre of the mark. Reserved for money emphasis
@@ -67,14 +76,19 @@
 
   /* Category ramp for charts, spend breakdowns and chips — the logo ring in
      clockwise order, so a multi-series chart reads as the mark unrolled.
-     Use in order; don't reach past cat-7 (add a second ramp instead). */
-  --color-cat-1: #f4741e; /* orange */
+     Use in order; don't reach past cat-7 (add a second ramp instead).
+
+     Slot 1 is the brand red now that the orange is gone, and slot 7 — which
+     used to be a second red a shade off it — is the steel blue of the chain
+     that rings the mark. Two near-identical reds in one categorical ramp is a
+     defect: the whole job of these seven is to be told apart. */
+  --color-cat-1: #b8232f; /* red    */
   --color-cat-2: #e5a600; /* gold   */
   --color-cat-3: #f5cf3f; /* yellow */
   --color-cat-4: #3f9a49; /* green  */
   --color-cat-5: #178175; /* teal   */
   --color-cat-6: #1c5f96; /* navy   */
-  --color-cat-7: #c0293a; /* red    */
+  --color-cat-7: #6b8fae; /* steel  */
 }
 
 /* HeroUI runtime tokens. These are what every HeroUI component and every
@@ -117,7 +131,7 @@
   --field-border: #e2e5ea;
   --field-border-width: 1px;
 
-  --accent: #f4741e;
+  --accent: #b8232f;
   --accent-foreground: #ffffff;
 
   --success: #1f8a41;
@@ -127,7 +141,7 @@
   --danger: #c0293a;
   --danger-foreground: #ffffff;
 
-  --link: #b8480a;
+  --link: #a51d28;
 
   /* 12px corners on controls and fields; cards go larger via `rounded-2xl`. */
   --radius: 0.75rem;
@@ -156,8 +170,10 @@
   --field-background: #14171a;
   --field-border: #2a2e34;
 
-  /* Lifted orange — the light-theme fill is too dense on a dark surface. */
-  --accent: #fb8a3c;
+  /* Lifted red — the light-theme fill is too dense on a dark surface, and it
+     has to come up far enough that the dark label on it still clears 4.5:1
+     (this reaches 6:1). */
+  --accent: #ef7079;
   --accent-foreground: #161a1f;
 
   --success: #34b160;
@@ -167,7 +183,7 @@
   --danger: #e35566;
   --danger-foreground: #161a1f;
 
-  --link: #fdad70;
+  --link: #f19aa0;
 }
 
 html,
@@ -200,6 +216,23 @@ body {
    above removes HeroUI's focus ring, so put one back in the same red. */
 .input[data-invalid="true"]:focus,
 .input[data-invalid="true"][data-focused="true"] {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 25%, transparent);
+}
+
+/* The OTP slots have the same problem and need the same answer. `SLOT_CLASS` in
+   verify-otp.tsx paints them `border-success/50` from the utilities layer, which
+   would otherwise leave every box green while the error shows only as a ring
+   around it — a red-and-green field that reads as neither. Unlayered here, so a
+   rejected code turns the boxes themselves red. */
+.input-otp__slot[data-invalid="true"] {
+  border-color: var(--danger);
+  outline: none;
+  box-shadow: none;
+}
+
+/* The caret still has to be findable in an invalid field: `data-active` is the
+   slot the cursor is in, and the rule above just removed its focus ring. */
+.input-otp__slot[data-invalid="true"][data-active="true"] {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 25%, transparent);
 }
 

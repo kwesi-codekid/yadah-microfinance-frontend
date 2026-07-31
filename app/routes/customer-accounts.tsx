@@ -9,6 +9,7 @@ import {
 } from "react-router";
 import { Button } from "@heroui/react";
 import {
+  HandCoins,
   LoaderCircle,
   PiggyBank,
   Plus,
@@ -25,6 +26,7 @@ import {
 import { Breadcrumbs } from "~/components/breadcrumbs";
 import { CollectionFooter, EmptyState } from "~/components/data-table";
 import { FIELD, FieldError, FilterSelect } from "~/components/form-fields";
+import { TabLink, TabList, type TabTone } from "~/components/tabs";
 import { TextInput } from "~/components/inputs";
 import { SideDrawer } from "~/components/side-drawer";
 import { notify } from "~/components/toast";
@@ -83,13 +85,128 @@ import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 /** The two ledgers this page switches between. */
 type Product = "susu" | "savings";
 
-const PRODUCTS: { value: Product; label: string }[] = [
-  { value: "susu", label: "Susu" },
-  { value: "savings", label: "Savings" },
+/**
+ * The icons are the same two the dashboard's book panel uses for the same two
+ * ledgers — a tab is not the place to introduce a second visual name for
+ * something the app has already named.
+ *
+ * The tone is the face the product's own cards wear (`SAVINGS_FACE` is navy,
+ * `FACE.active` is teal), so the selected tab is ringed in the colour of the
+ * grid it is about to show. Read off `account-card.tsx` by eye rather than
+ * imported: those constants are Tailwind *fill* classes, and a `bg-navy` cannot
+ * be turned into a `ring-navy` without string surgery that would break the
+ * moment either name changed.
+ */
+const PRODUCTS: {
+  value: Product;
+  label: string;
+  icon: React.ReactNode;
+  tone: TabTone;
+}[] = [
+  { value: "susu", label: "Susu", icon: <HandCoins size={14} />, tone: "teal" },
+  {
+    value: "savings",
+    label: "Savings",
+    icon: <PiggyBank size={14} />,
+    tone: "navy",
+  },
 ];
 
 /** Account numbers are six digits for susu and ten for savings. */
 const NUMBER_LENGTH: Record<Product, number> = { susu: 6, savings: 10 };
+
+/* ------------------------------------------------------------------ *
+ * Searching by a partial number
+ *
+ * The API matches account numbers whole and only whole — `accountNumber` on
+ * `GET /susu/accounts` is documented as exactly six digits, and a prefix comes
+ * back as "no such account" rather than as a shortlist. So a search that
+ * narrows as you type cannot be a query parameter; it has to be a match run
+ * over the accounts themselves.
+ *
+ * That is affordable here only because the list is already scoped to one
+ * customer. One person's accounts are a handful — every cycle they have ever
+ * run, plus their savings — not the whole book, so the scan below reads a
+ * bounded set and does it only while there are digits in the field. Browsing
+ * with an empty field still pages against the API exactly as before, and this
+ * costs nothing.
+ *
+ * Do not lift this to a page that lists every customer's accounts. There the
+ * same code would read the entire book on every keystroke, and the answer is a
+ * `q`-style parameter on the API instead.
+ * ------------------------------------------------------------------ */
+
+/** Page size while scanning, and the ceiling on how many pages a scan reads. */
+const SCAN_LIMIT = 100;
+const SCAN_MAX_PAGES = 5;
+
+/**
+ * Every account this customer has, up to `SCAN_MAX_PAGES` pages.
+ *
+ * The cap is a backstop, not a budget: 500 accounts for one person is already
+ * far past anything real, and it exists so a bad `customerId` or a runaway
+ * fixture can't turn one keystroke into an unbounded run of requests. When it
+ * bites, `truncated` says so and the page prints a warning rather than quietly
+ * reporting "no match" for an account that is simply past the cap.
+ */
+async function scanAccounts<T>(
+  fetchPage: (page: number) => Promise<{ items: T[]; total: number }>,
+): Promise<{ items: T[]; truncated: boolean }> {
+  const first = await fetchPage(1);
+  const pages = Math.min(SCAN_MAX_PAGES, Math.ceil(first.total / SCAN_LIMIT));
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, pages - 1) }, (_, i) => fetchPage(i + 2)),
+  );
+  const items = [first.items, ...rest.map((r) => r.items)].flat();
+  return { items, truncated: items.length < first.total };
+}
+
+/**
+ * The matches for what has been typed, as one page of them.
+ *
+ * `includes` rather than `startsWith`: the digits someone has are not always
+ * the leading ones. A number read aloud over a phone arrives in pieces, and the
+ * fragment legible on a worn card is as often the tail as the head.
+ *
+ * Ranked so the closer match wins. A prefix match is what you get when someone
+ * is typing a number they know from the front, and burying it under an account
+ * that merely contains those digits in the middle would make the list feel
+ * wrong exactly when it is being used properly. Ties fall back to the number
+ * itself, so the order is stable between keystrokes instead of reshuffling.
+ */
+function matchNumber<T extends { accountNumber: string }>(
+  items: T[],
+  typed: string,
+): T[] {
+  return items
+    .filter((item) => item.accountNumber.includes(typed))
+    .sort((a, b) => {
+      const byPrefix =
+        Number(b.accountNumber.startsWith(typed)) -
+        Number(a.accountNumber.startsWith(typed));
+      return byPrefix || a.accountNumber.localeCompare(b.accountNumber);
+    });
+}
+
+/**
+ * One page of a list already in hand, in the shape the API's own list results
+ * come back in, so the component can't tell which branch filled it.
+ *
+ * The page is clamped rather than trusted. Deleting a digit widens the match
+ * set, but typing one narrows it, and `?page=3` survives in the URL from the
+ * previous, longer list — without the clamp, narrowing to two matches while on
+ * page 3 shows an empty grid under a pager that says there is only one page.
+ */
+function pageOf<T>(items: T[], page: number, limit: number) {
+  const last = Math.max(1, Math.ceil(items.length / limit));
+  const current = Math.min(page, last);
+  return {
+    items: items.slice((current - 1) * limit, current * limit),
+    page: current,
+    limit,
+    total: items.length,
+  };
+}
 
 // Ties the mobile filter toggle to the group it opens, and the product switch
 // to the list it controls.
@@ -113,19 +230,19 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const limit = Math.max(1, Number(sp.get("limit") || "20") || 20);
 
   /**
-   * The number printed on the customer's card.
+   * The number printed on the customer's card, or as much of it as has been
+   * typed.
    *
    * Digits only and truncated to the selected product's length rather than
    * trusted: the field is the one place a counter types, and `?accountNumber=abc`
-   * is a URL anyone can hand over. A partial number is dropped instead of sent,
-   * because the API matches the whole number and a prefix would come back as "no
-   * such account" when the truth is "keep typing".
+   * is a URL anyone can hand over. One digit is enough to search — see the scan
+   * above — so unlike before, nothing is dropped for being incomplete.
    */
   const length = NUMBER_LENGTH[product];
   const typed = (sp.get("accountNumber") ?? "")
     .replace(/\D/g, "")
     .slice(0, length);
-  const accountNumber = typed.length === length ? typed : undefined;
+  const searchingNumber = typed.length > 0;
 
   /**
    * "All" is a real choice: the API returns every status when the filter is
@@ -150,35 +267,70 @@ export async function loader({ request, params }: Route.LoaderArgs) {
    * worst answer this screen can give. The filter is what you browse with; the
    * number is what you look up.
    */
-  const filtered = accountNumber || selected === "all" ? undefined : selected;
+  const filtered = searchingNumber || selected === "all" ? undefined : selected;
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     // The customer is fetched for their name and status, not decoration: an
     // inactive customer can't be given an account (422 CUSTOMER_INACTIVE), so
     // the button is withheld rather than offered and refused.
+    /**
+     * Two ways to fill the grid, and which one runs is decided by whether
+     * there is anything in the field.
+     *
+     * Browsing pages against the API, one page per request, exactly as it
+     * always did. Searching reads the customer's accounts and matches them
+     * here, then pages the matches itself — the API can't narrow on a partial
+     * number, so `page` and `limit` have to be applied after the match rather
+     * than before it. Sending them to the API and filtering the page that came
+     * back would page through the *unmatched* list: page 2 of a search would
+     * be the accounts ranked 21–40 by nothing in particular, most of them
+     * matching nothing, and the real matches on page 3 would never be seen.
+     */
     const [customer, accounts] = await Promise.all([
       customersApi.getCustomer(token, params.id),
       // Scoped to this customer either way: a number belonging to someone else
       // returns nothing here rather than another person's account.
       product === "susu"
-        ? susuApi
-            .listSusuAccounts(token, {
-              customerId: params.id,
-              page,
-              limit,
-              status: filtered as SusuAccountStatus | undefined,
-              accountNumber,
-            })
-            .then((r) => ({ ...r, product: "susu" as const }))
-        : savingsApi
-            .listSavingsAccounts(token, {
-              customerId: params.id,
-              page,
-              limit,
-              status: filtered as SavingsAccountStatus | undefined,
-              accountNumber,
-            })
-            .then((r) => ({ ...r, product: "savings" as const })),
+        ? (searchingNumber
+            ? scanAccounts((p) =>
+                susuApi.listSusuAccounts(token, {
+                  customerId: params.id,
+                  page: p,
+                  limit: SCAN_LIMIT,
+                }),
+              ).then(({ items, truncated }) => ({
+                ...pageOf(matchNumber(items, typed), page, limit),
+                truncated,
+              }))
+            : susuApi
+                .listSusuAccounts(token, {
+                  customerId: params.id,
+                  page,
+                  limit,
+                  status: filtered as SusuAccountStatus | undefined,
+                })
+                .then((r) => ({ ...r, truncated: false }))
+          ).then((r) => ({ ...r, product: "susu" as const }))
+        : (searchingNumber
+            ? scanAccounts((p) =>
+                savingsApi.listSavingsAccounts(token, {
+                  customerId: params.id,
+                  page: p,
+                  limit: SCAN_LIMIT,
+                }),
+              ).then(({ items, truncated }) => ({
+                ...pageOf(matchNumber(items, typed), page, limit),
+                truncated,
+              }))
+            : savingsApi
+                .listSavingsAccounts(token, {
+                  customerId: params.id,
+                  page,
+                  limit,
+                  status: filtered as SavingsAccountStatus | undefined,
+                })
+                .then((r) => ({ ...r, truncated: false }))
+          ).then((r) => ({ ...r, product: "savings" as const })),
     ]);
     return { customer: customer.customer, accounts };
   }).catch(throwAsRouteError); // 404
@@ -187,11 +339,23 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     {
       customer: result.customer,
       accounts: result.accounts,
-      // `typed` rather than `accountNumber`: the field is seeded from this, and
-      // a half-typed number has to survive a reload the same as a whole one.
-      filters: { product, page, limit, status: selected, accountNumber: typed },
-      /** Whether the digits actually narrowed the list. */
-      searchingNumber: accountNumber !== undefined,
+      // The field is seeded from this, so a half-typed number has to survive a
+      // reload the same as a whole one. `page` comes off the result rather
+      // than off the URL — `pageOf` may have clamped it.
+      filters: {
+        product,
+        page: result.accounts.page,
+        limit,
+        status: selected,
+        accountNumber: typed,
+      },
+      /** Whether the digits are narrowing the list. Any digit does now. */
+      searchingNumber,
+      /**
+       * Said out loud when it applies: this customer has more accounts than
+       * one scan reads, so "no match" would be a claim the scan can't make.
+       */
+      scanTruncated: result.accounts.truncated,
       canManage: office,
       /**
        * For a savings opening deposit, which is recorded atomically with the
@@ -301,6 +465,7 @@ export default function CustomerAccounts({
     accounts,
     filters,
     searchingNumber,
+    scanTruncated,
     canManage,
     savingsKey,
   } = loaderData;
@@ -319,8 +484,6 @@ export default function CustomerAccounts({
   // up on a debounce. Seeded from the URL so a shared or reloaded link shows
   // the number it filtered by.
   const [number, setNumber] = useState(filters.accountNumber);
-  /** Typed, but not yet the whole number — nothing has been sent. */
-  const partial = number.length > 0 && number.length < length;
 
   const commitNumber = useCallback(
     (value: string) => {
@@ -339,14 +502,24 @@ export default function CustomerAccounts({
     [setSearchParams],
   );
 
-  // One request per pause in typing, and only for a number the loader will
-  // actually use: the product's full length, or empty to clear.
+  /**
+   * One request per pause in typing — every pause, at any length.
+   *
+   * This used to hold everything back until the number was whole, which is
+   * what made the field feel dead: six digits of typing with no response, and
+   * then the whole answer at once. The loader matches on a fragment now, so
+   * the first digit is already a narrower list than no digits.
+   *
+   * The debounce is what keeps that from being one request per keystroke. It
+   * stays at 300ms rather than dropping: each request is now a scan rather
+   * than a lookup, so if anything a keystroke is worth *more* here than it was
+   * before.
+   */
   useEffect(() => {
     if (number === filters.accountNumber) return;
-    if (number.length > 0 && number.length < length) return;
     const timer = setTimeout(() => commitNumber(number), 300);
     return () => clearTimeout(timer);
-  }, [number, filters.accountNumber, length, commitNumber]);
+  }, [number, filters.accountNumber, commitNumber]);
 
   // Back/forward moves the URL out from under the field, so adopt it. Our own
   // updates above are REPLACE navigations, which never land here. Switching
@@ -422,7 +595,7 @@ export default function CustomerAccounts({
             onSubmit={(event) => {
               event.preventDefault();
               // Enter searches now rather than waiting out the debounce.
-              if (!partial) commitNumber(number);
+              commitNumber(number);
             }}
           >
             <input type="hidden" name="product" value={product} />
@@ -475,19 +648,20 @@ export default function CustomerAccounts({
               {/* Only what the field can't say for itself. The placeholder
                   names the field and `maxLength` enforces the digit count, so
                   an idle line reciting both was standing instruction nobody
-                  needed twice.
+                  needed twice. The "N more digits to search" line went with
+                  the wait it was explaining.
 
-                  What's left is the two things that *are* surprising: nothing
-                  happens until the number is whole, and a whole one quietly
-                  overrides the status filter. The line keeps its height while
-                  it has nothing to say, so the cards don't hop as it appears
-                  and goes. */}
+                  What's left is what is genuinely surprising: the digits match
+                  anywhere in the number rather than only at the front, and a
+                  search quietly overrides the status filter. The count is the
+                  part worth reading — it is the difference between "still
+                  narrowing" and "that's the one". The line keeps its height
+                  while it has nothing to say, so the cards don't hop as it
+                  appears and goes. */}
               <p className="mt-1 min-h-4 text-xs text-muted">
-                {partial
-                  ? `${length - number.length} more ${length - number.length === 1 ? "digit" : "digits"} to search.`
-                  : searchingNumber
-                    ? "Searching every status."
-                    : ""}
+                {searchingNumber
+                  ? `${accounts.total} ${accounts.total === 1 ? "match" : "matches"} anywhere in the number, every status.`
+                  : ""}
               </p>
             </div>
 
@@ -554,6 +728,18 @@ export default function CustomerAccounts({
           </p>
         )}
 
+        {/* Only when the scan hit its ceiling, which takes more accounts on one
+            customer than this business is ever likely to see. Said anyway,
+            because the alternative is an empty grid that reads as "no such
+            account" when the truth is "not in the part that was read". */}
+        {scanTruncated && (
+          <p className="mb-4 rounded-lg border-2 border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+            This customer has more accounts than the search reads (
+            {SCAN_LIMIT * SCAN_MAX_PAGES} at most). Type the whole number, or
+            browse with the field empty.
+          </p>
+        )}
+
         {/* Cards, not rows: an account has four facts worth reading and a
             shape everyone already knows how to hold. The grid fills to the
             width it's given rather than fixing a column count — one card on a
@@ -583,14 +769,14 @@ export default function CustomerAccounts({
                   // A number that found nothing is its own answer: the filter
                   // wasn't what hid it, so don't send anyone to change it.
                   title: searchingNumber
-                    ? `No account ${filters.accountNumber}`
+                    ? `No number contains ${filters.accountNumber}`
                     : filters.status === "active"
                       ? savings
                         ? "No savings account"
                         : "No active susu account"
                       : `No ${savings ? "savings" : "susu"} accounts found`,
                   subtext: searchingNumber
-                    ? `${customer.fullName} holds no ${savings ? "savings" : "susu"} account with that number. Check the digits, or clear the search.`
+                    ? `No ${savings ? "savings" : "susu"} account of ${customer.fullName}'s has those digits anywhere in its number, in any status. Check them, or clear the search.`
                     : filters.status === "active"
                       ? savings
                         ? `Open one to start a balance — ${formatGhs(SAVINGS_MIN_DEPOSIT)} minimum a deposit, withdraw any day.`
@@ -606,12 +792,18 @@ export default function CustomerAccounts({
               {accounts.product === "savings"
                 ? accounts.items.map((account) => (
                     <li key={account.id}>
-                      <SavingsCard account={account} />
+                      <SavingsCard
+                        account={account}
+                        holderName={customer.fullName}
+                      />
                     </li>
                   ))
                 : accounts.items.map((account) => (
                     <li key={account.id}>
-                      <AccountCard account={account} />
+                      <AccountCard
+                        account={account}
+                        holderName={customer.fullName}
+                      />
                     </li>
                   ))}
             </ul>
@@ -652,10 +844,11 @@ export default function CustomerAccounts({
  * can never match a ten-digit savings one, and page 3 of one list means
  * nothing in the other.
  *
- * Sized off `FIELD` and a 2px border, exactly as the input and the status
- * select beside it are, so the three share one height by sharing one recipe
- * rather than by three numbers that happen to agree today. `FilterSelect` gave
- * up HeroUI's `Select` over the same constant.
+ * The bar itself is `TabList` — the app's one tab shape, and the reason this
+ * function no longer carries any styling of its own. It still shares a height
+ * with the input and the status select beside it, because `TabList`'s track is
+ * sized off the same `FIELD` constant those two are; the recipe moved, the
+ * agreement didn't.
  */
 function ProductSwitch({
   current,
@@ -680,44 +873,20 @@ function ProductSwitch({
   }
 
   return (
-    <div
-      role="tablist"
-      aria-label="Account product"
-      // Height comes from `FIELD` and the same 2px border the input and the
-      // status select use — the same recipe rather than a number picked to
-      // match it, so the three can't drift apart when that constant changes.
-      // The segments carry no height of their own; `items-stretch` (flex's
-      // default) has them fill whatever the container resolves to.
-      //
-      // `shrink-0` so the pair never squeezes: the field beside it is what
-      // gives way as the bar narrows, and a half-width "Savings" is unreadable
-      // where a shorter input still works.
-      className={`${FIELD} inline-flex shrink-0 overflow-hidden border-2 border-border bg-field`}
-    >
-      {PRODUCTS.map(({ value, label }) => {
-        const selected = value === current;
-        return (
-          <Link
-            key={value}
-            to={href(value)}
-            role="tab"
-            aria-selected={selected}
-            aria-controls={LIST_ID}
-            // The bar's own controls don't move the page, and neither should
-            // this — the list it swaps is already under the cursor.
-            preventScrollReset
-            className={[
-              "flex items-center px-3.5 text-sm font-medium transition-colors",
-              selected
-                ? "bg-success text-white"
-                : "text-muted hover:bg-background hover:text-foreground",
-            ].join(" ")}
-          >
-            {label}
-          </Link>
-        );
-      })}
-    </div>
+    <TabList label="Account product">
+      {PRODUCTS.map(({ value, label, icon, tone }) => (
+        <TabLink
+          key={value}
+          to={href(value)}
+          selected={value === current}
+          controls={LIST_ID}
+          icon={icon}
+          tone={tone}
+        >
+          {label}
+        </TabLink>
+      ))}
+    </TabList>
   );
 }
 

@@ -3,6 +3,10 @@ import { type RouteConfig, index, layout, route } from "@react-router/dev/routes
 export default [
   index("routes/home.tsx"),
   route("login", "routes/login.tsx"),
+  // Step two of phone sign-in. Its own page, not a phase of /login: it is
+  // reachable only while a code is in flight (`pendingOtpPhone` in the session
+  // cookie), and `VERIFY_OTP_PATH` in session.server.ts has to match this path.
+  route("login/verify", "routes/verify-otp.tsx"),
   route("logout", "routes/logout.tsx"),
   // Outside the app shell on purpose. Reached voluntarily from the sidebar, or
   // forced by `mustChangePassword` — and when it's forced every other route

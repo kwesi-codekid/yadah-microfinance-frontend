@@ -535,6 +535,32 @@ type ErrorEnvelope = {
 - [x] Dashboard replaced with `/susu/summary`: date picker, collector filter for office,
       and the day's deposits. Collectors see their own figures; the API ignores
       `collectorId` for them, so it isn't sent.
+- [x] **Dashboard widened into an overview** — four figures, a collections chart, the day's
+      statement, and a rail (the day's card, the round, the book, payouts coming). Built from
+      the collections the API already publishes, since there is no analytics endpoint:
+      - the chart's x-axis is **months** (last 6 or 12). No endpoint takes a date range, so
+        money in is summed from susu deposit *statements* — one request per account, since a
+        statement carries a whole 31-deposit cycle, where `GET /susu/summary` would have been
+        one request per **day** (365 for a year). Bounded by `MAX_STATEMENTS` (400, newest
+        accounts first, concurrency 8); accounts closed before the window are skipped
+        outright. When the bound bites, or a statement fails to read, the page says the
+        figures are a floor. **The API change worth asking for is `GET /susu/deposits?from=&to=`
+        or a monthly summary — that replaces the whole scan with one request.**
+      - because every deposit names its collector, scoping the chart to one person is exact
+        rather than proportional. Money out is bucketed from closed accounts'
+        `closedAt` / `payoutAmount` (free — already in the list) and is drawn only when the
+        collections beside it are also whole-book: one collector's takings against
+        everybody's payouts would invent a deficit.
+      - the day's statement, the "collected today" figure and its vs-yesterday delta are two
+        `GET /susu/summary` calls (the selected day and the one before it), not a range.
+      - `expectedDaily` (Σ `dailyAmount` over running cycles) is the day's round: the only
+        target this business has that isn't invented.
+      - account lists are pulled whole (10 pages × 100) so the portfolio total is a total;
+        past that, the page says the figures are a floor.
+      - charts are hand-built in [charts.tsx](app/components/charts.tsx) — percentages in
+        CSS, nothing measured — so SSR and hydration agree and the marks use the app's own
+        palette. Export is a client-side CSV of the day, with the formula-injection guard in
+        [analytics.ts](app/lib/analytics.ts).
 - [x] ~~`/susu` shows one row per *account*; a customer with three accounts is three rows.~~
       Answered by removing that page: the list is now always one customer's, where several
       rows for one person is the point rather than the problem.
@@ -649,9 +675,12 @@ type ErrorEnvelope = {
       deposited into, or closed through these screens. The arithmetic on the withdraw drawer
       (receives / fee / leaves the balance / balance after) is the part most worth watching
       the first time it runs.
-- [ ] No savings figures on the dashboard. `GET /susu/summary` reconciles susu only, and the
-      API publishes no savings equivalent — so a day's savings deposits are invisible to the
-      end-of-day count.
+- [ ] **A day's savings movements are still invisible.** `GET /susu/summary` reconciles susu
+      only and the API publishes no savings equivalent, so savings deposits are missing from
+      the end-of-day count and savings withdrawals are missing from the dashboard's "paid
+      out" series — that series counts susu closures alone, and the chart's caption says so.
+      Savings *balances* do now appear, under "Money under management", because those can be
+      summed from `GET /savings/accounts`.
 - [ ] No cross-customer savings lookup by `accountNumber`, same gap as susu's.
 
 ### Phase 3.5 — Responsive & mobile (cross-cutting, non-negotiable)

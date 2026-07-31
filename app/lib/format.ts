@@ -46,6 +46,63 @@ export function formatMonth(iso?: string): string {
   return `${MONTHS[Number(month) - 1]} ${year}`;
 }
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/**
+ * `2026-07-28` → `Tue`. The x-axis label on a run of days.
+ *
+ * `Date.UTC` rather than `new Date(iso)`: the second parses a bare date as
+ * midnight UTC and then *reports* it in the local zone, which hands anyone west
+ * of Greenwich the previous weekday for every column on the chart.
+ */
+export function weekdayLabel(iso?: string): string {
+  if (!iso) return "";
+  const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return "";
+  return WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()] ?? "";
+}
+
+const WEEKDAYS_LONG = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+
+const MONTHS_LONG = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/**
+ * `2026-07-29` → `Wednesday, 29 July`. The line over a page's greeting.
+ *
+ * Spelt out where `formatDate` abbreviates, and no year: this one is read once,
+ * at the top of a page, by somebody who knows what year it is.
+ */
+export function formatDayLine(iso?: string): string {
+  if (!iso) return "";
+  const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return "";
+  const weekday = WEEKDAYS_LONG[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+  const monthName = MONTHS_LONG[month - 1];
+  if (!weekday || !monthName) return "";
+  return `${weekday}, ${day} ${monthName}`;
+}
+
 /** `2026-07-25T14:05:00Z` → `25 Jul 2026, 2:05 pm`. */
 export function formatDateTime(iso?: string): string {
   const date = formatDate(iso);

@@ -114,8 +114,10 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
 
-  // Recording a deposit is the collector's job — the API checks it is their own
-  // customer. Closing an account pays cash out, and is office-only.
+  // Recording a deposit is open to any collector or office staff on any
+  // account — the API dropped customer assignment, so there is no "their own
+  // customer" left to check. Closing an account pays cash out, and stays
+  // office-only.
   if (intent === "close" && !isOffice(user)) {
     return data<ActionData>({
       intent,

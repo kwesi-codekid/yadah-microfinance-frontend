@@ -304,9 +304,11 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
       </Form>
 
       <DataTable
-        columns={
-          canManage ? ["Name", "Phone", "ID", "Actions"] : ["Name", "Phone", "ID"]
-        }
+        // Every role gets the column now. It used to be office-only, which left
+        // a collector a directory they could read and nothing they could act
+        // on — View and Accounts are the two that matter to them, and Accounts
+        // is the way to the page where a deposit is recorded.
+        columns={["Name", "Phone", "ID", "Actions"]}
         ariaLabel="Customer directory"
         isLoading={navigation.state === "loading" && !searching}
         page={result.page}
@@ -359,11 +361,9 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
                   eating the width the number needed. */}
               {c.identification?.idNumber ?? "—"}
             </Table.Cell>
-            {canManage && (
-              <Table.Cell className="px-4 py-2">
-                <RowActions customer={c} />
-              </Table.Cell>
-            )}
+            <Table.Cell className="px-4 py-2">
+              <RowActions customer={c} canManage={canManage} />
+            </Table.Cell>
           </Table.Row>
         ))}
       </DataTable>
@@ -385,21 +385,28 @@ function Avatar({ customer }: { customer: Customer }) {
       <img
         src={customer.photoUrl}
         alt=""
-        className="size-7 shrink-0 rounded-full object-cover"
+        className="size-7 shrink-0 rounded-sm object-cover"
       />
     );
   }
   return (
     <span
       aria-hidden="true"
-      className="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[10px] font-semibold text-brand-dark dark:bg-white/10 dark:text-brand-light"
+      className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-brand/15 text-[10px] font-semibold text-brand-dark dark:bg-white/10 dark:text-brand-light"
     >
       {initials}
     </span>
   );
 }
 
-function RowActions({ customer }: { customer: Customer }) {
+function RowActions({
+  customer,
+  canManage,
+}: {
+  customer: Customer;
+  /** Office only: editing the record and switching it on or off. */
+  canManage: boolean;
+}) {
   // Same disclosure as the staff table: icons crowd a phone-width row, so below
   // `sm` they collapse behind a kebab and open on tap.
   const [open, setOpen] = useState(false);
@@ -436,28 +443,35 @@ function RowActions({ customer }: { customer: Customer }) {
         <IconLink label="Accounts" to={`/customers/${customer.id}/accounts`}>
           <WalletCards size={16} />
         </IconLink>
-        <IconLink label="Edit" to={`/customers/${customer.id}?edit`}>
-          <Pencil size={16} />
-        </IconLink>
-        {customer.status === "active" ? (
-          <StatusForm
-            id={customer.id}
-            name={customer.fullName}
-            intent="deactivate"
-            label="Deactivate"
-            danger
-          >
-            <Ban size={16} />
-          </StatusForm>
-        ) : (
-          <StatusForm
-            id={customer.id}
-            name={customer.fullName}
-            intent="activate"
-            label="Activate"
-          >
-            <RotateCcw size={16} />
-          </StatusForm>
+        {/* The two above are open to every role — reading a record, and
+            reaching the accounts a collector takes money into. The two below
+            change the record, so they stay with the office. */}
+        {canManage && (
+          <>
+            <IconLink label="Edit" to={`/customers/${customer.id}?edit`}>
+              <Pencil size={16} />
+            </IconLink>
+            {customer.status === "active" ? (
+              <StatusForm
+                id={customer.id}
+                name={customer.fullName}
+                intent="deactivate"
+                label="Deactivate"
+                danger
+              >
+                <Ban size={16} />
+              </StatusForm>
+            ) : (
+              <StatusForm
+                id={customer.id}
+                name={customer.fullName}
+                intent="activate"
+                label="Activate"
+              >
+                <RotateCcw size={16} />
+              </StatusForm>
+            )}
+          </>
         )}
       </div>
     </div>

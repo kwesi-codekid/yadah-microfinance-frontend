@@ -29,7 +29,12 @@ export function Sidebar({
         // No right border: the rail and the top bar are one white shell, and
         // the grey content panel beside it is its own edge. A rule here would
         // sit a line against that panel's rounded corner.
-        "flex h-screen flex-col bg-surface text-foreground transition-[width] duration-200 shadow-none",
+        // `h-full`, not `h-screen`: the shell around this is `h-dvh`, and
+        // `100vh` is the *large* viewport — taller than `100dvh` wherever a
+        // browser toolbar retracts. The rail would then overhang a shell that
+        // is `overflow-hidden`, so its centred nav would centre against a
+        // height nobody can see. Stretching to the shell is the whole intent.
+        "flex h-full flex-col bg-surface text-foreground transition-[width] duration-200 shadow-none",
         collapsed ? "w-16" : "w-56",
         className,
       ].join(" ")}

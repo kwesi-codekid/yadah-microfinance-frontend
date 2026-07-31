@@ -25,28 +25,57 @@ export const inputClass = "border-2 border-border shadow-none"
 interface TextInputProps extends Omit<TextFieldProps, "children"> {
     label?: ReactNode
     inputProps?: InputProps
+    /**
+     * Decorative icon shown inside the field, before the value. Purely visual —
+     * it's hidden from assistive tech, which reads the `label` instead — and the
+     * input gains matching left padding so the value clears it.
+     */
+    startContent?: ReactNode
     children?: ReactNode
 }
 
 export const TextInput = ({
     label,
     inputProps,
+    startContent,
     children,
     className,
     ...fieldProps
 }: TextInputProps) => {
+    const input = (
+        <Input
+            {...inputProps}
+            className={[
+                inputClass,
+                // The wrapper below is a plain div, so the input no longer
+                // stretches as a direct flex child of TextField — pin it wide.
+                startContent ? "w-full pl-10" : null,
+                inputProps?.className,
+            ]
+                .filter(Boolean)
+                .join(" ")}
+        />
+    )
+
     return (
         <TextField
             {...fieldProps}
             className={["text-left", className].filter(Boolean).join(" ")}
         >
             {label != null && <Label className={labelClass}>{label}</Label>}
-            <Input
-                {...inputProps}
-                className={[inputClass, inputProps?.className]
-                    .filter(Boolean)
-                    .join(" ")}
-            />
+            {startContent ? (
+                <div className="relative w-full">
+                    <span
+                        aria-hidden
+                        className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted"
+                    >
+                        {startContent}
+                    </span>
+                    {input}
+                </div>
+            ) : (
+                input
+            )}
             {children}
         </TextField>
     )

@@ -123,7 +123,7 @@ function UserMenu({ name, role }: { name: string; role: string }) {
     <Popover>
       {/* Renders its own pressable element, so the chip's markup goes straight
           in — a nested <button> here would be an interactive-in-interactive. */}
-      <Popover.Trigger className="flex cursor-pointer items-center gap-2 rounded-full py-1 pl-1 pr-2 text-sm transition-colors hover:bg-success/10 hover:text-success dark:hover:bg-success/20">
+      <Popover.Trigger className="flex cursor-pointer items-center gap-2 rounded-full py-1 pl-1 pr-2 text-sm transition-colors hover:bg-success/10 hover:text-success dark:hover:bg-success/20 ">
         <span className="flex size-8 items-center justify-center rounded-full bg-brand/15 text-xs font-semibold text-brand-dark dark:bg-white/10 dark:text-brand-light">
           {initials}
         </span>

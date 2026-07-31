@@ -163,7 +163,7 @@ async function runIntent({
     if (Object.keys(fieldErrors).length)
       return { intent, fieldErrors } satisfies ActionData;
 
-    await usersApi.createUser(token, {
+    const { user: created } = await usersApi.createUser(token, {
       name: input.name,
       username: input.username,
       phone: input.phone,
@@ -171,7 +171,42 @@ async function runIntent({
       role: input.role as Role,
       password: input.password,
     });
-    return { ok: true, intent, message: `${input.name} added.` } satisfies ActionData;
+
+    /**
+     * Make the temporary password actually temporary.
+     *
+     * `POST /users` has no `mustChangePassword` field, so the API creates staff
+     * with it false — a new joiner could work indefinitely on the password an
+     * administrator typed into this form, which is a credential two people
+     * hold. `POST /users/{id}/reset-password` is the only thing that sets the
+     * flag, so it is re-issued here with the *same* password: the handover note
+     * the admin just wrote stays correct, and `requireUser` pins them to
+     * /change-password from their first sign-in until they replace it.
+     *
+     * A failure is reported, not thrown, and that is deliberate. `withAuth`
+     * retries the whole intent on a 401, and a retry after the account already
+     * exists would fail `createUser` with a 409 on the username — so this step
+     * must not raise one. The account is real either way; the admin is told the
+     * flag is missing and where to set it.
+     */
+    try {
+      await usersApi.resetUserPassword(token, created.id, {
+        newPassword: input.password,
+        mustChangePassword: true,
+      });
+    } catch {
+      return {
+        ok: true,
+        intent,
+        message: `${input.name} added, but they won't be asked to change this password. Use Reset password to require it.`,
+      } satisfies ActionData;
+    }
+
+    return {
+      ok: true,
+      intent,
+      message: `${input.name} added. They'll set their own password at first sign-in.`,
+    } satisfies ActionData;
   }
 
   if (intent === "update") {
@@ -764,13 +799,19 @@ function StaffDrawer({
               }))}
             />
             {mode === "create" && (
-              <Field
-                name="password"
-                label="Temporary password"
-                type="password"
-                error={fieldErrors?.password}
-                inputProps={{ autoComplete: "new-password" }}
-              />
+              <div className="space-y-1.5">
+                <Field
+                  name="password"
+                  label="Temporary password"
+                  type="password"
+                  error={fieldErrors?.password}
+                  inputProps={{ autoComplete: "new-password" }}
+                />
+                <p className="text-xs text-muted">
+                  Hand this to them — they'll be asked to replace it the first
+                  time they sign in.
+                </p>
+              </div>
             )}
           </>
         )}
