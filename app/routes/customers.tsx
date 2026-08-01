@@ -3,6 +3,7 @@ import {
   data,
   Form,
   Link,
+  redirect,
   useActionData,
   useNavigation,
   useNavigationType,
@@ -11,6 +12,7 @@ import {
 import { Button, Tooltip } from "@heroui/react";
 import {
   Eye,
+  HandCoins,
   WalletCards,
   Pencil,
   UserPlus,
@@ -30,6 +32,7 @@ import { FIELD, FilterSelect, IconLink } from "~/components/form-fields";
 import { notify } from "~/components/toast";
 import { ApiError } from "~/lib/api/client";
 import * as customersApi from "~/lib/api/customers";
+import { formatDate } from "~/lib/format";
 import type { Customer, CustomerStatus } from "~/lib/customer-client";
 import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 
@@ -49,7 +52,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const sp = url.searchParams;
   const page = Math.max(1, Number(sp.get("page") || "1") || 1);
-  const limit = Math.max(1, Number(sp.get("limit") || "20") || 20);
+  // Clamped to the API's own `limit` bound (1–100). Without the ceiling a
+  // hand-edited `?limit=500` is sent as-is and answered with a 400 whose
+  // message names no field — a broken page rather than a clamped one.
+  const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || "20") || 20));
   const statusParam = sp.get("status");
   const search = sp.get("search")?.trim() || undefined;
   const status: CustomerStatus =
@@ -63,6 +69,24 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: result, headers } = await withAuth(request, (token) =>
     customersApi.listCustomers(token, { page, limit, status, search }),
   );
+
+  /**
+   * A page past the end lands on the last real one instead of on nothing.
+   *
+   * Reachable two ways that both look like a bug: a hand-edited or shared URL,
+   * and — the common one — deleting a search term while deep in the results,
+   * which shrinks the set under someone standing on page 9. Without this the
+   * table renders empty while the pager insists everything is fine, and the
+   * only way back is to notice and click page 1.
+   *
+   * `headers` must ride along, or a rotation `withAuth` just made is lost on
+   * the redirect and the next renewal fails.
+   */
+  const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
+  if (page > pageCount) {
+    url.searchParams.set("page", String(pageCount));
+    throw redirect(url.pathname + url.search, { headers });
+  }
 
   return data(
     {
@@ -298,17 +322,37 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
           />
         </div>
 
-        <p aria-live="polite" className="sr-only">
-          {searching ? "Searching…" : `${result.total} customers found.`}
-        </p>
       </Form>
+
+      {/* The count, visible rather than screen-reader-only as it was.
+          Pagination with nothing stating the range is a pager you have to
+          trust: "Showing 21–40 of 137" is what tells you the page moved and
+          that there is more behind it. Still `aria-live`, so the number is
+          announced when a search or a filter changes it. */}
+      <p aria-live="polite" className="mb-2 text-xs text-muted">
+        {searching
+          ? "Searching…"
+          : result.total === 0
+            ? "No customers"
+            : `Showing ${(result.page - 1) * result.limit + 1}–${Math.min(
+                result.page * result.limit,
+                result.total,
+              )} of ${result.total}`}
+      </p>
 
       <DataTable
         // Every role gets the column now. It used to be office-only, which left
         // a collector a directory they could read and nothing they could act
         // on — View and Accounts are the two that matter to them, and Accounts
         // is the way to the page where a deposit is recorded.
-        columns={["Name", "Phone", "ID", "Actions"]}
+        columns={[
+          "Name",
+          "Phone",
+          "ID",
+          "Occupation",
+          "Registered",
+          "Actions",
+        ]}
         ariaLabel="Customer directory"
         isLoading={navigation.state === "loading" && !searching}
         page={result.page}
@@ -316,6 +360,12 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
         onPageChange={(p) => setParam({ page: String(p) })}
         pageSize={result.limit}
         onPageSizeChange={(s) => setParam({ limit: String(s), page: "1" })}
+        // Must contain the loader's default of 20, and stop at the API's
+        // ceiling of 100. The component's own default is [10, 25, 50] — with
+        // that list the selector is handed a `value` of 20 that matches no
+        // option, so the browser shows the first one and the control claims a
+        // page size the list isn't using.
+        pageSizeOptions={[10, 20, 50, 100]}
         emptyContent={{
           title: "No customers found",
           subtext: filters.search
@@ -360,6 +410,20 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
                   the number's own shape says which it is, and the label was
                   eating the width the number needed. */}
               {c.identification?.idNumber ?? "—"}
+            </Table.Cell>
+            {/* Occupation is what the office reaches for when deciding whether
+                to lend, and it is the one KYC field short enough to sit in a
+                column — an address is not. Optional on the record, so most of
+                this column will be dashes for a directory registered in a
+                hurry, which is itself worth seeing. */}
+            <Table.Cell className="max-w-40 truncate px-4 py-2 text-muted">
+              {c.occupation || "—"}
+            </Table.Cell>
+            {/* How long they have been with us. `createdAt` is required on the
+                record, so this column is never empty, and tenure is the first
+                thing asked about a customer whose name nobody recognises. */}
+            <Table.Cell className="whitespace-nowrap px-4 py-2 text-muted">
+              {formatDate(c.createdAt)}
             </Table.Cell>
             <Table.Cell className="px-4 py-2">
               <RowActions customer={c} canManage={canManage} />
@@ -444,10 +508,18 @@ function RowActions({
           <WalletCards size={16} />
         </IconLink>
         {/* The two above are open to every role — reading a record, and
-            reaching the accounts a collector takes money into. The two below
-            change the record, so they stay with the office. */}
+            reaching the accounts a collector takes money into. The rest change
+            the record, so they stay with the office. */}
         {canManage && (
           <>
+            {/* The directory is where someone stands when they decide to lend,
+                so this is the shortest path to an application — the alternative
+                was opening the record first and finding the button there. Every
+                `/loans` endpoint is office-only, including the eligibility
+                summary that page leads with, so a collector must not see it. */}
+            <IconLink label="Loans" to={`/customers/${customer.id}/loans`}>
+              <HandCoins size={16} />
+            </IconLink>
             <IconLink label="Edit" to={`/customers/${customer.id}?edit`}>
               <Pencil size={16} />
             </IconLink>

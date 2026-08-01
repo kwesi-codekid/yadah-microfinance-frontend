@@ -202,6 +202,86 @@ opening, withdrawing and closing are office-only.
 > carries an `initialDeposit` — the opening deposit is recorded atomically with
 > the account, so a retry must not open a second one.
 
+### Loans (`tags: Loans`)
+
+**Office only — all ten.** The tag says so outright, and unlike susu and savings
+there is no half of this a collector takes part in: a repayment is taken at the
+counter, not in the field. This is why `/loans` is the one cross-customer ledger
+in the app, where the susu equivalent was deliberately deleted — `GET /loans`
+takes a `search` *and* joins `customerName` onto its rows, and more to the point
+a **pending application has to be found by whoever approves it**, who has no
+reason to have opened that customer's record first.
+
+The product in one paragraph: a fixed principal over 3, 6 or 12 months at a
+**flat** rate (a one-off percentage of the principal, not an APR and not
+amortised), so `totalDue = principal + interest` and nothing about it moves as
+the loan is repaid. **A human approves it** — the API says "No auto-approval
+exists" — and `GET /loans/eligibility/{customerId}` exists to put ~4 months of
+susu/savings history in front of that person. Approval locks rate and interest
+**from the config as it stands at that moment**, generates the monthly schedule
+(remainder folding into the last instalment), and sends an SMS.
+
+Three rules that shape every screen:
+
+| Rule | Detail |
+|------|--------|
+| One open loan per customer | A second application is *always* refused, 409 `LOAN_EXISTS`. |
+| Ghana Card required | 422 `GHANA_CARD_REQUIRED` — a hard gate, not a factor. |
+| Big tier is earned | Needs a previous small loan repaid on time (`repaidOnTime` → `bigTierUnlocked`). |
+
+And the one that has no analogue in the other products: **escalation**. A loan
+that falls behind moves *up* the rate ladder (10 → 20 → 30) on the **original
+principal**, so `ratePercent` is the *current* rate and `totalDue` grows.
+`escalatedAt` stamps the last move; `frozen` says the ladder is exhausted and
+the loan now needs a person. `/loans/:id` states both, because otherwise an
+operator is holding a figure larger than the one the customer was quoted with
+nothing on screen explaining it.
+
+| # | Method | Path | Summary | Access | Client fn | Status |
+|---|--------|------|---------|--------|-----------|--------|
+| 37 | GET | `/loans/config` | Current tiers, rates, durations | **office** | `getLoanConfig()` | ✅ wired (`/loans/config`, application form) |
+| 38 | PUT | `/loans/config` | Update loan parameters | **office** | `updateLoanConfig()` | ✅ wired (`/loans/config`) |
+| 39 | GET | `/loans/eligibility/{customerId}` | History summary for the decision | **office** | `getLoanEligibility()` | ✅ wired (`/customers/:id/loans`) |
+| 40 | POST | `/loans/applications` | Record an application (pending) | **office** | `applyForLoan()` | ✅ wired (apply drawer) |
+| 41 | GET | `/loans` | List loans (paginated, `search`) | **office** | `listLoans()` | ✅ wired (`/loans`, customer's book) |
+| 42 | GET | `/loans/{id}` | Detail with schedule + repayments | **office** | `getLoan()` | ✅ wired (`/loans/:id`) |
+| 43 | POST | `/loans/{id}/approve` | Approve — locks rate, builds schedule, SMS | **office** | `approveLoan()` | ✅ wired (confirm + figures) |
+| 44 | POST | `/loans/{id}/reject` | Reject with a reason (2–300) | **office** | `rejectLoan()` | ✅ wired (reason drawer) |
+| 45 | POST | `/loans/{id}/repayments` | Record a cash repayment | **office** | `recordLoanRepayment()` | ✅ wired (repay drawer) |
+| 46 | POST | `/loans/{id}/repayments/susu-closure` | Repay by closing a susu account | **office** | `repayLoanFromSusu()` | ✅ wired (account picker) |
+
+> **`GET /loans/config` has no declared response shape.** The spec gives it
+> `config: {}` — an object with no properties at all — so the six field names
+> are an *inference* from the fully-specified `PUT` body. `normalizeLoanConfig`
+> in [loan-client.ts](app/lib/loan-client.ts) reads whatever comes back
+> defensively and falls back to the documented defaults (10/20/30%, 1k–20k,
+> to 50k), returning a `complete` flag; both `/loans/config` and the application
+> drawer say outright when a default was used, because those six numbers are the
+> bounds a principal is validated against. **Worth confirming against staging
+> and then simplifying.**
+>
+> **`PUT /loans/config` replaces, it does not patch** — all six fields are
+> required, so the settings form renders all six prefilled and posts all six
+> back. Changes apply to *new applications and approvals only*; a running loan
+> keeps the rate it was approved at, which is what makes it safe to edit
+> mid-month and also means it can't be used to correct a loan approved wrong.
+>
+> **`GET /loans/{id}` carries no `customerName`,** where the list rows do. The
+> detail page therefore costs a second `GET /customers/{id}` to put a name in
+> the trail. Same gap as `GET /susu/accounts`, in the other direction.
+>
+> **Idempotency:** endpoints 45 and 46 require a key. 40 does *not* — `LOAN_EXISTS`
+> stands in for one, since a double submit creates the first application and the
+> second is refused, which is the outcome a key would have produced.
+>
+> **`PAYOUT_EXCEEDS_BALANCE` is a fork in the workflow, not a validation quibble.**
+> The susu-closure path refuses the *whole* operation if the payout would
+> overshoot what the loan owes, because the API has nowhere to put the excess —
+> the way through is a cash repayment for the balance, then an ordinary closure.
+> So the drawer measures each account's `projectedPayout` against `remaining`
+> **before** the click and says which ones would be refused and why, rather than
+> offering them and reporting a 422.
+
 ---
 
 ## Request / response contracts
@@ -343,12 +423,11 @@ type ErrorEnvelope = {
 };
 ```
 
-> ⚠️ **Still missing from the spec:** the API is named for "Susu collection,
-> savings, and loans", and as of the 2026-07-26 pull Auth, Users, Customers,
-> Susu and Savings are all published — **loans are not**. Re-pull before
-> building those screens. The version string is still `0.1.0` even though the
-> surface has grown three times, so the version is not a reliable signal that
-> nothing changed; diff the paths.
+> ✅ **Loans landed** — pulled 2026-08-01, ten new paths under `tags: Loans`.
+> Every other path is unchanged from the 2026-07-26 pull, and so is every
+> schema that already existed; the only new one is `Loan`. The version string is
+> *still* `0.1.0` even though the surface has now grown four times, so the
+> version remains no signal at all that nothing changed — diff the paths.
 >
 > ⚠️ **And do not trust the paths alone either.** The 2026-07-26 pull moved
 > nothing in the path list — all 31 the same — while dropping a *field* the
@@ -683,6 +762,86 @@ type ErrorEnvelope = {
       summed from `GET /savings/accounts`.
 - [ ] No cross-customer savings lookup by `accountNumber`, same gap as susu's.
 
+### Phase 3.4 — Loans
+- [x] Client-safe types, the config shape, and the projection arithmetic →
+      [loan-client.ts](app/lib/loan-client.ts). `projectInterest`,
+      `projectTotalDue` and `projectInstalments` live here rather than in the
+      routes so the quote on the application drawer and the confirmation behind
+      it can't disagree — and `projectInstalments` mirrors the API's
+      remainder-into-the-last-instalment rule rather than dividing evenly, so
+      the schedule this app projects adds up to the one the API will generate.
+- [x] Endpoint wrappers → [loans.ts](app/lib/api/loans.ts), mirroring
+      [savings.ts](app/lib/api/savings.ts).
+- [x] Form readers → [loan-form.ts](app/lib/loan-form.ts), isomorphic like the
+      susu and savings ones: `readLoanApplicationForm` runs in the action *and*
+      against the typed value on screen, so the tier bounds exist once.
+- [x] **The application form validates against the tier the customer can
+      actually reach**, not the product's outer ceiling. `bigTierUnlocked` is
+      false for most people, and validating against `bigMaxPesewas` regardless
+      would let the form submit a principal the API is certain to refuse — with
+      `BIG_TIER_LOCKED`, which names no field, so the message would land in a
+      banner rather than on the input that caused it.
+- [x] `/loans` — the book and the approval queue in one list: search, status
+      filter, pagination. Status is genuinely optional on the API, so "all" is a
+      real default and the queue is one click into it.
+- [x] `/customers/:id/loans` — the eligibility summary, the customer's history,
+      and the apply drawer. Mirrors `/customers/:id/accounts`: a loan belongs to
+      a customer, so this is where one is applied for and there is no
+      `/loans/new`.
+- [x] The three refusals knowable before the form opens — no Ghana Card, an
+      open loan, a deactivated customer — are checked on the click and answered
+      with the instruction (add the card / settle it / reactivate them). The
+      Apply button is never disabled, for the same reason the savings Withdraw
+      button isn't: a grey button with nothing beside it explaining itself is
+      how that page confused someone once already.
+- [x] The eligibility panel scores nothing. The API doesn't, and inventing a
+      score would be this app asserting a lending policy it hasn't been told —
+      it shows months of history, susu deposited, savings held, and marks the
+      two facts that are gates rather than evidence.
+- [x] `/loans/:id` — money panel, schedule, repayment history, and the four
+      writes. A **pending** loan renders no empty schedule and no empty history:
+      it is figures and a decision, because that is all it is until approval.
+- [x] Approve confirms with the figures **and says they may move** — the rate is
+      locked from the config at approval, not at application, so a config change
+      in between lands on a different number.
+- [x] Reject takes a reason (2–300) in a drawer, because it is stored on the
+      record and read back later by whoever fields the customer's question.
+- [x] Repayment gates against `remaining` before the round trip, offers "Settle
+      in full", and names the consequence settlement carries: paying exactly
+      stamps `repaidOnTime`, which unlocks the big tier for the next loan. 422
+      `EXCEEDS_BALANCE` re-seeds from the API's own figure — a loan can't be
+      overpaid, so the correction is exact rather than a guess.
+- [x] Susu-closure repayment lists the customer's open cycles with the payout
+      each would produce, and marks the ones the API would refuse (`NO_PAYOUT`,
+      `PAYOUT_EXCEEDS_BALANCE`) with the way through. Blocked accounts stay
+      visible rather than being filtered out — the reason is the useful part.
+- [x] Escalation and `frozen` are stated on the money panel, not left implicit.
+      An escalated loan's `totalDue` is larger than the figure the customer was
+      quoted, and an operator needs to be able to explain that.
+- [x] `/loans/config` — all six settings, prefilled, because the endpoint
+      replaces rather than patches. Says outright that changes apply to new
+      applications only, and warns when a value came from this app's defaults
+      rather than the API.
+- [x] Nav: `/loans` is office-only (`admin`, `manager`) — every loan endpoint
+      is. The customer record's Loans button is gated the same way, where its
+      Accounts button is not.
+- [ ] **Not verified against real data.** Typecheck and build pass and the
+      routes register, but there are no API credentials in the repo, so no loan
+      has been applied for, approved, or repaid through these screens. Three
+      things are worth watching the first time they run: the **config response's
+      real field names** (inferred, see the note above), whether a **pending**
+      loan's `ratePercent`/`interestAmount` are populated or zero, and the exact
+      strings the schedule's `status` takes — the spec types it as an open
+      string, so `scheduleStatusLabel` maps the likely values and title-cases
+      anything else.
+- [ ] No loan figures on the dashboard. `GET /loans?status=pending` would give
+      the queue depth in one request, and `status=arrears` the book at risk;
+      both are one-liners once someone decides where they belong.
+- [ ] Repayments are invisible in the day's reconciliation. `GET /susu/summary`
+      covers susu only, and there is no loan equivalent — same gap savings has.
+- [ ] No SMS copy confirmed. The API sends one on approval; the business should
+      say what it reads so the confirmation can quote it.
+
 ### Phase 3.5 — Responsive & mobile (cross-cutting, non-negotiable)
 > **Mobile-first.** Collectors work from phones in the field; admins/managers on desktop. Every screen must work from ~360px up to wide desktop. Design mobile layout first, then enhance at `sm`/`md`/`lg`/`xl`.
 - [ ] Global layout: [sidebar.tsx](app/components/sidebar.tsx) collapses to a drawer/off-canvas ([side-drawer.tsx](app/components/side-drawer.tsx)) below `md`; persistent rail on `lg+`.
@@ -731,7 +890,14 @@ type ErrorEnvelope = {
 - [ ] Set a real `SESSION_SECRET` env var in staging/prod (dev fallback is insecure by design).
 - [ ] Confirm exact stable error `code` values for 401/403/404/409/429 against staging.
 - [ ] Confirm refresh-token storage lifetime and whether it's cookie- or client-managed.
-- [x] ~~When are the Susu / Savings endpoints landing?~~ Landed — pulled 2026-07-25. **Loans still absent.**
+- [x] ~~When are the Susu / Savings endpoints landing?~~ Landed — pulled 2026-07-25.
+- [x] ~~When are the Loans endpoints landing?~~ Landed — pulled 2026-08-01. The
+      whole API surface named in the title is now published.
+- [ ] **Confirm the real shape of `GET /loans/config`.** The spec declares it as
+      a propertyless object, so the six field names this app reads are inferred
+      from the `PUT` body. Once confirmed against staging, `normalizeLoanConfig`
+      and the "showing defaults" warnings it feeds can collapse to a plain type.
+- [ ] Confirm what the approval SMS says, so `/loans/:id` can quote it.
 - [ ] **`GET /susu/accounts` returns `customerId` and no name.** An id on screen is no use,
       so [susu.tsx](app/routes/susu.tsx) fetches each customer on the page — an N+1 capped
       at the page size and run in parallel. `/susu/summary` already embeds `customerName`;
@@ -747,4 +913,4 @@ type ErrorEnvelope = {
 
 ---
 
-_Spec pulled: 2026-07-25 from `/api/v1/openapi.json` (still v0.1.0 — the version does not move when endpoints land, so diff the paths). Re-pull and diff before each new feature phase._
+_Spec pulled: 2026-08-01 from `/api/v1/openapi.json` (still v0.1.0 — the version does not move when endpoints land, so diff the paths). Re-pull and diff before each new feature phase._

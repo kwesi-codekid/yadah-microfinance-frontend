@@ -1,4 +1,5 @@
 import {
+  HandCoins,
   LayoutDashboard,
   Users,
   UserCog,
@@ -31,6 +32,11 @@ export const NAV: NavItem[] = [
   // No Susu or Savings entry: an account belongs to a customer and is reached
   // through one, at `/customers/:id/accounts`. A cross-customer ledger would be
   // a second way in that nobody's day starts from.
+  //
+  // Loans are the exception, and earn it: pending applications have to be found
+  // by whoever approves them, who has no reason to have opened the customer's
+  // record first. Office-only, because every `/loans` endpoint is.
+  { to: "/loans", label: "Loans", icon: HandCoins, roles: ["admin", "manager"] },
   {
     to: "/staff",
     label: "Staff",

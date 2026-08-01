@@ -29,6 +29,11 @@ export default [
     // Everything a customer is saving into. An account belongs to a customer,
     // so this is also where one is opened — there is no `susu/new`.
     route("customers/:id/accounts", "routes/customer-accounts.tsx"),
+    // A loan belongs to a customer the same way an account does, so this is
+    // also where one is applied for — there is no `loans/new`. What it adds
+    // over the accounts page is the eligibility summary, which the API
+    // publishes precisely because the approval decision is a person's.
+    route("customers/:id/loans", "routes/customer-loans.tsx"),
 
     // One account, with its statement. Kept off `customers/:id/accounts/...`
     // deliberately: susu deposits and (later) savings withdrawals are
@@ -40,6 +45,19 @@ export default [
     // and the two products' detail pages are different shapes — a cycle of 31
     // days against an open-ended balance with a fee on the way out.
     route("savings/:id", "routes/savings-account.tsx"),
+
+    // Loans get the cross-customer list that susu and savings deliberately
+    // don't. The difference is in the API and in the workflow: `GET /loans`
+    // takes a `search` and joins the customer's name, and a **pending
+    // application has to be found by whoever approves it** — who has no reason
+    // to have opened that customer's record first. A queue nobody can see is a
+    // queue nobody works.
+    route("loans", "routes/loans.tsx"),
+    // Before `loans/:id` for reading order only — React Router ranks the
+    // static segment above the dynamic one regardless.
+    route("loans/config", "routes/loan-config.tsx"),
+    route("loans/:id", "routes/loan-detail.tsx"),
+
     route("staff", "routes/staff.tsx"),
   ]),
 ] satisfies RouteConfig;

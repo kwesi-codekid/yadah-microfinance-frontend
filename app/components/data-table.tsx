@@ -1,5 +1,5 @@
-import { Pagination, Skeleton, Table } from "@heroui/react";
-import { ChevronDown, FolderOpen } from "lucide-react";
+import { ListBox, Pagination, Select, Skeleton, Table } from "@heroui/react";
+import { FolderOpen } from "lucide-react";
 import { Children, useEffect, useState, type ReactNode } from "react";
 
 /**
@@ -111,6 +111,31 @@ export const DataTable = ({
     handleSize = onPageSizeChange ?? (() => {});
     showSizeSelect = !!onPageSizeChange;
     showFooter = true; // server already returned this page; always show the pager
+
+    /**
+     * Safety net for a server that ignored `limit`.
+     *
+     * Controlled mode means "the caller fetched exactly this page", so
+     * normally there is nothing to slice — and when the server behaves, this
+     * branch never runs. But an endpoint that quietly returns the whole
+     * collection makes the pager a decoration: every page renders every row,
+     * and the numbers underneath look like they do nothing.
+     *
+     * More rows than a page holds can only mean the server sent the lot, so
+     * they are sliced by the selected page here. It costs the download either
+     * way — this is a display fix, not a bandwidth one — and the real repair
+     * is on the API. Left in as a floor rather than a fix, because a list that
+     * silently shows page 1 forever is worse than one that pages a
+     * fully-downloaded set.
+     */
+    const allRows = Children.toArray(children);
+    if (allRows.length > curSize) {
+      visibleRows = allRows.slice((curPage - 1) * curSize, curPage * curSize);
+      // The caller's `pageCount` came from the server's `total`; if that was
+      // honest the two agree, and if it wasn't, the rows in hand are the
+      // better source.
+      pageCount = Math.max(pageCount, Math.ceil(allRows.length / curSize));
+    }
   } else if (paginated) {
     // Client mode: slice the children ourselves.
     const allRows = Children.toArray(children);
@@ -213,7 +238,19 @@ export const DataTable = ({
       </div>
 
       {showFooter ? (
-        <div className="flex items-center justify-between gap-4">
+        /* Pinned to the foot of the scrollport rather than sitting wherever
+           the table happens to end. `sticky` only engages once the row would
+           scroll out of view, so a short table's pager stays exactly where it
+           was — this costs nothing until it is needed, and past that point the
+           page controls are reachable without scrolling back down to them.
+           `bg-canvas` matches the `<main>` it scrolls inside, so rows pass
+           behind it rather than through it.
+
+           The mobile offset clears the floating tab bar in `mobile-nav.tsx`,
+           which is `fixed` at `max(0.75rem, safe-area)` and 3.5rem tall — the
+           expression is that sum plus a gap. From `lg` the rail takes over and
+           the bar is gone, so the pager sits on the true bottom edge. */
+        <div className="sticky bottom-[calc(4rem+max(0.75rem,env(safe-area-inset-bottom)))] z-10 flex items-center justify-between gap-4 border-t-2 border-border bg-canvas py-2 lg:bottom-0">
           {showSizeSelect ? (
             <PageSizeSelect value={curSize} options={pageSizeOptions} onChange={handleSize} />
           ) : (
@@ -248,7 +285,9 @@ export function CollectionFooter({
   onPageSizeChange?: (size: number) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    // Same pinning as the table's own footer above — a card grid pages the
+    // same way a table does, and the two sit one route apart.
+    <div className="sticky bottom-[calc(4rem+max(0.75rem,env(safe-area-inset-bottom)))] z-10 flex items-center justify-between gap-4 border-t-2 border-border bg-canvas py-2 lg:bottom-0">
       {pageSize !== undefined && onPageSizeChange ? (
         <PageSizeSelect
           value={pageSize}
@@ -278,24 +317,46 @@ function PageSizeSelect({
   onChange: (size: number) => void;
 }) {
   return (
-    <div className="relative">
-      <select
-        aria-label="Rows per page"
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="appearance-none rounded-lg border border-field-border bg-field py-1.5 pl-3 pr-9 text-sm text-foreground outline-none transition hover:border-accent/50 focus:border-accent"
-      >
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-      <ChevronDown
-        size={14}
-        className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-muted"
-      />
-    </div>
+    <Select
+      // No visible label — the trigger reads "25 per page", which says what a
+      // label would have. `aria-label` carries that for a screen reader, which
+      // would otherwise meet an unnamed combobox.
+      aria-label="Rows per page"
+      // Controlled off the caller's number. react-aria keys are strings, so it
+      // goes out as one and comes back parsed.
+      selectedKey={String(value)}
+      onSelectionChange={(key) => onChange(Number(key))}
+      className="text-left"
+    >
+      {/* `rounded` and a 1px border, matching `CELL_BASE` on the pager beside
+          it — the two are one control set, so they take their corner and their
+          edge weight from the same place rather than each having its own.
+          `min-h-8` is the pager cells' height and `min-w-32` holds the width
+          steady between "10 per page" and "100 per page", so the pager doesn't
+          shift sideways when the size changes. */}
+      <Select.Trigger className="min-h-8 min-w-32 gap-2 rounded border border-field-border bg-field px-2.5 text-sm text-foreground shadow-none transition hover:border-accent/50">
+        <Select.Value />
+        <Select.Indicator />
+      </Select.Trigger>
+      {/* The whole point of moving off `<select>`: a native one opens an
+          OS-drawn menu that takes none of the app's colours, corners or
+          spacing, and looks like a different program on every machine. This is
+          a popover we own. Same recipe as `SelectField` in form-fields.tsx, so
+          the two dropdowns in this app are one dropdown. */}
+      <Select.Popover className="min-w-[--trigger-width]  rounded border-2 border-border p-1">
+        <ListBox>
+          {options.map((o) => (
+            <ListBox.Item
+              key={o}
+              id={String(o)}
+              className="rounded shadow-none px-3 py-1.5 text-sm"
+            >
+              {o} per page
+            </ListBox.Item>
+          ))}
+        </ListBox>
+      </Select.Popover>
+    </Select>
   );
 }
 
@@ -312,6 +373,43 @@ function getPages(current: number, total: number): (number | "ellipsis")[] {
   return pages;
 }
 
+/**
+ * Square cells, not pills.
+ *
+ * A border on every cell so the run reads as a strip of keys rather than as
+ * loose numbers — with a pill the fill *is* the shape, and dropping to a small
+ * radius leaves an active cell with nothing holding its edge. `-ml-px` laps the
+ * borders so neighbours share one line instead of drawing two.
+ *
+ * The fill is deliberately *not* in here. Three cells want three different
+ * backgrounds, and two `bg-*` utilities in one class list is not an override —
+ * both are `background-color`, so which wins is decided by their order in the
+ * generated stylesheet, not by the order they were written. Composing off a
+ * fill-less base is what makes the three predictable.
+ */
+const CELL_BASE = "rounded border border-border -ml-px first:ml-0 min-w-8 text-sm";
+
+/** A page number, or the ellipsis: the lightest wash, so the run reads as one. */
+const PAGE_CELL = `${CELL_BASE} bg-success/10`;
+
+/**
+ * Prev and next: the solid fill.
+ *
+ * They are the only two cells you aim for without reading — everything else in
+ * the strip is a number you have to look at first — so they carry the deepest
+ * background rather than the same wash as their neighbours.
+ *
+ * `text-success-foreground`, not `text-white`: the token flips to near-black in
+ * the dark theme, where `--success` lightens to #34b160 and white-on-green
+ * loses its contrast.
+ *
+ * Disabled is covered twice on purpose. `isDisabled` is react-aria's, and
+ * depending on the element it renders it may surface as the `disabled`
+ * attribute or as `data-disabled` — without both, a solid green Previous on
+ * page 1 looks like a live button.
+ */
+const ARROW_CELL = `${CELL_BASE} border-success bg-success text-success-foreground hover:opacity-90 disabled:opacity-40 data-[disabled]:opacity-40`;
+
 function TablePagination({
   page,
   pageCount,
@@ -323,11 +421,12 @@ function TablePagination({
 }) {
   return (
     <Pagination size="sm">
-      <Pagination.Content>
+      <Pagination.Content className="flex items-center">
         <Pagination.Item>
           <Pagination.Previous
             isDisabled={page <= 1}
             onPress={() => onPageChange(page - 1)}
+            className={ARROW_CELL}
           >
             <Pagination.PreviousIcon />
           </Pagination.Previous>
@@ -336,7 +435,7 @@ function TablePagination({
         {getPages(page, pageCount).map((p, i) =>
           p === "ellipsis" ? (
             <Pagination.Item key={`ellipsis-${i}`}>
-              <Pagination.Ellipsis />
+              <Pagination.Ellipsis className={PAGE_CELL} />
             </Pagination.Item>
           ) : (
             <Pagination.Item key={p}>
@@ -345,8 +444,12 @@ function TablePagination({
                 onPress={() => onPageChange(p)}
                 className={
                   p === page
-                    ? "bg-success/30 font-semibold text-success hover:bg-success hover:text-white"
-                    : undefined
+                    ? // Off `CELL_BASE`, not `PAGE_CELL` — the active tint has
+                      // to be the only `bg-*` on the cell to be sure it lands.
+                      // Its own border colour too, so the marker doesn't
+                      // disappear into the neighbours' grey.
+                      `${CELL_BASE} z-10 border-success bg-success/30 font-semibold text-success hover:bg-success hover:text-success-foreground`
+                    : PAGE_CELL
                 }
               >
                 {p}
@@ -359,6 +462,7 @@ function TablePagination({
           <Pagination.Next
             isDisabled={page >= pageCount}
             onPress={() => onPageChange(page + 1)}
+            className={ARROW_CELL}
           >
             <Pagination.NextIcon />
           </Pagination.Next>

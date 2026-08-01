@@ -25,6 +25,7 @@ import {
   TrendChart,
 } from "~/components/charts";
 import { DataTable, Table } from "~/components/data-table";
+import { Kpi, PANEL, PANEL_TITLE } from "~/components/kpi";
 import {
   buildPortfolio,
   byCollector,
@@ -351,16 +352,11 @@ function greetingFor(hour: number): string {
  * ------------------------------------------------------------------ */
 
 /**
- * Every card on this page: KPI tiles, charted panels, rail panels.
- *
- * `dark:bg-canvas` rather than the surface colour the rest of the app's cards
- * wear. In the light theme the split does work — white panels on a grey canvas
- * is what makes the layout read as panels. In the dark one the canvas is
- * already near-black and lifting each card to `--surface` turns a page of
- * fifteen of them into fifteen grey rectangles; the `border-2` is enough to
- * hold their edges without the fill. */
-const PANEL = "rounded-lg border-2 border-border bg-surface dark:bg-canvas";
-const PANEL_TITLE = "text-xs font-bold uppercase tracking-wide text-muted";
+ * `PANEL`, `PANEL_TITLE` and `Kpi` moved to
+ * [kpi.tsx](app/components/kpi.tsx) — the loan pages want the same tile, and a
+ * second copy would be a second definition of what a figure looks like here.
+ * Imported at the top of this file.
+ */
 
 /**
  * The greeting banner's face — a green gradient, ramped left to right.
@@ -926,38 +922,6 @@ function PanelHead({
         <p className="mt-0.5 text-xs text-muted">{subtitle}</p>
       </div>
       {aside}
-    </div>
-  );
-}
-
-function Kpi({
-  icon,
-  label,
-  value,
-  foot,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  foot?: React.ReactNode;
-}) {
-  return (
-    /* `px-4` and a value that only reaches `text-2xl` on the widest screens:
-       six of these across the page is a ~200px column, and a figure like
-       ₵1,234,567.00 at 24px does not fit one. The vertical rhythm is tight on
-       purpose — a band of six is read across, not down, and every row of
-       padding here is repeated six times. */
-    <div className={`${PANEL} px-4 py-2.5`}>
-      <p className="flex items-center gap-1.5 truncate text-[11px] font-medium uppercase tracking-wide text-muted">
-        <span aria-hidden="true" className="shrink-0">
-          {icon}
-        </span>
-        {label}
-      </p>
-      <p className="mt-0.5 truncate font-sen text-lg font-semibold tabular-nums text-foreground 2xl:text-xl">
-        {value}
-      </p>
-      {foot}
     </div>
   );
 }

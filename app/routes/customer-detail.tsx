@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { data, Form, Link, useNavigation, useSearchParams } from "react-router";
 import { Button } from "@heroui/react";
-import { Ban, Pencil, RotateCcw, WalletCards } from "lucide-react";
+import { Ban, HandCoins, Pencil, RotateCcw, WalletCards } from "lucide-react";
 import type { Route } from "./+types/customer-detail";
 import {
   CustomerProfile,
@@ -379,6 +379,16 @@ export default function CustomerDetail({
               </Link>
               {canManage && (
                 <>
+                  {/* Office-only, where Accounts is not: every `/loans`
+                      endpoint is, including the eligibility summary the page
+                      leads with. A collector seeing this would get a 403. */}
+                  <Link
+                    to={`/customers/${customer.id}/loans`}
+                    className="flex min-h-9 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-background"
+                  >
+                    <HandCoins size={14} />
+                    Loans
+                  </Link>
                   {/* A search param on this same page, not a route of its own —
                       the fields turn into inputs where they already sit. */}
                   <Link
