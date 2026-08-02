@@ -174,47 +174,6 @@ export const DataTable = ({
   );
 };
 
-export function CollectionFooter({
-  page,
-  pageCount,
-  onPageChange,
-  pageSize,
-  pageSizeOptions = [10, 25, 50],
-  onPageSizeChange,
-  summary,
-}: {
-  page: number;
-  pageCount: number;
-  onPageChange: (page: number) => void;
-  pageSize?: number;
-  pageSizeOptions?: number[];
-  onPageSizeChange?: (size: number) => void;
-  /** Row count blurb, sat beside the rows-per-page select. */
-  summary?: ReactNode;
-}) {
-  return (
-    <div className="sticky bottom-[calc(4rem+max(0.75rem,env(safe-area-inset-bottom)))] z-10 flex items-center gap-3 border-t border-border bg-canvas py-2 lg:bottom-0">
-      {pageSize !== undefined && onPageSizeChange ? (
-        <PageSizeSelect
-          value={pageSize}
-          options={pageSizeOptions}
-          onChange={onPageSizeChange}
-        />
-      ) : null}
-      {summary ? (
-        <span aria-live="polite" className="min-w-0 truncate text-xs text-muted">
-          {summary}
-        </span>
-      ) : null}
-      <TablePagination
-        page={page}
-        pageCount={pageCount}
-        onPageChange={onPageChange}
-      />
-    </div>
-  );
-}
-
 /** Rows-per-page selector (native select styled to the theme). */
 function PageSizeSelect({
   value,
@@ -333,7 +292,7 @@ function TablePagination({
   );
 }
 
-export function EmptyState({ content }: { content?: EmptyContent }) {
+function EmptyState({ content }: { content?: EmptyContent }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-20">
       <div className="rounded-full bg-surface-tertiary p-6">

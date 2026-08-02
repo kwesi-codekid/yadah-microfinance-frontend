@@ -11,7 +11,7 @@ const FILL = {
   brand: "bg-brand text-white dark:bg-brand-light dark:text-brand-dark",
 } as const;
 
-export type TabTone = keyof typeof FILL;
+type TabTone = keyof typeof FILL;
 
 /** Shared by both flavours — the pill itself, selected or not. */
 function tabClass(selected: boolean, tone: TabTone) {
@@ -52,7 +52,7 @@ export function TabLink({
   /** `id` of the panel this tab swaps. */
   controls?: string;
   icon?: React.ReactNode;
-  /** The panel's own colour, if it has one. See `RING`. */
+  /** The panel's own colour, if it has one. See `FILL`. */
   tone?: TabTone;
   children: React.ReactNode;
 } & Omit<LinkProps, "children">) {
@@ -75,38 +75,3 @@ export function TabLink({
   );
 }
 
-/** A tab whose state is local — no URL, no navigation. */
-export function TabButton({
-  selected,
-  controls,
-  icon,
-  tone = "success",
-  children,
-  onClick,
-}: {
-  selected: boolean;
-  controls?: string;
-  icon?: React.ReactNode;
-  /** The panel's own colour, if it has one. See `RING`. */
-  tone?: TabTone;
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={selected}
-      aria-controls={controls}
-      onClick={onClick}
-      className={tabClass(selected, tone)}
-    >
-      {icon && (
-        <span aria-hidden="true" className="shrink-0">
-          {icon}
-        </span>
-      )}
-      {children}
-    </button>
-  );
-}

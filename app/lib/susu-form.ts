@@ -61,25 +61,4 @@ export function readDepositForm(
   return { daysCovered, channel, idempotencyKey, fieldErrors };
 }
 
-export function readCollectAllForm(form: FormData): {
-  amount: number;
-  channel: DepositChannel;
-  idempotencyKey: string;
-  fieldErrors: Record<string, string>;
-} {
-  const fieldErrors: Record<string, string> = {};
-  const raw = String(form.get("amount") ?? "");
-
-  const error = validateGhsAmount(raw, { label: "Amount collected" });
-  if (error) fieldErrors.amount = error;
-
-  const rawChannel = form.get("channel");
-  const channel: DepositChannel = isDepositChannel(rawChannel)
-    ? rawChannel
-    : "cash";
-
-  const idempotencyKey = readIdempotencyKey(form, fieldErrors);
-
-  return { amount: parseGhsAmount(raw) ?? 0, channel, idempotencyKey, fieldErrors };
-}
 

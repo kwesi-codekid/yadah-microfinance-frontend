@@ -4,7 +4,6 @@ import {
   PAYMENT_CHANNELS,
   type PaymentChannel,
 } from "~/lib/channel";
-import { formatGhs } from "~/lib/money";
 
 /** The API declares this as a `const 31`, not a configurable field. */
 export const SUSU_CYCLE_TARGET = 31;
@@ -100,28 +99,12 @@ export interface SusuCloseResult {
   flagged: boolean;
 }
 
-/** The result of `POST /susu/collect-all`. */
-export interface CollectAllResult {
-  batchId: string;
-  totalAmount: number;
-  deposits: SusuDeposit[];
-  accounts: SusuAccount[];
-  replayed: boolean;
-}
-
 /** The result of recording a single deposit. */
 export interface RecordDepositResult {
   deposit: SusuDeposit;
   account: SusuAccount;
   /** True when the API replayed an earlier identical request. */
   replayed: boolean;
-}
-
-/** The API's `accountNumber` filter takes exactly six digits and nothing else. */
-export const SUSU_ACCOUNT_NUMBER_PATTERN = /^\d{6}$/;
-
-export function isSusuAccountNumber(v: string): boolean {
-  return SUSU_ACCOUNT_NUMBER_PATTERN.test(v);
 }
 
 export function isSusuAccountStatus(v: unknown): v is SusuAccountStatus {
@@ -137,11 +120,6 @@ export function remainingDeposits(account: SusuAccount): number {
   return Math.max(0, account.cycleTarget - account.depositsCount);
 }
 
-/** What a completed cycle is worth: the daily amount every one of the 31 days. */
-export function cycleTargetAmount(account: SusuAccount): number {
-  return account.dailyAmount * account.cycleTarget;
-}
-
 /** 0–100, rounded. For a progress bar; use `depositsCount` for anything counted. */
 export function cyclePercent(account: SusuAccount): number {
   if (account.cycleTarget <= 0) return 0;
@@ -150,53 +128,6 @@ export function cyclePercent(account: SusuAccount): number {
 
 export function projectedPayout(account: SusuAccount): number {
   return Math.max(0, account.totalDeposited - account.dailyAmount);
-}
-
-/** Accounts a deposit can actually be recorded against. */
-export function activeAccounts(accounts: SusuAccount[]): SusuAccount[] {
-  return accounts.filter((a) => a.status === "active");
-}
-
-export function collectAllTotal(accounts: SusuAccount[]): number {
-  return activeAccounts(accounts).reduce((sum, a) => sum + a.dailyAmount, 0);
-}
-
-/** One of the 31 cells in a cycle grid. */
-export interface CycleSlot {
-  /** 1-based position in the cycle. */
-  seq: number;
-  filled: boolean;
-  /** The deposit that covered this day, when filled. */
-  deposit?: SusuDeposit;
-  /** True when the deposit covering it spanned several days (a catch-up). */
-  partOfCatchUp: boolean;
-}
-
-export function buildCycleSlots(
-  account: SusuAccount,
-  deposits: SusuDeposit[],
-): CycleSlot[] {
-  const bySeq = new Map<number, SusuDeposit>();
-  for (const deposit of deposits) {
-    for (let seq = deposit.seqStart; seq <= deposit.seqEnd; seq++) {
-      bySeq.set(seq, deposit);
-    }
-  }
-
-  return Array.from({ length: account.cycleTarget }, (_, i) => {
-    const seq = i + 1;
-    const deposit = bySeq.get(seq);
-    return {
-      seq,
-      filled: deposit !== undefined,
-      deposit,
-      partOfCatchUp: deposit !== undefined && deposit.daysCovered > 1,
-    };
-  });
-}
-
-export function describeAccount(account: SusuAccount): string {
-  return `${formatGhs(account.dailyAmount)} daily · ${account.depositsCount}/${account.cycleTarget}`;
 }
 
 export { newIdempotencyKey } from "~/lib/idempotency";
@@ -210,29 +141,3 @@ export function readExceedsRemaining(details: unknown): number | null {
   return null;
 }
 
-export interface AmountMismatch {
-  /** The exact total the collection should have been, in pesewas. */
-  required: number;
-  /** Per-account split of that total, when the API sent one. */
-  breakdown: { accountId: string; dailyAmount: number }[];
-}
-
-/** `422 AMOUNT_MISMATCH` from collect-all — the required total and its split. */
-export function readAmountMismatch(details: unknown): AmountMismatch | null {
-  if (!details || typeof details !== "object") return null;
-  const required = (details as { required?: unknown }).required;
-  if (typeof required !== "number") return null;
-
-  const raw = (details as { breakdown?: unknown }).breakdown;
-  const breakdown = Array.isArray(raw)
-    ? raw.flatMap((row) => {
-        if (!row || typeof row !== "object") return [];
-        const { accountId, dailyAmount } = row as Record<string, unknown>;
-        return typeof accountId === "string" && typeof dailyAmount === "number"
-          ? [{ accountId, dailyAmount }]
-          : [];
-      })
-    : [];
-
-  return { required, breakdown };
-}

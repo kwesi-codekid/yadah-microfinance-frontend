@@ -247,19 +247,6 @@ export function buildPortfolio(
   };
 }
 
-export function payoutsDue(accounts: SusuAccount[], limit = 5): SusuAccount[] {
-  return accounts
-    .filter((a) => a.status === "active" || a.status === "completed")
-    .sort((a, b) => {
-      const remainingA =
-        a.status === "completed" ? -1 : a.cycleTarget - a.depositsCount;
-      const remainingB =
-        b.status === "completed" ? -1 : b.cycleTarget - b.depositsCount;
-      if (remainingA !== remainingB) return remainingA - remainingB;
-      return b.totalDeposited - a.totalDeposited;
-    })
-    .slice(0, limit);
-}
 
 export interface Change {
   /** Whole percent, always positive — `direction` carries the sign. */
@@ -304,16 +291,3 @@ function trimDecimal(value: number): string {
   return fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed;
 }
 
-export function toCsv(rows: (string | number)[][]): string {
-  return rows
-    .map((row) =>
-      row
-        .map((cell) => {
-          const text = String(cell);
-          const safe = /^[=+\-@]/.test(text) ? `'${text}` : text;
-          return `"${safe.replace(/"/g, '""')}"`;
-        })
-        .join(","),
-    )
-    .join("\r\n");
-}

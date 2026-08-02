@@ -57,16 +57,3 @@ export function changePassword(
   });
 }
 
-export function forgotPassword(input: {
-  phone: string;
-}): Promise<{ message: string }> {
-  return apiFetch("/auth/password/forgot", { method: "POST", json: input });
-}
-
-export function resetPassword(input: {
-  phone: string;
-  code: string;
-  newPassword: string;
-}): Promise<void> {
-  return apiFetch("/auth/password/reset", { method: "POST", json: input });
-}

@@ -8,13 +8,27 @@ import {
   useNavigationType,
   useSearchParams,
 } from "react-router";
-import { Filter, LoaderCircle, PiggyBank, Search } from "lucide-react";
+import { Button } from "@heroui/react";
+import { Eye, Filter, LoaderCircle, PiggyBank, Plus, Search } from "lucide-react";
 import type { Route } from "./+types/savings";
 import { SavingsStatusPill } from "~/components/account-status";
+import {
+  CustomerPicker,
+  type CustomerMatch,
+} from "~/components/customer-picker";
 import { DataTable, Table } from "~/components/data-table";
-import { FIELD, FilterSelect } from "~/components/form-fields";
+import {
+  FIELD,
+  FieldError,
+  FilterSelect,
+  IconLink,
+} from "~/components/form-fields";
 import { TextInput } from "~/components/inputs";
+import { SideDrawer } from "~/components/side-drawer";
+import { notify } from "~/components/toast";
+import { toApiFailure, type ApiFailure } from "~/lib/api/client";
 import * as savingsApi from "~/lib/api/savings";
+import { pickedCustomer } from "~/lib/customer-search.server";
 import {
   matchNumber,
   pageOf,
@@ -23,14 +37,19 @@ import {
   typedDigits,
 } from "~/lib/account-scan";
 import { formatDate } from "~/lib/format";
-import { formatGhs } from "~/lib/money";
+import { newIdempotencyKey } from "~/lib/idempotency";
+import { formatGhs, parseGhsAmount } from "~/lib/money";
 import {
   isSavingsAccountStatus,
   SAVINGS_ACCOUNT_STATUS_LABELS,
   SAVINGS_ACCOUNT_STATUSES,
+  SAVINGS_FEE,
+  SAVINGS_MIN_BALANCE,
+  SAVINGS_MIN_DEPOSIT,
   type SavingsAccountStatus,
 } from "~/lib/savings-client";
-import { requireUser, withAuth } from "~/lib/session.server";
+import { readOpenSavingsForm } from "~/lib/savings-form";
+import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Savings · YADAH Dynamic Enterprise" }];
@@ -50,7 +69,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireUser(request);
+  const user = await requireUser(request);
 
   const url = new URL(request.url);
   const sp = url.searchParams;
@@ -58,6 +77,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   // Clamped to the API's own bound (1–100); see the note in customers.tsx.
   const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || "20") || 20));
   const typed = typedDigits(sp.get("accountNumber"), "savings");
+  // `?open=<id>` arrives from a customer's page — the drawer opens on them.
+  const openFor = sp.get("open");
   const statusParam = sp.get("status");
   const status: SavingsAccountStatus | undefined = isSavingsAccountStatus(
     statusParam,
@@ -66,6 +87,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     : undefined;
 
   const { data: payload, headers } = await withAuth(request, async (token) => {
+    const prefill = openFor ? await pickedCustomer(token, openFor) : null;
     // Digits narrow the list, so read several pages and match them here.
     if (typed) {
       const { items, truncated } = await scanAccounts(
@@ -77,17 +99,21 @@ export async function loader({ request }: Route.LoaderArgs) {
           }),
         SCAN_MAX_PAGES,
       );
-      return { result: pageOf(matchNumber(items, typed), page, limit), truncated };
+      return {
+        result: pageOf(matchNumber(items, typed), page, limit),
+        truncated,
+        prefill,
+      };
     }
     const result = await savingsApi.listSavingsAccounts(token, {
       page,
       limit,
       status,
     });
-    return { result, truncated: false };
+    return { result, truncated: false, prefill };
   });
 
-  const { result, truncated } = payload;
+  const { result, truncated, prefill } = payload;
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
   if (page > pageCount) {
@@ -99,6 +125,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       result,
       truncated,
+      prefill,
+      canManage: isOffice(user),
+      /** Fresh each load, so a resubmit of the same page can't double-open. */
+      savingsKey: newIdempotencyKey(),
       filters: {
         page,
         limit,
@@ -110,14 +140,204 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
 }
 
-export default function Savings({ loaderData }: Route.ComponentProps) {
-  const { result, truncated, filters } = loaderData;
+type ActionData = {
+  ok?: boolean;
+  message?: string;
+  formError?: string;
+  fieldErrors?: Record<string, string>;
+  /** Forwarded so the browser console shows what the API actually said. */
+  failure?: ApiFailure;
+};
+
+export async function action({ request }: Route.ActionArgs) {
+  const user = await requireUser(request);
+  if (!isOffice(user)) {
+    return data<ActionData>({ formError: "Only office staff can open accounts." });
+  }
+
+  const form = await request.formData();
+  const customerId = String(form.get("customerId") ?? "").trim();
+  const { initialDeposit, channel, idempotencyKey, fieldErrors } =
+    readOpenSavingsForm(form);
+  if (!customerId) fieldErrors.customerId = "Pick the customer this is for.";
+  if (Object.keys(fieldErrors).length) return data<ActionData>({ fieldErrors });
+
+  try {
+    const { data: result, headers } = await withAuth(request, (token) =>
+      savingsApi.openSavingsAccount(token, {
+        customerId,
+        ...(initialDeposit !== undefined
+          ? { initialDeposit, idempotencyKey, channel }
+          : {}),
+      }),
+    );
+    return data<ActionData>(
+      {
+        ok: true,
+        message: result.initialTxn
+          ? `Savings account ${result.account.accountNumber} opened with ${formatGhs(result.initialTxn.amount)}.`
+          : `Savings account ${result.account.accountNumber} opened.`,
+      },
+      { headers },
+    );
+  } catch (error) {
+    // Redirects (an unrenewable session) must propagate, not become messages.
+    if (error instanceof Response) throw error;
+    const failure = toApiFailure(error);
+    return data<ActionData>({ formError: failure.message, failure });
+  }
+}
+
+/** Opens a savings account for any customer, without leaving the book. */
+function OpenSavingsDrawer({
+  idempotencyKey,
+  prefill,
+  errors,
+}: {
+  idempotencyKey: string;
+  /** Handed over from a customer's own page; opens the drawer on them. */
+  prefill: CustomerMatch | null;
+  errors?: Record<string, string>;
+}) {
+  const navigation = useNavigation();
+  const submitting = navigation.state === "submitting";
+  const [open, setOpen] = useState(prefill !== null);
+  const [customer, setCustomer] = useState<CustomerMatch | null>(prefill);
+  const [amount, setAmount] = useState("");
+
+  const pesewas = parseGhsAmount(amount);
+  const belowFloor =
+    amount.trim() !== "" && (pesewas === null || pesewas < SAVINGS_MIN_DEPOSIT);
+
+  // A rejected submit reopens the drawer over whatever the API objected to.
+  const [seenErrors, setSeenErrors] = useState(errors);
+  if (errors !== seenErrors) {
+    setSeenErrors(errors);
+    if (errors) setOpen(true);
+  }
+
+  function close() {
+    setOpen(false);
+    setCustomer(null);
+    setAmount("");
+  }
+
+  const formId = "open-savings-account";
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        className="min-h-8 rounded-md bg-success px-3"
+        onPress={() => setOpen(true)}
+      >
+        <Plus size={14} />
+        Open an account
+      </Button>
+
+      <SideDrawer
+        isOpen={open}
+        onClose={close}
+        title="Open a savings account"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-md"
+              onPress={close}
+              isDisabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form={formId}
+              className="rounded-md bg-success"
+              isDisabled={submitting || belowFloor || customer === null}
+            >
+              {submitting ? "Opening…" : "Open account"}
+            </Button>
+          </>
+        }
+      >
+        <Form id={formId} method="post" className="space-y-5">
+          <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+          <input type="hidden" name="channel" value="cash" />
+
+          <div className="space-y-1.5">
+            <CustomerPicker
+              selected={customer}
+              onSelect={setCustomer}
+              autoFocus
+            />
+            <FieldError message={errors?.customerId} />
+          </div>
+
+          <div className="space-y-1.5">
+            <TextInput
+              name="initialDeposit"
+              label="Opening deposit (optional)"
+              value={amount}
+              onChange={setAmount}
+              inputProps={{
+                inputMode: "decimal",
+                autoComplete: "off",
+                placeholder: "0.00",
+                className: FIELD,
+              }}
+            />
+            <FieldError message={errors?.initialDeposit} />
+          </div>
+
+          <div className="space-y-3 text-sm text-muted">
+            {belowFloor ? (
+              <p>
+                The smallest deposit is{" "}
+                <span className="font-medium text-foreground">
+                  {formatGhs(SAVINGS_MIN_DEPOSIT)}
+                </span>
+                . Leave this blank to open the account empty.
+              </p>
+            ) : (
+              pesewas !== null && (
+                <p>
+                  Opening with{" "}
+                  <span className="font-medium text-foreground">
+                    {formatGhs(pesewas)}
+                  </span>
+                  , recorded as the first deposit.
+                </p>
+              )
+            )}
+            <p>
+              Money can go in any day. Taking it out costs a flat{" "}
+              {formatGhs(SAVINGS_FEE)}, only once a day, and{" "}
+              {formatGhs(SAVINGS_MIN_BALANCE)} has to stay in until the account
+              is closed.
+            </p>
+          </div>
+        </Form>
+      </SideDrawer>
+    </>
+  );
+}
+
+export default function Savings({
+  loaderData,
+  actionData,
+}: Route.ComponentProps) {
+  const { result, truncated, prefill, canManage, savingsKey, filters } =
+    loaderData;
   const navigation = useNavigation();
   const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
   const [number, setNumber] = useState(filters.accountNumber);
   const activeFilters = filters.status ? 1 : 0;
   const [filtersOpen, setFiltersOpen] = useState(activeFilters > 0);
+  // Bumped on every account opened, to remount the drawer empty and closed.
+  const [opened, setOpened] = useState(0);
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
 
@@ -157,6 +377,26 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
     if (navigationType === "POP") setNumber(filters.accountNumber);
   }, [navigationType, filters.accountNumber]);
 
+  useEffect(() => {
+    if (actionData?.ok) {
+      notify.success(actionData.message ?? "Account opened.");
+      setOpened((count) => count + 1);
+      // The handoff is spent; leaving it would reopen the drawer on reload.
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("open");
+          return next;
+        },
+        { replace: true, preventScrollReset: true },
+      );
+    } else if (actionData?.formError) {
+      notify.error(actionData.formError);
+    }
+    if (actionData?.failure)
+      console.error("[savings] request failed:", actionData.failure);
+  }, [actionData]);
+
   function setParam(patch: Record<string, string | null>) {
     const next = new URLSearchParams(searchParams);
     for (const [k, v] of Object.entries(patch)) {
@@ -178,13 +418,14 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
             withdrawn.
           </p>
         </div>
-        <Link
-          to="/customers"
-          className="flex min-h-8 items-center gap-1.5 rounded-md bg-success px-3 text-sm font-medium text-white transition-opacity hover:opacity-90"
-        >
-          <PiggyBank size={12} />
-          Open an account
-        </Link>
+        {canManage && (
+          <OpenSavingsDrawer
+            key={opened}
+            idempotencyKey={savingsKey}
+            prefill={prefill}
+            errors={actionData?.fieldErrors}
+          />
+        )}
       </div>
 
       {/* A real GET form, so the filters still work with JavaScript off. */}
@@ -274,6 +515,7 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
           "Available",
           "Status",
           "Opened",
+          "Actions",
         ]}
         ariaLabel="Savings accounts"
         isLoading={navigation.state === "loading" && !searching}
@@ -303,17 +545,7 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
               ? `No accounts are ${SAVINGS_ACCOUNT_STATUS_LABELS[
                   filters.status as SavingsAccountStatus
                 ].toLowerCase()}.`
-              : "Pick a customer to open the first one.",
-          button:
-            !filters.accountNumber && !filters.status ? (
-              <Link
-                to="/customers"
-                className="flex min-h-9 items-center gap-1.5 rounded-md bg-success px-3 text-sm font-medium text-white transition-opacity hover:opacity-90"
-              >
-                <PiggyBank size={14} />
-                Open an account
-              </Link>
-            ) : undefined,
+              : "Open the first one — search for the customer as you go.",
         }}
       >
         {result.items.map((account) => (
@@ -340,6 +572,14 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
             </Table.Cell>
             <Table.Cell className="px-4 py-2 text-muted">
               {formatDate(account.openedAt)}
+            </Table.Cell>
+            <Table.Cell className="px-4 py-2">
+              <IconLink
+                label={`Open account ${account.accountNumber}`}
+                to={`/savings/${account.id}`}
+              >
+                <Eye size={16} />
+              </IconLink>
             </Table.Cell>
           </Table.Row>
         ))}

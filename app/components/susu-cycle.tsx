@@ -8,11 +8,7 @@ import {
   type CalendarDay,
   type CalendarMonth,
 } from "~/lib/susu-calendar";
-import {
-  cyclePercent,
-  type SusuAccount,
-  type SusuDeposit,
-} from "~/lib/susu-client";
+import type { SusuAccount, SusuDeposit } from "~/lib/susu-client";
 
 export function CycleChips({
   account,
@@ -356,48 +352,5 @@ function Key({
       </span>
       {label}
     </li>
-  );
-}
-
-export function CycleBar({ account }: { account: SusuAccount }) {
-  const percent = cyclePercent(account);
-
-  return (
-    <div className="flex items-center gap-2">
-      <div
-        className="h-1.5 w-full max-w-24 overflow-hidden rounded-full bg-border"
-        role="progressbar"
-        aria-valuenow={account.depositsCount}
-        aria-valuemin={0}
-        aria-valuemax={account.cycleTarget}
-        aria-label={`${account.depositsCount} of ${account.cycleTarget} days paid`}
-      >
-        <div
-          className={`h-full rounded-full ${percent >= 100 ? "bg-brand" : "bg-success"}`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-      <span className="shrink-0 text-xs tabular-nums text-muted">
-        {account.depositsCount}/{account.cycleTarget}
-      </span>
-    </div>
-  );
-}
-
-/** Status pill, shared by the account list and the account detail header. */
-export function StatusPill({ account }: { account: SusuAccount }) {
-  const tone =
-    account.status === "active"
-      ? "bg-success/15 text-success"
-      : account.status === "completed"
-        ? "bg-brand/15 text-brand-dark dark:text-brand-light"
-        : "bg-muted/15 text-muted";
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${tone}`}
-    >
-      {account.status}
-    </span>
   );
 }

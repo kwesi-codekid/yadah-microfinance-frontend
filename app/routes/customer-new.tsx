@@ -99,8 +99,6 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
   return (
     <div className="mx-auto w-full px-6 py-8">
       <PageHeader
-        backTo="/customers"
-        backLabel="Customers"
         title="Register Customer"
         subtitle="Only a name and phone number are required — the rest can follow later."
       />

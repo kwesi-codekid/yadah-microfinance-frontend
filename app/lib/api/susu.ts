@@ -1,5 +1,4 @@
 import type {
-  CollectAllResult,
   DepositChannel,
   RecordDepositResult,
   SusuAccount,
@@ -107,26 +106,6 @@ export function recordSusuDeposit(
   input: RecordDepositInput,
 ): Promise<RecordDepositResult> {
   return apiFetch(`/susu/accounts/${id}/deposits`, {
-    method: "POST",
-    json: input,
-    accessToken,
-  });
-}
-
-export interface CollectAllInput {
-  customerId: string;
-  /** Pesewas. Must equal the sum of the active accounts' daily amounts. */
-  amount: number;
-  /** 8–128 chars, from `newIdempotencyKey()`. Required. */
-  idempotencyKey: string;
-  channel?: DepositChannel;
-}
-
-export function collectAll(
-  accessToken: string,
-  input: CollectAllInput,
-): Promise<CollectAllResult> {
-  return apiFetch("/susu/collect-all", {
     method: "POST",
     json: input,
     accessToken,

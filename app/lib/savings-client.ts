@@ -86,10 +86,6 @@ export function isSavingsAccountStatus(v: unknown): v is SavingsAccountStatus {
   );
 }
 
-export function lockedBalance(account: SavingsAccount): number {
-  return Math.max(0, account.balance - account.availableToWithdraw);
-}
-
 export function withdrawalCost(amount: number): number {
   return amount + SAVINGS_FEE;
 }

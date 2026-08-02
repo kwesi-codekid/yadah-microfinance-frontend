@@ -982,62 +982,6 @@ function Key({ className, label }: { className: string; label: string }) {
   );
 }
 
-/** One slice of the book — see `SegmentedBar`. */
-export interface Segment {
-  label: string;
-  value: number;
-  /** A `bg-*` class from the `cat-` ramp in [app.css](app/app.css). */
-  className: string;
-}
-
-export function SegmentedBar({
-  segments,
-  total,
-}: {
-  segments: Segment[];
-  total: number;
-}) {
-  return (
-    <>
-      <div
-        aria-hidden="true"
-        className="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full bg-surface-tertiary"
-      >
-        {total > 0 &&
-          segments
-            .filter((s) => s.value / total >= 0.005)
-            .map((segment) => (
-              <span
-                key={segment.label}
-                className={`rounded-full ${segment.className}`}
-                style={{ width: `${(segment.value / total) * 100}%` }}
-              />
-            ))}
-      </div>
-
-      <ul className="mt-4 space-y-2.5">
-        {segments.map((segment) => (
-          <li
-            key={segment.label}
-            className="flex items-center justify-between gap-3 text-xs"
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <span
-                aria-hidden="true"
-                className={`size-2.5 shrink-0 rounded-xs ${segment.className}`}
-              />
-              <span className="truncate text-muted">{segment.label}</span>
-            </span>
-            <span className="shrink-0 font-sen font-semibold tabular-nums text-foreground">
-              {formatGhs(segment.value)}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
-
 export function Meter({
   value,
   max,

@@ -24,12 +24,3 @@ export function uploadImage(
   });
 }
 
-export function deleteImage(
-  accessToken: string,
-  publicId: string,
-): Promise<void> {
-  return apiFetch(`/uploads/images?publicId=${encodeURIComponent(publicId)}`, {
-    method: "DELETE",
-    accessToken,
-  });
-}

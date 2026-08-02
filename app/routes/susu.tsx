@@ -8,20 +8,31 @@ import {
   useNavigationType,
   useSearchParams,
 } from "react-router";
+import { Button } from "@heroui/react";
 import {
   ChevronRight,
   Coins,
   CornerDownRight,
+  Eye,
   LoaderCircle,
+  Plus,
   Search,
 } from "lucide-react";
 import type { Route } from "./+types/susu";
 import { SusuStatusPill } from "~/components/account-status";
+import {
+  CustomerPicker,
+  type CustomerMatch,
+} from "~/components/customer-picker";
 import { DataTable, Table } from "~/components/data-table";
-import { FIELD } from "~/components/form-fields";
+import { FIELD, FieldError, IconLink } from "~/components/form-fields";
 import { TextInput } from "~/components/inputs";
+import { SideDrawer } from "~/components/side-drawer";
 import { TabLink, TabList } from "~/components/tabs";
+import { notify } from "~/components/toast";
+import { toApiFailure, type ApiFailure } from "~/lib/api/client";
 import * as susuApi from "~/lib/api/susu";
+import { pickedCustomer } from "~/lib/customer-search.server";
 import {
   matchNumber,
   pageOf,
@@ -30,16 +41,19 @@ import {
   typedDigits,
 } from "~/lib/account-scan";
 import { formatDate } from "~/lib/format";
-import { formatGhs } from "~/lib/money";
+import { formatGhs, parseGhsAmount } from "~/lib/money";
 import {
   cyclePercent,
   isSusuAccountStatus,
   SUSU_ACCOUNT_STATUS_LABELS,
   SUSU_ACCOUNT_STATUSES,
+  SUSU_CYCLE_TARGET,
+  SUSU_MIN_DAILY_AMOUNT,
   type SusuAccount,
   type SusuAccountStatus,
 } from "~/lib/susu-client";
-import { requireUser, withAuth } from "~/lib/session.server";
+import { readOpenAccountForm } from "~/lib/susu-form";
+import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Susu · YADAH Dynamic Enterprise" }];
@@ -108,7 +122,7 @@ function groupBySaver(accounts: SusuAccount[]): SaverGroup[] {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireUser(request);
+  const user = await requireUser(request);
 
   const url = new URL(request.url);
   const sp = url.searchParams;
@@ -116,6 +130,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   // Clamped to the API's own bound (1–100); see the note in customers.tsx.
   const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || "20") || 20));
   const typed = typedDigits(sp.get("accountNumber"), "susu");
+  // `?open=<id>` arrives from a customer's page — the drawer opens on them.
+  const openFor = sp.get("open");
 
   const statusParam = sp.get("status");
   const selected =
@@ -126,6 +142,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     selected === "all" ? undefined : (selected as SusuAccountStatus);
 
   const { data: payload, headers } = await withAuth(request, async (token) => {
+    const prefill = openFor ? await pickedCustomer(token, openFor) : null;
     // Digits narrow the list, so read several pages and match them here.
     if (typed) {
       const { items, truncated } = await scanAccounts(
@@ -133,13 +150,17 @@ export async function loader({ request }: Route.LoaderArgs) {
           susuApi.listSusuAccounts(token, { page: p, limit: SCAN_LIMIT, status }),
         SCAN_MAX_PAGES,
       );
-      return { result: pageOf(matchNumber(items, typed), page, limit), truncated };
+      return {
+        result: pageOf(matchNumber(items, typed), page, limit),
+        truncated,
+        prefill,
+      };
     }
     const result = await susuApi.listSusuAccounts(token, { page, limit, status });
-    return { result, truncated: false };
+    return { result, truncated: false, prefill };
   });
 
-  const { result, truncated } = payload;
+  const { result, truncated, prefill } = payload;
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
   if (page > pageCount) {
@@ -151,10 +172,54 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       result,
       truncated,
+      prefill,
+      canManage: isOffice(user),
       filters: { page, limit, status: selected, accountNumber: typed },
     },
     { headers },
   );
+}
+
+type ActionData = {
+  ok?: boolean;
+  message?: string;
+  formError?: string;
+  fieldErrors?: Record<string, string>;
+  /** Forwarded so the browser console shows what the API actually said. */
+  failure?: ApiFailure;
+};
+
+export async function action({ request }: Route.ActionArgs) {
+  const user = await requireUser(request);
+  if (!isOffice(user)) {
+    return data<ActionData>({ formError: "Only office staff can open accounts." });
+  }
+
+  const form = await request.formData();
+  const customerId = String(form.get("customerId") ?? "").trim();
+  const { dailyAmount, fieldErrors } = readOpenAccountForm(form);
+  if (!customerId) fieldErrors.customerId = "Pick the customer this is for.";
+  if (Object.keys(fieldErrors).length) return data<ActionData>({ fieldErrors });
+
+  try {
+    const { data: result, headers } = await withAuth(request, (token) =>
+      susuApi.openSusuAccount(token, { customerId, dailyAmount }),
+    );
+    return data<ActionData>(
+      {
+        ok: true,
+        message: `Susu account ${result.account.accountNumber} opened at ${formatGhs(
+          result.account.dailyAmount,
+        )} a day.`,
+      },
+      { headers },
+    );
+  } catch (error) {
+    // Redirects (an unrenewable session) must propagate, not become messages.
+    if (error instanceof Response) throw error;
+    const failure = toApiFailure(error);
+    return data<ActionData>({ formError: failure.message, failure });
+  }
 }
 
 const CELL = "px-4 py-3 align-top";
@@ -205,17 +270,162 @@ function AccountRow({
       <Table.Cell className={`${CELL} text-muted`}>
         {formatDate(account.openedAt)}
       </Table.Cell>
+      <Table.Cell className={CELL}>
+        <IconLink
+          label={`Open account ${account.accountNumber}`}
+          to={`/susu/${account.id}`}
+        >
+          <Eye size={16} />
+        </IconLink>
+      </Table.Cell>
     </Table.Row>
   );
 }
 
-export default function Susu({ loaderData }: Route.ComponentProps) {
-  const { result, truncated, filters } = loaderData;
+/** Opens a cycle for any customer, without leaving the book to find them. */
+function OpenSusuDrawer({
+  prefill,
+  errors,
+}: {
+  /** Handed over from a customer's own page; opens the drawer on them. */
+  prefill: CustomerMatch | null;
+  errors?: Record<string, string>;
+}) {
+  const navigation = useNavigation();
+  const submitting = navigation.state === "submitting";
+  const [open, setOpen] = useState(prefill !== null);
+  const [customer, setCustomer] = useState<CustomerMatch | null>(prefill);
+  const [amount, setAmount] = useState("");
+
+  const pesewas = parseGhsAmount(amount);
+  const valid =
+    customer !== null && pesewas !== null && pesewas >= SUSU_MIN_DAILY_AMOUNT;
+
+  // A rejected submit reopens the drawer over whatever the API objected to.
+  const [seenErrors, setSeenErrors] = useState(errors);
+  if (errors !== seenErrors) {
+    setSeenErrors(errors);
+    if (errors) setOpen(true);
+  }
+
+  // A finished submit leaves the fields ready for the next customer.
+  function close() {
+    setOpen(false);
+    setCustomer(null);
+    setAmount("");
+  }
+
+  const formId = "open-susu-account";
+
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        className="min-h-8 rounded-md bg-success px-3"
+        onPress={() => setOpen(true)}
+      >
+        <Plus size={14} />
+        Open an account
+      </Button>
+
+      <SideDrawer
+        isOpen={open}
+        onClose={close}
+        title="Open a susu account"
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-md"
+              onPress={close}
+              isDisabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form={formId}
+              className="rounded-md bg-success"
+              isDisabled={submitting || !valid}
+            >
+              {submitting ? "Opening…" : "Open account"}
+            </Button>
+          </>
+        }
+      >
+        <Form id={formId} method="post" className="space-y-5">
+          <div className="space-y-1.5">
+            <CustomerPicker
+              selected={customer}
+              onSelect={setCustomer}
+              autoFocus
+            />
+            <FieldError message={errors?.customerId} />
+          </div>
+
+          <div className="space-y-1.5">
+            <TextInput
+              name="dailyAmount"
+              label="Daily amount"
+              value={amount}
+              onChange={setAmount}
+              inputProps={{
+                // `decimal` so a phone keypad offers the point for pesewas.
+                inputMode: "decimal",
+                autoComplete: "off",
+                placeholder: "5.00",
+                className: FIELD,
+              }}
+            />
+            <FieldError message={errors?.dailyAmount} />
+          </div>
+
+          <div className="space-y-3 text-sm text-muted">
+            {pesewas !== null && pesewas >= SUSU_MIN_DAILY_AMOUNT ? (
+              <p>
+                <span className="font-medium text-foreground">
+                  {formatGhs(pesewas)}
+                </span>{" "}
+                every day for {SUSU_CYCLE_TARGET} days —{" "}
+                <span className="font-medium text-foreground">
+                  {formatGhs(pesewas * SUSU_CYCLE_TARGET)}
+                </span>{" "}
+                over the full cycle.
+              </p>
+            ) : (
+              pesewas !== null && (
+                <p>
+                  The smallest daily amount is{" "}
+                  <span className="font-medium text-foreground">
+                    {formatGhs(SUSU_MIN_DAILY_AMOUNT)}
+                  </span>
+                  .
+                </p>
+              )
+            )}
+            <p>
+              The daily amount can't be changed afterwards. To save a different
+              amount, this account has to be closed and a new one opened — and
+              one day's deposit is kept as commission when it closes.
+            </p>
+          </div>
+        </Form>
+      </SideDrawer>
+    </>
+  );
+}
+
+export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
+  const { result, truncated, prefill, canManage, filters } = loaderData;
   const navigation = useNavigation();
   const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
   const [number, setNumber] = useState(filters.accountNumber);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Bumped on every account opened, to remount the drawer empty and closed.
+  const [opened, setOpened] = useState(0);
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
   const groups = groupBySaver(result.items);
@@ -264,6 +474,26 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
     if (navigationType === "POP") setNumber(filters.accountNumber);
   }, [navigationType, filters.accountNumber]);
 
+  useEffect(() => {
+    if (actionData?.ok) {
+      notify.success(actionData.message ?? "Account opened.");
+      setOpened((count) => count + 1);
+      // The handoff is spent; leaving it would reopen the drawer on reload.
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("open");
+          return next;
+        },
+        { replace: true, preventScrollReset: true },
+      );
+    } else if (actionData?.formError) {
+      notify.error(actionData.formError);
+    }
+    if (actionData?.failure)
+      console.error("[susu] request failed:", actionData.failure);
+  }, [actionData]);
+
   // "active" is the loader's default, so it needs no parameter of its own.
   function statusHref(value: string) {
     const next = new URLSearchParams(searchParams);
@@ -295,13 +525,13 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
             has collected.
           </p>
         </div>
-        <Link
-          to="/customers"
-          className="flex min-h-8 items-center gap-1.5 rounded-md bg-success px-3 text-sm font-medium text-white transition-opacity hover:opacity-90"
-        >
-          <Coins size={12} />
-          Open an account
-        </Link>
+        {canManage && (
+          <OpenSusuDrawer
+            key={opened}
+            prefill={prefill}
+            errors={actionData?.fieldErrors}
+          />
+        )}
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -377,6 +607,7 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
           "Daily",
           "Collected",
           "Opened",
+          "Actions",
         ]}
         ariaLabel="Susu accounts"
         isLoading={navigation.state === "loading" && !searching}
@@ -407,20 +638,10 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
           subtext: filters.accountNumber
             ? `No account number contains “${filters.accountNumber}”.`
             : filters.status === "all"
-              ? "Pick a customer to open the first one."
+              ? "Open the first one — search for the customer as you go."
               : `No cycles are ${SUSU_ACCOUNT_STATUS_LABELS[
                   filters.status as SusuAccountStatus
                 ].toLowerCase()}. Switch the filter to see the rest.`,
-          button:
-            !filters.accountNumber && filters.status === "all" ? (
-              <Link
-                to="/customers"
-                className="flex min-h-9 items-center gap-1.5 rounded-md bg-success px-3 text-sm font-medium text-white transition-opacity hover:opacity-90"
-              >
-                <Coins size={14} />
-                Open an account
-              </Link>
-            ) : undefined,
         }}
       >
         {groups.flatMap((group) => {

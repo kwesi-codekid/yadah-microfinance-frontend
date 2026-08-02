@@ -1,5 +1,4 @@
 import type { PaymentChannel } from "~/lib/channel";
-import { formatGhs } from "~/lib/money";
 
 /** The only three durations `POST /loans/applications` accepts. */
 export const LOAN_DURATIONS = [3, 6, 12] as const;

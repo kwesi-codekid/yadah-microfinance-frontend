@@ -13,8 +13,6 @@ import {
 import { Button, Dropdown } from "@heroui/react";
 import {
   Eye,
-  HandCoins,
-  WalletCards,
   Pencil,
   UserPlus,
   Ban,
@@ -616,14 +614,8 @@ function RowActions({
     danger?: boolean;
   }[] = [
     { id: "view", label: "View record", icon: <Eye size={16} /> },
-    {
-      id: "accounts",
-      label: "Accounts",
-      icon: <WalletCards size={16} />,
-    },
     ...(canManage
       ? [
-          { id: "loans", label: "Loans", icon: <HandCoins size={16} /> },
           { id: "edit", label: "Edit details", icon: <Pencil size={16} /> },
           active
             ? {
@@ -645,10 +637,6 @@ function RowActions({
     switch (key) {
       case "view":
         return navigate(`/customers/${customer.id}`);
-      case "accounts":
-        return navigate(`/customers/${customer.id}/accounts`);
-      case "loans":
-        return navigate(`/customers/${customer.id}/loans`);
       case "edit":
         return navigate(`/customers/${customer.id}?edit`);
       // Activating is harmless and instantly reversible; deactivating is not.

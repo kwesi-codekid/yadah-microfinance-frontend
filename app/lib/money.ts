@@ -1,12 +1,4 @@
-export const PESEWAS_PER_CEDI = 100;
-
-export function pesewasToGhs(pesewas: number): number {
-  return pesewas / PESEWAS_PER_CEDI;
-}
-
-export function ghsToPesewas(ghs: number): number {
-  return Math.round(ghs * PESEWAS_PER_CEDI);
-}
+const PESEWAS_PER_CEDI = 100;
 
 /** Digits, an optional decimal point, and at most two places after it. */
 const AMOUNT_RE = /^\d+(?:\.\d{1,2})?$/;

@@ -23,7 +23,6 @@ import { accraToday, formatDate } from "~/lib/format";
 import { formatGhs } from "~/lib/money";
 import { readDepositForm } from "~/lib/susu-form";
 import {
-  cycleTargetAmount,
   DEPOSIT_CHANNEL_LABELS,
   DEPOSIT_CHANNELS,
   newIdempotencyKey,
@@ -598,73 +597,6 @@ function CloseButton({
   );
 }
 
-function MoneyCard({ account }: { account: SusuAccount }) {
-  const left = remainingDeposits(account);
-  const closed = account.status === "closed";
-
-  return (
-    <Card title="Money">
-      <dl className="space-y-3">
-        <Figure
-          label="Saved so far"
-          value={formatGhs(account.totalDeposited)}
-          strong
-        />
-        <Figure label="Full cycle" value={formatGhs(cycleTargetAmount(account))} />
-        {left > 0 && (
-          <Figure
-            label="Still to collect"
-            value={formatGhs(left * account.dailyAmount)}
-          />
-        )}
-
-        {closed ? (
-          <>
-            <Figure
-              label="Commission kept"
-              value={formatGhs(account.commissionAmount ?? 0)}
-            />
-            <Figure
-              label="Paid out"
-              value={formatGhs(account.payoutAmount ?? 0)}
-              strong
-            />
-            <Figure label="Closed" value={formatDate(account.closedAt)} />
-          </>
-        ) : (
-          <>
-            <Figure
-              label="Commission at closure"
-              value={formatGhs(account.dailyAmount)}
-            />
-            <Figure
-              label="Payout if closed today"
-              value={formatGhs(projectedPayout(account))}
-              strong
-            />
-          </>
-        )}
-      </dl>
-    </Card>
-  );
-}
-
-function Card({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-2xl border-2 border-border bg-surface p-5">
-      <h2 className="mb-4 text-xs font-bold uppercase tracking-wide text-muted">
-        {title}
-      </h2>
-      {children}
-    </section>
-  );
-}
 
 /** One label/figure pair. `strong` marks the number the eye should land on. */
 function Figure({

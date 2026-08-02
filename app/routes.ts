@@ -7,13 +7,15 @@ export default [
   route("logout", "routes/logout.tsx"),
   route("change-password", "routes/change-password.tsx"),
 
+  // Outside the layout: the drawers poll these, and they needn't run layout loaders.
+  route("customers/search", "routes/customer-search.tsx"),
+  route("loans/eligibility", "routes/loan-eligibility.tsx"),
+
   layout("routes/app-layout.tsx", [
     route("dashboard", "routes/dashboard.tsx"),
     route("customers", "routes/customers.tsx"),
     route("customers/new", "routes/customer-new.tsx"),
     route("customers/:id", "routes/customer-detail.tsx"),
-    route("customers/:id/accounts", "routes/customer-accounts.tsx"),
-    route("customers/:id/loans", "routes/customer-loans.tsx"),
 
     route("susu", "routes/susu.tsx"),
     route("susu/:id", "routes/susu-account.tsx"),

@@ -14,7 +14,6 @@ import {
   Users,
 } from "lucide-react";
 import type { Route } from "./+types/dashboard";
-import { SHEEN } from "~/components/account-card";
 import {
   BarList,
   Delta,
@@ -60,7 +59,6 @@ import * as customersApi from "~/lib/api/customers";
 import * as savingsApi from "~/lib/api/savings";
 import * as susuApi from "~/lib/api/susu";
 import * as usersApi from "~/lib/api/users";
-import { type SusuAccount } from "~/lib/susu-client";
 import { ROLE_LABELS, type Role } from "~/lib/auth-client";
 import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 
@@ -843,72 +841,6 @@ function TellerPanel({
         ))}
       </DataTable>
 
-    </section>
-  );
-}
-
-function UncollectedPanel({
-  accounts,
-  total,
-  expected,
-  isToday,
-}: {
-  accounts: { account: SusuAccount; name: string | null }[];
-  total: number;
-  expected: number;
-  isToday: boolean;
-}) {
-  return (
-    <section className={`${PANEL} p-5`} aria-label="Not yet collected">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <h2 className={PANEL_TITLE}>Not yet collected</h2>
-        <HandCoins size={14} className="shrink-0 text-muted" aria-hidden="true" />
-      </div>
-
-      {total === 0 ? (
-        <p className="text-xs text-muted">
-          Every running cycle has a deposit {isToday ? "today" : "that day"}.
-          Nothing outstanding.
-        </p>
-      ) : (
-        <>
-          <p className="font-sen text-2xl font-semibold tabular-nums text-foreground">
-            {formatGhs(expected)}
-          </p>
-          <p className="mb-3 mt-1 text-xs text-muted">
-            across <Figure>{total}</Figure> {total === 1 ? "cycle" : "cycles"}
-          </p>
-
-          <ul className="space-y-3.5">
-            {accounts.map(({ account, name }) => (
-              <li key={account.id}>
-                <Link
-                  to={`/susu/${account.id}`}
-                  className="group block rounded-md outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent"
-                >
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="min-w-0 truncate text-xs font-medium text-foreground group-hover:text-success">
-                      {name ?? `Susu ${account.accountNumber}`}
-                    </span>
-                    <span className="shrink-0 font-sen text-xs font-semibold tabular-nums text-foreground">
-                      {formatGhs(account.dailyAmount)}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-xs tabular-nums text-muted">
-                    day {account.depositsCount} of {account.cycleTarget}
-                  </p>
-                </Link>
-              </li>
-            ))}
-          </ul>
-
-          {total > accounts.length && (
-            <p className="mt-3 text-xs text-muted">
-              {total - accounts.length} more not shown.
-            </p>
-          )}
-        </>
-      )}
     </section>
   );
 }

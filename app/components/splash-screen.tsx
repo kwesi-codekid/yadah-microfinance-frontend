@@ -1,9 +1,5 @@
-import { useEffect, useState } from "react";
-import {
-  AnimatePresence,
-  motion,
-  useReducedMotion,
-} from "framer-motion";
+import { useEffect } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 
 type SplashScreenProps = {
   /** Called once the intro has finished (after `duration`). */
@@ -265,20 +261,5 @@ export function SplashScreen({
         </p>
       </div>
     </motion.div>
-  );
-}
-
-export function WithSplash({
-  children,
-  ...props
-}: SplashScreenProps & { children: React.ReactNode }) {
-  const [done, setDone] = useState(false);
-  return (
-    <>
-      <AnimatePresence>
-        {!done && <SplashScreen {...props} onDone={() => setDone(true)} />}
-      </AnimatePresence>
-      {done && children}
-    </>
   );
 }
