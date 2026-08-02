@@ -19,8 +19,6 @@ export function SideDrawer({
     title,
     footer,
     position = "right",
-    // `max-w-full` keeps the panel inside the viewport on phones, where a
-    // fixed 420px would otherwise run off the edge.
     width = "w-[340px] max-w-full",
 }: SideDrawerProps) {
     const slideDirection = position === "right" ? "100%" : "-100%"

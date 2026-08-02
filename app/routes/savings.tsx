@@ -8,63 +8,86 @@ import {
   useNavigationType,
   useSearchParams,
 } from "react-router";
-import {
-  Filter,
-  HandCoins,
-  LoaderCircle,
-  Search,
-  Settings2,
-} from "lucide-react";
-import type { Route } from "./+types/loans";
+import { Filter, LoaderCircle, PiggyBank, Search } from "lucide-react";
+import type { Route } from "./+types/savings";
+import { SavingsStatusPill } from "~/components/account-status";
 import { DataTable, Table } from "~/components/data-table";
-import { TextInput } from "~/components/inputs";
 import { FIELD, FilterSelect } from "~/components/form-fields";
-import { LoanStatusPill } from "~/components/loan-status";
-import * as loansApi from "~/lib/api/loans";
-import { formatDate } from "~/lib/format";
+import { TextInput } from "~/components/inputs";
+import * as savingsApi from "~/lib/api/savings";
 import {
-  isLoanStatus,
-  LOAN_STATUS_LABELS,
-  LOAN_STATUSES,
-  repaidPercent,
-  type LoanStatus,
-} from "~/lib/loan-client";
+  matchNumber,
+  pageOf,
+  scanAccounts,
+  SCAN_LIMIT,
+  typedDigits,
+} from "~/lib/account-scan";
+import { formatDate } from "~/lib/format";
 import { formatGhs } from "~/lib/money";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import {
+  isSavingsAccountStatus,
+  SAVINGS_ACCOUNT_STATUS_LABELS,
+  SAVINGS_ACCOUNT_STATUSES,
+  type SavingsAccountStatus,
+} from "~/lib/savings-client";
+import { requireUser, withAuth } from "~/lib/session.server";
 
 export function meta(_: Route.MetaArgs) {
-  return [{ title: "Loans · YADAH Dynamic Enterprise" }];
+  return [{ title: "Savings · YADAH Dynamic Enterprise" }];
 }
 
-const FILTERS_ID = "loan-filters";
+const FILTERS_ID = "savings-filters";
 
-/** Statuses worth surfacing as a filter, in the order the office works them. */
+/** A whole-book scan reads further than the per-customer one; see `truncated`. */
+const SCAN_MAX_PAGES = 10;
+
 const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "All loans" },
-  ...LOAN_STATUSES.map((status) => ({
+  { value: "", label: "All accounts" },
+  ...SAVINGS_ACCOUNT_STATUSES.map((status) => ({
     value: status,
-    label: LOAN_STATUS_LABELS[status],
+    label: SAVINGS_ACCOUNT_STATUS_LABELS[status],
   })),
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireUser(request);
 
   const url = new URL(request.url);
   const sp = url.searchParams;
   const page = Math.max(1, Number(sp.get("page") || "1") || 1);
   // Clamped to the API's own bound (1–100); see the note in customers.tsx.
   const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || "20") || 20));
-  const search = sp.get("search")?.trim() || undefined;
-  const customerId = sp.get("customerId")?.trim() || undefined;
+  const typed = typedDigits(sp.get("accountNumber"), "savings");
   const statusParam = sp.get("status");
-  const status: LoanStatus | undefined = isLoanStatus(statusParam)
+  const status: SavingsAccountStatus | undefined = isSavingsAccountStatus(
+    statusParam,
+  )
     ? statusParam
     : undefined;
 
-  const { data: result, headers } = await withAuth(request, (token) =>
-    loansApi.listLoans(token, { page, limit, status, search, customerId }),
-  );
+  const { data: payload, headers } = await withAuth(request, async (token) => {
+    // Digits narrow the list, so read several pages and match them here.
+    if (typed) {
+      const { items, truncated } = await scanAccounts(
+        (p) =>
+          savingsApi.listSavingsAccounts(token, {
+            page: p,
+            limit: SCAN_LIMIT,
+            status,
+          }),
+        SCAN_MAX_PAGES,
+      );
+      return { result: pageOf(matchNumber(items, typed), page, limit), truncated };
+    }
+    const result = await savingsApi.listSavingsAccounts(token, {
+      page,
+      limit,
+      status,
+    });
+    return { result, truncated: false };
+  });
+
+  const { result, truncated } = payload;
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
   if (page > pageCount) {
@@ -75,42 +98,44 @@ export async function loader({ request }: Route.LoaderArgs) {
   return data(
     {
       result,
+      truncated,
       filters: {
         page,
         limit,
         status: status ?? "",
-        search: search ?? "",
-        customerId: customerId ?? "",
+        accountNumber: typed,
       },
     },
     { headers },
   );
 }
 
-export default function Loans({ loaderData }: Route.ComponentProps) {
-  const { result, filters } = loaderData;
+export default function Savings({ loaderData }: Route.ComponentProps) {
+  const { result, truncated, filters } = loaderData;
   const navigation = useNavigation();
   const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [search, setSearch] = useState(filters.search);
+  const [number, setNumber] = useState(filters.accountNumber);
   const activeFilters = filters.status ? 1 : 0;
   const [filtersOpen, setFiltersOpen] = useState(activeFilters > 0);
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
 
-  const pendingSearch =
+  const pendingNumber =
     navigation.state === "loading" && navigation.location
-      ? (new URLSearchParams(navigation.location.search).get("search") ?? "")
+      ? (new URLSearchParams(navigation.location.search).get("accountNumber") ??
+        "")
       : null;
-  const searching = pendingSearch !== null && pendingSearch !== filters.search;
+  const searching =
+    pendingNumber !== null && pendingNumber !== filters.accountNumber;
 
-  const commitSearch = useCallback(
+  const commitNumber = useCallback(
     (value: string) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          if (value) next.set("search", value);
-          else next.delete("search");
+          if (value) next.set("accountNumber", value);
+          else next.delete("accountNumber");
           next.delete("page");
           return next;
         },
@@ -122,15 +147,15 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
 
   // Live search: one request per pause in typing, not per keystroke.
   useEffect(() => {
-    if (search === filters.search) return;
-    const timer = setTimeout(() => commitSearch(search), 300);
+    if (number === filters.accountNumber) return;
+    const timer = setTimeout(() => commitNumber(number), 300);
     return () => clearTimeout(timer);
-  }, [search, filters.search, commitSearch]);
+  }, [number, filters.accountNumber, commitNumber]);
 
   // Back/forward moves the URL out from under the field, so adopt it.
   useEffect(() => {
-    if (navigationType === "POP") setSearch(filters.search);
-  }, [navigationType, filters.search]);
+    if (navigationType === "POP") setNumber(filters.accountNumber);
+  }, [navigationType, filters.accountNumber]);
 
   function setParam(patch: Record<string, string | null>) {
     const next = new URLSearchParams(searchParams);
@@ -146,29 +171,20 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
       <div className="mb-6 flex items-center justify-between gap-4">
         <div>
           <h1 className="font-heading text-2xl font-semibold text-foreground">
-            Loans
+            Savings
           </h1>
           <p className="mt-1 text-sm text-muted">
-            An application is recorded against a customer, with their saving
-            history in front of it.
+            Every savings account in the book, with what is held and what can be
+            withdrawn.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link
-            to="/customers"
-            className="flex min-h-8 items-center gap-1.5 rounded-md bg-success px-3 text-sm font-medium text-white transition-opacity hover:opacity-90"
-          >
-            <HandCoins size={12} />
-            Start an application
-          </Link>
-          <Link
-            to="/loans/config"
-            className="flex min-h-8 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-secondary"
-          >
-            <Settings2 size={12} />
-            Loan settings
-          </Link>
-        </div>
+        <Link
+          to="/customers"
+          className="flex min-h-8 items-center gap-1.5 rounded-md bg-success px-3 text-sm font-medium text-white transition-opacity hover:opacity-90"
+        >
+          <PiggyBank size={12} />
+          Open an account
+        </Link>
       </div>
 
       {/* A real GET form, so the filters still work with JavaScript off. */}
@@ -177,18 +193,19 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
         className="mb-4 flex flex-wrap items-end gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          commitSearch(search);
+          commitNumber(number);
         }}
       >
         <div className="flex w-full max-w-xs items-center gap-2">
           <div className="relative flex-1">
             <TextInput
-              name="search"
-              aria-label="Search loans"
-              value={search}
-              onChange={setSearch}
+              name="accountNumber"
+              aria-label="Search by savings account number"
+              value={number}
+              onChange={(value) => setNumber(typedDigits(value, "savings"))}
               inputProps={{
-                placeholder: "Customer name or phone",
+                placeholder: "Account number",
+                inputMode: "numeric",
                 autoComplete: "off",
                 className: `${FIELD} py-1 pl-8`,
               }}
@@ -240,40 +257,25 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
             options={STATUS_OPTIONS}
           />
         </div>
-
-        {filters.customerId && (
-          <button
-            type="button"
-            onClick={() => setParam({ customerId: null, page: null })}
-            className="flex min-h-8 items-center gap-1.5 rounded-full border-2 border-border px-3 text-xs font-medium text-muted transition-colors hover:text-foreground"
-          >
-            One customer only · clear
-          </button>
-        )}
-
       </Form>
 
-      <p aria-live="polite" className="mb-2 text-xs text-muted">
-        {searching
-          ? "Searching…"
-          : result.total === 0
-            ? "No loans"
-            : `Showing ${(result.page - 1) * result.limit + 1}–${Math.min(
-                result.page * result.limit,
-                result.total,
-              )} of ${result.total}`}
-      </p>
+      {truncated && (
+        <p className="mb-3 rounded-lg border-2 border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+          More accounts exist than this search reads, so a matching number may be
+          missing. Type more digits to narrow it.
+        </p>
+      )}
 
       <DataTable
         columns={[
           "Customer",
-          "Principal",
-          "Term",
+          "Account",
+          "Balance",
+          "Available",
           "Status",
-          "Repaid",
-          "Applied",
+          "Opened",
         ]}
-        ariaLabel="Loan book"
+        ariaLabel="Savings accounts"
         isLoading={navigation.state === "loading" && !searching}
         page={result.page}
         pageCount={pageCount}
@@ -282,63 +284,62 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
         onPageSizeChange={(s) => setParam({ limit: String(s), page: "1" })}
         // Contains the loader's default of 20; see the note in customers.tsx.
         pageSizeOptions={[10, 20, 50, 100]}
+        summary={
+          searching
+            ? "Searching…"
+            : result.total === 0
+              ? "No savings accounts"
+              : `Showing ${(result.page - 1) * result.limit + 1}–${Math.min(
+                  result.page * result.limit,
+                  result.total,
+                )} of ${result.total}`
+        }
         emptyContent={{
-          icon: <HandCoins size={20} />,
-          title: "No loans found",
-          subtext: filters.search
-            ? `Nothing matches “${filters.search}”.`
+          icon: <PiggyBank size={20} />,
+          title: "No savings accounts found",
+          subtext: filters.accountNumber
+            ? `No account number contains “${filters.accountNumber}”.`
             : filters.status
-              ? `No loans are ${LOAN_STATUS_LABELS[filters.status as LoanStatus].toLowerCase()}.`
-              : "Pick a customer to record the first one.",
+              ? `No accounts are ${SAVINGS_ACCOUNT_STATUS_LABELS[
+                  filters.status as SavingsAccountStatus
+                ].toLowerCase()}.`
+              : "Pick a customer to open the first one.",
           button:
-            !filters.search && !filters.status ? (
+            !filters.accountNumber && !filters.status ? (
               <Link
                 to="/customers"
                 className="flex min-h-9 items-center gap-1.5 rounded-md bg-success px-3 text-sm font-medium text-white transition-opacity hover:opacity-90"
               >
-                <HandCoins size={14} />
-                Start an application
+                <PiggyBank size={14} />
+                Open an account
               </Link>
             ) : undefined,
         }}
       >
-        {result.items.map((loan) => (
-          <Table.Row key={loan.id} id={loan.id}>
+        {result.items.map((account) => (
+          <Table.Row key={account.id} id={account.id}>
             <Table.Cell className="px-4 py-2 font-medium text-foreground">
               <Link
-                to={`/loans/${loan.id}`}
+                to={`/savings/${account.id}`}
                 className="block truncate hover:text-success hover:underline"
               >
-                {loan.customerName ?? "Unnamed customer"}
+                {account.customerName ?? "Unnamed customer"}
               </Link>
             </Table.Cell>
             <Table.Cell className="px-4 py-2 tabular-nums text-muted">
-              {formatGhs(loan.principal, { symbol: null })}
-            </Table.Cell>
-            <Table.Cell className="px-4 py-2 text-muted">
-              {loan.durationMonths} mo · {loan.ratePercent}%
-            </Table.Cell>
-            <Table.Cell className="px-4 py-2">
-              <LoanStatusPill loan={loan} />
+              {account.accountNumber}
             </Table.Cell>
             <Table.Cell className="px-4 py-2 tabular-nums text-muted">
-              {loan.status === "pending" || loan.status === "rejected" ? (
-                "—"
-              ) : (
-                <span className="block">
-                  {formatGhs(loan.totalRepaid, { symbol: null })} of{" "}
-                  {formatGhs(loan.totalDue, { symbol: null })}
-                  <span className="mt-1 block h-1 w-24 overflow-hidden rounded-full bg-border">
-                    <span
-                      className="block h-full rounded-full bg-success"
-                      style={{ width: `${repaidPercent(loan)}%` }}
-                    />
-                  </span>
-                </span>
-              )}
+              {formatGhs(account.balance, { symbol: null })}
+            </Table.Cell>
+            <Table.Cell className="px-4 py-2 tabular-nums text-muted">
+              {formatGhs(account.availableToWithdraw, { symbol: null })}
+            </Table.Cell>
+            <Table.Cell className="px-4 py-2">
+              <SavingsStatusPill status={account.status} />
             </Table.Cell>
             <Table.Cell className="px-4 py-2 text-muted">
-              {formatDate(loan.appliedAt)}
+              {formatDate(account.openedAt)}
             </Table.Cell>
           </Table.Row>
         ))}
@@ -346,4 +347,3 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
     </div>
   );
 }
-

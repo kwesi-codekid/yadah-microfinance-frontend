@@ -12,18 +12,6 @@ import {
 } from "~/lib/validation";
 import type { ApiFailure } from "~/lib/api/client";
 
-/**
- * Read the customer form into a `CustomerInput`, collecting field errors.
- *
- * Shared by the register and edit routes so the two can't validate differently.
- * The rules mirror the API's request schema — see the tracker's contract notes.
- *
- * Only `fullName` and `phone` are required; the rest of the profile can be
- * filled in later, so every optional field is omitted when blank rather than
- * sent as `""` (which would fail the API's min-length rules). The flip side,
- * worth knowing: an emptied field can't clear a stored value, because omitted
- * and "make this empty" look identical over the wire.
- */
 export function readCustomerForm(form: FormData): {
   input: CustomerInput;
   fieldErrors: Record<string, string>;
@@ -63,13 +51,7 @@ export function readCustomerForm(form: FormData): {
   if (maritalStatus && !isMaritalStatus(maritalStatus))
     fieldErrors.maritalStatus = "Choose a marital status.";
 
-  // Identification is all-or-nothing: the API requires the type and number
-  // together, so half an entry is rejected here with a message that says which
-  // half is missing.
   const idType = text("idType");
-  // Ghana Card numbers are matched against a pattern that demands uppercase.
-  // Uppercasing here rather than rejecting `gha-…` mirrors what `ghanaPostGps`
-  // does; the other ID types are free-form and left exactly as typed.
   const rawIdNumber = text("idNumber");
   const idNumber =
     idType === "ghana-card" ? rawIdNumber.toUpperCase() : rawIdNumber;
@@ -78,9 +60,6 @@ export function readCustomerForm(form: FormData): {
   if (idType && !idNumber) fieldErrors.idNumber = "Enter the ID number.";
   if (idNumber && (idNumber.length < 3 || idNumber.length > 30))
     fieldErrors.idNumber = "ID number must be 3–30 characters.";
-  // The API rejects a mis-shaped Ghana Card with a 400 the form used to show as
-  // a bare "Request validation failed" banner. Same rule, checked before the
-  // round trip, reported on the field itself.
   else if (idNumber && idType === "ghana-card") {
     const cardError = validateGhanaCard(idNumber);
     if (cardError) fieldErrors.idNumber = cardError;
@@ -138,11 +117,6 @@ export function readCustomerForm(form: FormData): {
   return { input, fieldErrors };
 }
 
-/**
- * Nested request paths back to the flat input names the form actually uses.
- * Anything not listed falls back to its last segment, which already matches
- * (`ghanaPostGps`, `fullName`, …).
- */
 const API_PATH_TO_FIELD: Record<string, string> = {
   "identification.idType": "idType",
   "identification.idNumber": "idNumber",
@@ -154,29 +128,9 @@ const API_PATH_TO_FIELD: Record<string, string> = {
   "nextOfKin.address": "kinAddress",
 };
 
-/**
- * Turn a 400's `details` into per-field errors.
- *
- * The API says exactly what it objected to — `{ in: "body", path:
- * "identification.idNumber", message: "Ghana Card numbers look like …" }` —
- * and showing only the envelope's "Request validation failed" throws that away,
- * leaving the user to guess which of twenty fields is wrong. Mapped back to a
- * field name, the message lands under the input and the stepper jumps to it.
- *
- * Returns an empty object for anything that isn't a body validation failure, so
- * the caller still shows its banner for genuine server-side errors.
- */
 export function fieldErrorsFromFailure(
   failure: ApiFailure,
 ): Record<string, string> {
-  /**
-   * The two 409s are about a field just as much as a 400 is — they mean this
-   * phone or this ID already belongs to somebody — but they arrive as a bare
-   * code with no `details` to map. Put them on the input that caused them: a
-   * banner saying "Phone already registered" over twenty fields leaves the user
-   * to work out which one, and the answer is usually "this person is already on
-   * the system", which is worth saying plainly.
-   */
   if (failure.status === 409) {
     if (failure.code === "PHONE_TAKEN")
       return {
@@ -197,8 +151,6 @@ export function fieldErrorsFromFailure(
     if (where !== "body") continue;
     if (typeof path !== "string" || typeof message !== "string") continue;
     const name = API_PATH_TO_FIELD[path] ?? path.split(".").pop();
-    // First message wins: the API lists them in schema order, and later ones
-    // for the same field are usually the same complaint restated.
     if (name && !fieldErrors[name]) fieldErrors[name] = message;
   }
   return fieldErrors;

@@ -40,25 +40,12 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  // Every role may open any customer — the API no longer scopes collectors to
-  // the customers assigned to them. A 404 still surfaces as this route's error
-  // boundary.
   const user = await requireUser(request);
   const office = isOffice(user);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     const customer = await customersApi.getCustomer(token, params.id);
 
-    /**
-     * Who registered this customer. The API sets `registeredById` itself, from
-     * the token of whoever called `POST /customers` — it is not a field the
-     * form sends, and it is the one piece of provenance on the record.
-     *
-     * Looked up one id at a time, and only for office roles: `/users` is
-     * admin+manager only, so asking as a collector earns a 403 that would sink
-     * the whole page. `catch` rather than `throw` — a staff member since
-     * deleted should cost the line its name, not the page its render.
-     */
     const registrar =
       office && customer.customer.registeredById
         ? await usersApi
@@ -98,15 +85,6 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
 
-  /**
-   * Every write here is office-only now, uploads included.
-   *
-   * Replacing a photo used to be the one thing a collector could do, because
-   * `POST /customers/{id}/photo` admitted the assigned collector. That endpoint
-   * is gone: a picture is now an uploaded URL written through
-   * `PATCH /customers/{id}`, which is office-only. Letting a collector submit
-   * the form would just earn them a 403 from the API.
-   */
   if (!isOffice(user)) {
     return data<ActionData>({
       intent,
@@ -123,9 +101,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     // Redirects (an unrenewable session) must propagate, not become messages.
     if (error instanceof Response) throw error;
     const failure = toApiFailure(error);
-    // A 400 on the profile names the fields it objected to; those belong on the
-    // inputs, not in a banner that says only "Request validation failed". The
-    // other intents post no profile fields, so there is nothing to map for them.
     const apiFieldErrors =
       intent === "update-customer" ? fieldErrorsFromFailure(failure) : {};
     if (Object.keys(apiFieldErrors).length)
@@ -152,19 +127,7 @@ async function runIntent({
   id: string;
   form: FormData;
 }): Promise<ActionData> {
-  /**
-   * The profile and its pictures save together, under one button — the same
-   * shape as registration, which is the point: a photo is part of the record,
-   * not an errand run beside it. There is no separate upload intent any more.
-   *
-   * Two steps, though, not one: the images go to `/uploads/images` and the URLs
-   * that come back are folded into the same PATCH as the fields. The API no
-   * longer takes a file at a customer's own URL — see
-   * [customer-uploads.server.ts](app/lib/customer-uploads.server.ts).
-   */
   if (intent === "update-customer") {
-    // The same readers the register page runs, over the same field names — the
-    // two share `CustomerProfile`, so they can't disagree about either.
     const { input, fieldErrors } = readCustomerForm(form);
     const { pending, fieldErrors: uploadErrors } = readImageSlots(form);
     Object.assign(fieldErrors, uploadErrors);
@@ -172,8 +135,6 @@ async function runIntent({
     if (Object.keys(fieldErrors).length)
       return { intent, fieldErrors } satisfies ActionData;
 
-    // Same token for both legs, deliberately — `withAuth` wraps this whole
-    // function, and asking it twice would spend the refresh token twice.
     const images = await uploadImageSlots(token, pending);
     await customersApi.updateCustomer(token, id, { ...input, ...images });
 
@@ -214,21 +175,11 @@ export default function CustomerDetail({
   const { customer, registrarName, canManage } = loaderData;
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
-  // Which upload slots are holding a file — only to say so in the save bar,
-  // since the pictures go with the profile whether or not there are any.
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const fileCount = Object.values(selected).filter(Boolean).length;
 
-  /**
-   * Editing is a URL state, not a `useState`: `?edit` survives a reload, gives
-   * the back button something to undo, and lets the customers list link
-   * straight into it. Cancel is then an ordinary link back to the bare path.
-   */
   const [searchParams, setSearchParams] = useSearchParams();
   const editing = canManage && searchParams.has("edit");
-  // The save button sits in the bar below the grid, outside the form it
-  // submits — the form is one column of a grid and a bar spanning only that
-  // column would stop short of the page.
   const profileFormRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -236,8 +187,6 @@ export default function CustomerDetail({
       notify.success(actionData.message ?? "Done.");
       // The files are stored now; the slots clear themselves off the new URLs.
       setSelected({});
-      // A saved profile leaves edit mode. `replace` so the back button doesn't
-      // drop straight back into the form that was just committed.
       if (actionData.intent === "update-customer")
         setSearchParams(
           (prev) => {
@@ -252,12 +201,6 @@ export default function CustomerDetail({
       console.error("[customer-detail] request failed:", actionData.failure);
   }, [actionData, setSearchParams]);
 
-  /**
-   * The profile takes the whole grid when there is no document column beside
-   * it. A collector may not change anything, and their page would otherwise
-   * show the record in three quarters of the width with a gap where the ID
-   * scans aren't — those being office-only to view as well as to replace.
-   */
   const profileColumn = `space-y-7 ${
     canManage ? "lg:col-span-2 xl:col-span-3" : "lg:col-span-3 xl:col-span-4"
   }`;
@@ -269,10 +212,6 @@ export default function CustomerDetail({
       editing={editing}
       errors={actionData?.fieldErrors}
       showRecord={canManage}
-      // At the end of the Identity row, as on registration — a picture of
-      // someone is identity in the same sense their name is. An upload slot
-      // while editing, the picture itself when not; same frame either way, so
-      // toggling edit doesn't move anything.
       photoSlot={
         editing ? (
           <UploadSlot
@@ -292,17 +231,7 @@ export default function CustomerDetail({
   );
 
   const recordGrid = (
-    /* Four columns from `xl`, not three: the ID scans need about the same
-       width whatever the screen, so giving the profile the extra quarter is
-       what lets its fields sit three and four across instead of running down
-       the page. */
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 xl:grid-cols-4">
-      {/* The ID scans, and only those — the photo belongs with the name and
-          date of birth, and sits at the end of the Identity row instead.
-
-          Two sides, not one document: the API stores the front and back of an
-          ID separately, and a Ghana Card's number is on the front while its
-          expiry is on the back. */}
       {canManage && (
         <div className="space-y-4 lg:col-span-1">
           {editing ? (
@@ -354,22 +283,9 @@ export default function CustomerDetail({
         backLabel="Customers"
         title={customer.fullName}
         subtitle={`${CUSTOMER_STATUS_LABELS[customer.status]} · registered ${formatDate(customer.createdAt)}`}
-        // Nothing up here while editing: opening a cycle or deactivating
-        // someone mid-form would throw away everything typed, and the bar at
-        // the foot of the page owns the two actions that do apply.
         actions={
           !editing && (
             <>
-              {/* First in the row: what someone is saving is asked far more
-                  often than what their profile says, and opening a cycle
-                  starts from that page too.
-
-                  Every role, not just office. A collector's whole job is on
-                  the other side of this link — the account page is where a
-                  deposit is recorded, and any collector may now collect on any
-                  account. Office-only, it was a customer directory a collector
-                  could read and nothing they could act on. Opening an account
-                  is still office-only; that is gated on the page itself. */}
               <Link
                 to={`/customers/${customer.id}/accounts`}
                 className="flex min-h-9 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-background"
@@ -379,9 +295,6 @@ export default function CustomerDetail({
               </Link>
               {canManage && (
                 <>
-                  {/* Office-only, where Accounts is not: every `/loans`
-                      endpoint is, including the eligibility summary the page
-                      leads with. A collector seeing this would get a 403. */}
                   <Link
                     to={`/customers/${customer.id}/loans`}
                     className="flex min-h-9 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-background"
@@ -389,8 +302,6 @@ export default function CustomerDetail({
                     <HandCoins size={14} />
                     Loans
                   </Link>
-                  {/* A search param on this same page, not a route of its own —
-                      the fields turn into inputs where they already sit. */}
                   <Link
                     to="?edit"
                     className="flex min-h-9 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-background"
@@ -406,40 +317,13 @@ export default function CustomerDetail({
         }
       />
 
-      {/* No "uploads failed" notice any more: registration uploads its images
-          before it creates anything, so there is no longer a state where the
-          customer exists but their pictures didn't arrive. */}
-
-      {/* The accounts themselves are not listed here — this page is the
-          identity record, and `/customers/:id/accounts` is the one place that
-          shows what someone is saving. The Accounts button above goes there,
-          and opening a cycle starts from that page. */}
-
-      {/* One form over the whole grid while editing, exactly as on
-          registration: the pictures and the fields are one record and save
-          under one button. This used to be two forms, because the record
-          already exists and a replacement photo had somewhere of its own to go
-          — but that left an upload widget sitting on the page in plain view
-          mode, and made this page behave differently from the one that creates
-          the same thing. Not editing: no form at all, and the images are
-          simply images.
-
-          A ternary over one `recordGrid` element, not a wrapper component
-          declared here — a component defined during render is a new type on
-          every render, which would unmount the file inputs and drop whatever
-          was waiting in them the moment any state changed. */}
       {editing ? (
         <Form
           method="post"
           ref={profileFormRef}
           encType="multipart/form-data"
-          // Our own rules cover the same ground and can report in place; the
-          // browser's bubbles would fire on `type="email"` first.
           noValidate
         >
-          {/* Hidden rather than on the button: the bar below submits with
-              `requestSubmit()` and no submitter, so a name/value on the button
-              would never reach the action. */}
           <input type="hidden" name="intent" value="update-customer" />
           {recordGrid}
         </Form>
@@ -447,18 +331,8 @@ export default function CustomerDetail({
         recordGrid
       )}
 
-      {/* Pinned to the foot of the page while editing: the profile is 25
-          fields tall, and a save button only at the top would mean scrolling
-          back up to commit a change made at the bottom. The negative margins
-          cancel the page's gutter and its bottom padding so the bar spans the
-          full width and sits flush against the edge. */}
       {editing && (
         <div className="sticky bottom-0 -mx-6 -mb-8 mt-6 flex flex-wrap items-center gap-3 border-t-2 border-border bg-surface px-6 py-3">
-          {/* Normally the one rule of this form that isn't visible in it:
-              `undefined` and "make this empty" look identical over the wire,
-              so the API reads a cleared field as "leave it alone". A picture
-              waiting to be sent displaces it — that is the more urgent thing
-              to know, and it is true only while it is true. */}
           <p className="text-xs text-muted">
             {fileCount > 0
               ? `${fileCount === 1 ? "1 image" : `${fileCount} images`} will be uploaded when you save.`
@@ -466,9 +340,6 @@ export default function CustomerDetail({
           </p>
 
           <div className="ml-auto flex items-center gap-3">
-            {/* A link, not a button: this genuinely navigates, back to the
-                same page without the `edit` param. `replace` so cancelling
-                doesn't leave the form in the history to go back into. */}
             <Link
               to={`/customers/${customer.id}`}
               replace
@@ -501,9 +372,6 @@ function StatusButton({ customer }: { customer: Customer }) {
   return (
     <>
       <Form method="post" ref={formRef}>
-        {/* The intent rides in a hidden field rather than on the button: a
-            confirmed submit goes through `requestSubmit()` with no submitter,
-            so a name/value on the button would never reach the action. */}
         <input
           type="hidden"
           name="intent"

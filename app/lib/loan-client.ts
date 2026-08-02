@@ -1,39 +1,5 @@
-/**
- * Client-safe loan types, mirroring the API's `components.schemas`, plus the
- * arithmetic the screens need. Safe to import from browser components — the same
- * split as [susu-client.ts](app/lib/susu-client.ts) and
- * [savings-client.ts](app/lib/savings-client.ts), which own the other products.
- *
- * The domain in one paragraph: a customer applies for a loan of a fixed
- * principal over 3, 6 or 12 months. **A human approves it** — the API says so
- * outright ("No auto-approval exists"), and `GET /loans/eligibility/{customerId}`
- * exists only to put four months of susu/savings history in front of that human.
- * Approval locks the rate and the interest from the config as it stands *at that
- * moment* and generates a monthly schedule. Interest is **flat** — a percentage
- * of the principal, not amortised — so `totalDue` is `principal + interest` and
- * nothing about it moves as the loan is repaid. Repayments are allocated to
- * instalments oldest-first, and settling exactly flips the loan to `repaid`.
- *
- * Two things make this product unlike the other two:
- *
- * - **Escalation.** A loan that falls behind moves *up* the rate ladder
- *   (10 → 20 → 30) and `totalDue` grows with it, on the original principal.
- *   `escalatedAt` stamps the last move and `frozen` says the ladder is
- *   exhausted. So `ratePercent` is the *current* rate, not the agreed one.
- * - **One open loan per customer.** A second application is always refused with
- *   409 `LOAN_EXISTS`, which is why the eligibility summary carries `openLoan`.
- *
- * Every amount here is integer pesewas. See [money.ts](app/lib/money.ts).
- *
- * Source of truth: GET https://yadah-backend-staging.adamusgh.com/api/v1/openapi.json
- */
-
 import type { PaymentChannel } from "~/lib/channel";
 import { formatGhs } from "~/lib/money";
-
-/* ------------------------------------------------------------------ *
- * The shape of the product
- * ------------------------------------------------------------------ */
 
 /** The only three durations `POST /loans/applications` accepts. */
 export const LOAN_DURATIONS = [3, 6, 12] as const;
@@ -82,26 +48,6 @@ export function isOpenLoan(status: LoanStatus): boolean {
   return status === "active" || status === "arrears";
 }
 
-/* ------------------------------------------------------------------ *
- * Config
- *
- * `GET /loans/config` declares its response as a bare `config: {}` — the spec
- * gives the object no properties at all, so the field names below are taken
- * from the *request* body of `PUT /loans/config`, which is fully specified and
- * must describe the same object for the round trip to work.
- *
- * That inference is why `normalizeLoanConfig` exists rather than a cast: the
- * six numbers drive the application form's bounds and the interest it projects,
- * and a missing one would otherwise render as `NaN` on screen. Anything absent
- * or non-numeric falls back to the documented default, and `complete` says
- * whether the fallbacks were needed — so a screen can admit it is showing
- * defaults instead of quietly asserting them.
- * ------------------------------------------------------------------ */
-
-/**
- * Defaults from the API's own `Loans` tag description: "Small 1k–20k / big to
- * 50k GHS · flat 10/20/30% by duration". In pesewas and whole percents.
- */
 export const LOAN_CONFIG_DEFAULTS: LoanConfig = {
   ratePercent3: 10,
   ratePercent6: 20,
@@ -129,15 +75,6 @@ function readNumber(source: Record<string, unknown>, key: string): number | null
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/**
- * Read whatever `GET /loans/config` returned into a `LoanConfig`, filling gaps
- * from the documented defaults.
- *
- * `complete` is false when anything had to be filled in. Callers that put a
- * bound or a rate in front of a user should say so — an application form
- * validating against a guessed ceiling will refuse a principal the API would
- * have taken, or take one it will refuse.
- */
 export function normalizeLoanConfig(raw: unknown): {
   config: LoanConfig;
   complete: boolean;
@@ -167,21 +104,9 @@ export function rateFor(config: LoanConfig, months: LoanDuration): number {
       : config.ratePercent12;
 }
 
-/**
- * Which tier a principal falls in.
- *
- * The boundary is `smallMaxPesewas` inclusive — the tag reads "small 1,000–20,000,
- * big to 50,000", so 20,000 is the last small loan and anything above it is big.
- * Nothing here checks whether the customer is *allowed* the big tier; that is
- * `bigTierUnlocked` on the eligibility summary, and only the API can say.
- */
 export function tierFor(config: LoanConfig, principal: number): LoanTier {
   return principal > config.smallMaxPesewas ? "big" : "small";
 }
-
-/* ------------------------------------------------------------------ *
- * Schemas
- * ------------------------------------------------------------------ */
 
 /** The `Loan` schema. */
 export interface Loan {
@@ -193,12 +118,6 @@ export interface Loan {
   /** Pesewas, immutable. Escalation raises the interest, never this. */
   principal: number;
   durationMonths: number;
-  /**
-   * The **current** rate, not the agreed one: it moves up the ladder each time
-   * the loan escalates. Compare against `rateFor(config, durationMonths)` to
-   * see whether it has moved — but only for a loan approved under the config
-   * as it stands now, since approval locks whatever was current that day.
-   */
   ratePercent: number;
   interestAmount: number;
   /** `principal + interestAmount` at the current rate. Grows on escalation. */
@@ -220,12 +139,6 @@ export interface Loan {
   rejectionReason?: string;
 }
 
-/**
- * One row of the repayment schedule, generated at approval.
- *
- * `status` is declared as a bare `string` by the spec rather than an enum, so it
- * is carried as one and labelled defensively — see `scheduleStatusLabel`.
- */
 export interface LoanInstalment {
   /** 1-based. The last one carries the rounding remainder. */
   installmentNumber: number;
@@ -254,20 +167,10 @@ export interface LoanDetail {
   repayments: LoanRepayment[];
 }
 
-/**
- * `GET /loans/eligibility/{customerId}` — the history summary the approving
- * human reads. It decides nothing: every field here is evidence, and the API is
- * explicit that the decision is a person's.
- */
 export interface LoanEligibility {
   customer: {
     id: string;
     fullName: string;
-    /**
-     * Whether the profile carries a Ghana Card. An application without one is
-     * refused with 422 `GHANA_CARD_REQUIRED`, so this is a hard gate rather
-     * than a factor to weigh.
-     */
     hasGhanaCard: boolean;
   };
   /** Null for a customer who has never saved anything. */
@@ -291,22 +194,6 @@ export interface LoanRepaymentResult {
   susuClosure?: { accountId: string; commission: number; payout: number };
 }
 
-/* ------------------------------------------------------------------ *
- * Arithmetic
- *
- * Derived, never stored. The API owns every figure on a loan that exists; these
- * are for the one that doesn't yet — the application being typed.
- * ------------------------------------------------------------------ */
-
-/**
- * Flat interest on a principal: `principal × rate ÷ 100`, rounded to the
- * pesewa.
- *
- * A **projection**, and only ever that. The rate is locked from the config at
- * *approval*, not at application, so a pending loan approved after a config
- * change carries a rate this never saw. Any screen showing it should say the
- * figure is indicative.
- */
 export function projectInterest(principal: number, ratePercent: number): number {
   return Math.round((principal * ratePercent) / 100);
 }
@@ -316,14 +203,6 @@ export function projectTotalDue(principal: number, ratePercent: number): number 
   return principal + projectInterest(principal, ratePercent);
 }
 
-/**
- * What one instalment comes to, and what the last one comes to.
- *
- * The API folds the rounding remainder into the final instalment — its words:
- * "generates the monthly schedule (remainder folds into the last instalment)".
- * Mirroring that here rather than dividing evenly means the schedule this app
- * projects for an application adds up to the same total the API will generate.
- */
 export function projectInstalments(
   totalDue: number,
   months: number,
@@ -339,25 +218,10 @@ export function repaidPercent(loan: Loan): number {
   return Math.min(100, Math.round((loan.totalRepaid / loan.totalDue) * 100));
 }
 
-/**
- * The amount that settles the loan exactly.
- *
- * Worth its own name because it is the one repayment with a side effect: paying
- * exactly this flips the status to `repaid` and stamps `repaidOnTime`, which is
- * what unlocks the big tier for this customer's next application. Anything more
- * is refused outright — there is no overpayment.
- */
 export function settlementAmount(loan: Loan): number {
   return Math.max(0, loan.remaining);
 }
 
-/**
- * The schedule row's `status`, made presentable.
- *
- * The spec types it as an open string, so the known values are mapped and
- * anything else is title-cased rather than dropped — a status this app has
- * never seen is still more use on screen than a blank cell.
- */
 export function scheduleStatusLabel(status: string): string {
   const known: Record<string, string> = {
     pending: "Not due",
@@ -391,19 +255,6 @@ export function repaymentSourceLabel(source: string): string {
 /** Channels a cash repayment can be recorded under — the API's own default is cash. */
 export type LoanRepaymentChannel = PaymentChannel;
 
-/* ------------------------------------------------------------------ *
- * Error details
- *
- * The loan failures that carry the number needed to fix them.
- * ------------------------------------------------------------------ */
-
-/**
- * `422 EXCEEDS_BALANCE` — the exact amount still owed.
- *
- * There is no overpayment on a loan: the API refuses anything above the
- * remaining balance rather than taking it and refunding. Reading the figure
- * back turns the refusal into a prefilled correction.
- */
 export function readExceedsBalance(details: unknown): number | null {
   if (details && typeof details === "object" && "remaining" in details) {
     const remaining = (details as { remaining?: unknown }).remaining;
@@ -412,10 +263,6 @@ export function readExceedsBalance(details: unknown): number | null {
   return null;
 }
 
-/**
- * The 422s that mean "this customer can't have this loan", each needing a
- * different sentence rather than the API's terser phrasing.
- */
 export const LOAN_APPLICATION_ERRORS: Record<string, string> = {
   GHANA_CARD_REQUIRED:
     "This customer has no Ghana Card on their profile. A loan needs one — add it to their record first.",

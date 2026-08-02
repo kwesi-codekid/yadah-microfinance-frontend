@@ -7,35 +7,12 @@ import {
   type LoanDuration,
 } from "~/lib/loan-client";
 
-/**
- * Readers for the loan forms, collecting field errors.
- *
- * Isomorphic, the same way [susu-form.ts](app/lib/susu-form.ts) and
- * [savings-form.ts](app/lib/savings-form.ts) are: the function the action runs
- * is the function the browser runs to gate the submit, so there is no second
- * copy of the rules to drift out of step.
- *
- * Amounts come back as integer pesewas — the API takes nothing else.
- */
-
 function readChannel(form: FormData): PaymentChannel {
   const raw = form.get("channel");
   return isPaymentChannel(raw) ? raw : "cash";
 }
 
-/* ------------------------------------------------------------------ *
- * Application
- * ------------------------------------------------------------------ */
-
 export interface LoanApplicationGate {
-  /**
-   * `bigTierUnlocked` from the eligibility summary. When false, a principal
-   * above the small tier's ceiling is refused with 422 `BIG_TIER_LOCKED` — so
-   * the bound the form enforces is the *small* ceiling, not the big one.
-   *
-   * Undefined means "not known here": the check is skipped and the API answers
-   * instead. Only the API's word is authoritative either way.
-   */
   bigTierUnlocked?: boolean;
 }
 
@@ -51,11 +28,6 @@ export function readLoanApplicationForm(
   const fieldErrors: Record<string, string> = {};
   const raw = String(form.get("principal") ?? "");
 
-  // The ceiling is whichever tier this customer can actually reach. Validating
-  // against the big one for a customer without the big tier would let the form
-  // submit a principal the API is certain to refuse — and `BIG_TIER_LOCKED`
-  // names no field, so the message would land in a banner rather than on the
-  // input that caused it.
   const ceiling =
     bigTierUnlocked === false ? config.smallMaxPesewas : config.bigMaxPesewas;
 
@@ -68,9 +40,6 @@ export function readLoanApplicationForm(
 
   const principal = parseGhsAmount(raw) ?? 0;
 
-  // A second, more specific message for the one case the bounds above make
-  // indistinguishable from "too much": the amount is within the product's range
-  // but above what this customer has unlocked.
   if (
     !error &&
     bigTierUnlocked === false &&
@@ -90,10 +59,6 @@ export function readLoanApplicationForm(
   return { principal, durationMonths, fieldErrors };
 }
 
-/* ------------------------------------------------------------------ *
- * The decision
- * ------------------------------------------------------------------ */
-
 export function readRejectionForm(form: FormData): {
   reason: string;
   fieldErrors: Record<string, string>;
@@ -101,10 +66,6 @@ export function readRejectionForm(form: FormData): {
   const fieldErrors: Record<string, string> = {};
   const reason = String(form.get("reason") ?? "").trim();
 
-  // The API's own bounds (2–300). A rejection reason is read later by whoever
-  // fields the customer's question about it, so an empty one is worse than
-  // useless — but the floor is the API's two characters rather than a longer
-  // one invented here.
   if (reason.length < 2) {
     fieldErrors.reason = "Say why this application is being rejected.";
   } else if (reason.length > 300) {
@@ -114,17 +75,8 @@ export function readRejectionForm(form: FormData): {
   return { reason, fieldErrors };
 }
 
-/* ------------------------------------------------------------------ *
- * Repayment
- * ------------------------------------------------------------------ */
-
 export function readRepaymentForm(
   form: FormData,
-  /**
-   * The loan's `remaining`, so a payment the API would refuse with 422
-   * `EXCEEDS_BALANCE` is caught before the round trip. Optional: the action
-   * doesn't re-fetch the loan to repeat a check the API owns.
-   */
   remaining?: number,
 ): {
   amount: number;
@@ -135,9 +87,6 @@ export function readRepaymentForm(
   const fieldErrors: Record<string, string> = {};
   const raw = String(form.get("amount") ?? "");
 
-  // No minimum of its own — the API takes `minimum: 1`. What bounds a repayment
-  // is what is still owed, and unlike a savings withdrawal there is no fee
-  // between the two: the ceiling is exactly `remaining`.
   const error = validateGhsAmount(raw, { label: "Amount" });
   if (error) fieldErrors.amount = error;
 
@@ -154,10 +103,6 @@ export function readRepaymentForm(
   };
 }
 
-/* ------------------------------------------------------------------ *
- * Config
- * ------------------------------------------------------------------ */
-
 /** Whole percents, 1–100, as the API declares them. */
 function readPercent(
   form: FormData,
@@ -170,8 +115,6 @@ function readPercent(
     fieldErrors[name] = `Enter the ${label.toLowerCase()}.`;
     return 0;
   }
-  // Whole numbers only: the API's type is `integer`, so `12.5` would be
-  // rejected as a validation error naming a field the user can't see.
   if (!/^\d+$/.test(raw)) {
     fieldErrors[name] = `${label} must be a whole percentage.`;
     return 0;
@@ -195,13 +138,6 @@ function readPesewas(
   return parseGhsAmount(raw) ?? 0;
 }
 
-/**
- * The whole config, read back off the form.
- *
- * `PUT /loans/config` replaces the object rather than patching it — every field
- * is required — so this reads all six even when one was changed, and the form
- * has to render all six prefilled for that to be safe.
- */
 export function readLoanConfigForm(form: FormData): {
   config: LoanConfig;
   fieldErrors: Record<string, string>;
@@ -237,10 +173,6 @@ export function readLoanConfigForm(form: FormData): {
     ),
   };
 
-  // Ordering the API does not check but the product cannot survive: a small
-  // ceiling under the minimum leaves the small tier empty, and a big ceiling
-  // under the small one leaves the big tier unreachable. Both would be accepted
-  // and would then refuse every application with `PRINCIPAL_OUT_OF_RANGE`.
   if (
     !fieldErrors.smallMinPesewas &&
     !fieldErrors.smallMaxPesewas &&

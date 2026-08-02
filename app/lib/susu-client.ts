@@ -1,20 +1,3 @@
-/**
- * Client-safe susu types, mirroring the API's `components.schemas`, plus the
- * cycle arithmetic the screens need. Safe to import from browser components —
- * the same split as [customer-client.ts](app/lib/customer-client.ts).
- *
- * The domain in one paragraph: an account is **one cycle of 31 deposits at a
- * fixed daily amount**. The amount is immutable for the life of the cycle —
- * changing it means closing and opening another account — and a customer may
- * hold several concurrent accounts. On closure the business keeps exactly one
- * day's deposit as commission, whatever day the customer leaves on, and pays
- * out the rest.
- *
- * Every amount here is integer pesewas. See [money.ts](app/lib/money.ts).
- *
- * Source of truth: GET https://yadah-backend-staging.adamusgh.com/api/v1/openapi.json
- */
-
 import {
   isPaymentChannel,
   PAYMENT_CHANNEL_LABELS,
@@ -26,14 +9,6 @@ import { formatGhs } from "~/lib/money";
 /** The API declares this as a `const 31`, not a configurable field. */
 export const SUSU_CYCLE_TARGET = 31;
 
-/**
- * The smallest daily amount an account may be opened at — GHS 5, in pesewas.
- *
- * `POST /susu/accounts` declares `dailyAmount: { minimum: 500 }`. It used to
- * accept a single pesewa, so this is checked here as well as there: without it
- * the form takes GHS 1.00, and the server answers a 400 whose message says
- * nothing about which field it means.
- */
 export const SUSU_MIN_DAILY_AMOUNT = 500;
 
 export type SusuAccountStatus = "active" | "completed" | "closed";
@@ -50,11 +25,6 @@ export const SUSU_ACCOUNT_STATUS_LABELS: Record<SusuAccountStatus, string> = {
   closed: "Closed",
 };
 
-/**
- * The channel enum now lives in [channel.ts](app/lib/channel.ts) — savings
- * deposits take the same one, so it isn't susu's to own. Re-exported under the
- * names this module used to define so existing imports still resolve.
- */
 export type DepositChannel = PaymentChannel;
 export const DEPOSIT_CHANNELS = PAYMENT_CHANNELS;
 export const DEPOSIT_CHANNEL_LABELS = PAYMENT_CHANNEL_LABELS;
@@ -62,13 +32,10 @@ export const DEPOSIT_CHANNEL_LABELS = PAYMENT_CHANNEL_LABELS;
 /** The `SusuAccount` schema. */
 export interface SusuAccount {
   id: string;
-  /**
-   * Six digits, unique. The handle a customer actually quotes at the counter —
-   * the `id` is a 24-char hex string that means nothing to anyone. Look one up
-   * with the `accountNumber` filter on `GET /susu/accounts`.
-   */
   accountNumber: string;
   customerId: string;
+  /** Joined by the API on list responses, the way `Loan` does it. */
+  customerName?: string;
   /** Pesewas. Immutable for the life of the cycle. */
   dailyAmount: number;
   depositsCount: number;
@@ -165,13 +132,6 @@ export function isSusuAccountStatus(v: unknown): v is SusuAccountStatus {
 
 export const isDepositChannel = isPaymentChannel;
 
-/* ------------------------------------------------------------------ *
- * Cycle arithmetic
- *
- * Derived, never stored. The API owns the numbers; these turn them into
- * the questions a teller actually gets asked at the counter.
- * ------------------------------------------------------------------ */
-
 /** Deposits still owed on the cycle. Never negative. */
 export function remainingDeposits(account: SusuAccount): number {
   return Math.max(0, account.cycleTarget - account.depositsCount);
@@ -188,15 +148,6 @@ export function cyclePercent(account: SusuAccount): number {
   return Math.round((account.depositsCount / account.cycleTarget) * 100);
 }
 
-/**
- * What the customer would walk away with if the account closed right now.
- *
- * Commission is exactly one day's deposit regardless of exit day, so this is
- * knowable before closing — worth showing, because "how much do I get?" is the
- * question that precedes every withdrawal. Floored at zero: a customer who has
- * paid in less than one day's worth gets nothing back rather than owing it, and
- * the API flags that case on closure.
- */
 export function projectedPayout(account: SusuAccount): number {
   return Math.max(0, account.totalDeposited - account.dailyAmount);
 }
@@ -206,13 +157,6 @@ export function activeAccounts(accounts: SusuAccount[]): SusuAccount[] {
   return accounts.filter((a) => a.status === "active");
 }
 
-/**
- * The exact cash `collect-all` expects for one day: the sum of every active
- * account's daily amount.
- *
- * The API rejects anything else with `AMOUNT_MISMATCH`, so the collect screen
- * should show this total rather than let a collector guess at it.
- */
 export function collectAllTotal(accounts: SusuAccount[]): number {
   return activeAccounts(accounts).reduce((sum, a) => sum + a.dailyAmount, 0);
 }
@@ -228,17 +172,6 @@ export interface CycleSlot {
   partOfCatchUp: boolean;
 }
 
-/**
- * Expand a cycle into 31 slots, marking which deposit covered each.
- *
- * A deposit is not always one day: `daysCovered` ≥ 2 is a catch-up, and it
- * claims the range `seqStart..seqEnd`. Flattening that here means the grid can
- * render straight from the array without every view re-deriving the ranges —
- * and a catch-up stays visibly distinct from 4 separate daily payments, which
- * matters when a collector is explaining a statement to a customer.
- *
- * Pass whatever page of deposits you have; unmatched slots simply stay empty.
- */
 export function buildCycleSlots(
   account: SusuAccount,
   deposits: SusuDeposit[],
@@ -262,30 +195,11 @@ export function buildCycleSlots(
   });
 }
 
-/**
- * A label for one account in a list, where a customer may hold several and the
- * id means nothing to anyone: "GHS 5.00 daily · 12/31".
- */
 export function describeAccount(account: SusuAccount): string {
   return `${formatGhs(account.dailyAmount)} daily · ${account.depositsCount}/${account.cycleTarget}`;
 }
 
-/* ------------------------------------------------------------------ *
- * Idempotency
- *
- * Moved to [idempotency.ts](app/lib/idempotency.ts) — savings deposits and
- * withdrawals need the same key, so it isn't susu's to own either. Re-exported
- * here for the call sites that already import it from this module.
- * ------------------------------------------------------------------ */
-
 export { newIdempotencyKey } from "~/lib/idempotency";
-
-/* ------------------------------------------------------------------ *
- * Error details
- *
- * Two susu failures carry the numbers needed to fix them. Reading them into a
- * shape the UI can render turns "Request failed" into an instruction.
- * ------------------------------------------------------------------ */
 
 /** `422 EXCEEDS_REMAINING` — how many days are actually left on the cycle. */
 export function readExceedsRemaining(details: unknown): number | null {

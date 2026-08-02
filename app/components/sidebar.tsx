@@ -3,15 +3,6 @@ import { NavLink } from "react-router";
 import { type AuthUser } from "~/lib/auth-client";
 import { visibleNavItems, type NavItem } from "./nav-items";
 
-/**
- * Collapsible dashboard side navigation. Expanded shows icon + label; the
- * toggle collapses it to an icon-only rail (labels become hover tooltips).
- * Destinations, role gating and the exclusion of unbuilt sections all live in
- * `nav-items.ts`, shared with the mobile tab bar.
- *
- * Desktop only — below `lg` the layout hides this and renders `<MobileNav>`.
- */
-
 export function Sidebar({
   collapsed,
   user,
@@ -26,23 +17,24 @@ export function Sidebar({
   return (
     <aside
       className={[
-        // No right border: the rail and the top bar are one white shell, and
-        // the grey content panel beside it is its own edge. A rule here would
-        // sit a line against that panel's rounded corner.
-        // `h-full`, not `h-screen`: the shell around this is `h-dvh`, and
-        // `100vh` is the *large* viewport — taller than `100dvh` wherever a
-        // browser toolbar retracts. The rail would then overhang a shell that
-        // is `overflow-hidden`, so its centred nav would centre against a
-        // height nobody can see. Stretching to the shell is the whole intent.
-        "flex h-full flex-col bg-surface text-foreground transition-[width] duration-200 shadow-none",
+        "flex h-full flex-col border-r-2 border-border bg-surface text-foreground transition-[width] duration-200 shadow-none",
         collapsed ? "w-16" : "w-56",
         className,
       ].join(" ")}
     >
-      {/* Brand. `justify-center` in both states, not `text-center` when
-          expanded: this is a flex container, so the wordmark is a flex item and
-          text alignment can't move it — it sat against the left padding. */}
-      <div className="flex h-12 shrink-0 items-center justify-center px-3 mt-4">
+      {/* h-12, no top margin: this rule has to line up with the header's bottom border. */}
+      <div
+        className={[
+          "flex h-12 shrink-0 items-center gap-2 border-b-2 border-border px-3",
+          collapsed ? "justify-center" : "",
+        ].join(" ")}
+      >
+        <span
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-success/10"
+          aria-hidden="true"
+        >
+          <img src="/favicon.png" alt="" className="size-5" />
+        </span>
         {!collapsed && (
           <span className="truncate font-heading font-bold text-success">
             YADAH DYNAMICS
@@ -50,8 +42,6 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Nav — vertically centered in the available space. Overflow stays
-          visible so a collapsed item's hover label can escape the rail. */}
       <nav className="flex flex-1 flex-col justify-center gap-1 p-2">
         {items.map((item) => (
           <ActiveItem key={item.to} item={item} collapsed={collapsed} />
@@ -94,15 +84,6 @@ function ActiveItem({
   );
 }
 
-/**
- * The label a collapsed item shows on hover, as a flyout to the right of the
- * icon. Replaces the native `title` tooltip, which is slow to appear and can't
- * be themed. It stays in the DOM at `opacity-0` rather than being conditionally
- * rendered, so it still supplies the item's accessible name while collapsed.
- *
- * `pointer-events-none` keeps it from swallowing the click aimed at the icon
- * once it has faded in over the content beside the rail.
- */
 function RailTooltip({ children }: { children: ReactNode }) {
   return (
     <span

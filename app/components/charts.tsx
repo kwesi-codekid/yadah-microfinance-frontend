@@ -9,45 +9,6 @@ import {
 } from "~/lib/analytics";
 import { formatGhs } from "~/lib/money";
 
-/**
- * The dashboard's small vocabulary of charts.
- *
- * Hand-built rather than pulled from a charting library, for two reasons that
- * both matter more than the hours saved. This app renders on the server and
- * hydrates in the browser, and the usual chart libraries measure the DOM before
- * they can draw — so the first paint is either empty or a different size than
- * the second. And every one of them ships its own colour, type and radius
- * scales, which would put a second design system inside a page built on
- * [app.css](app/app.css)'s tokens.
- *
- * So: percentages in CSS, laid out by flexbox. Nothing is measured, nothing is
- * animated on load, the server and the browser agree by construction, and the
- * marks inherit the same palette as everything else on the page.
- */
-
-/* ------------------------------------------------------------------ *
- * The palette
- * ------------------------------------------------------------------ */
-
-/**
- * One colour of the chart palette, in every form a mark needs it.
- *
- * Every class is written out in full rather than assembled from the slot name.
- * Tailwind generates utilities by scanning the source for literal strings, so
- * `bg-${tone}` or `stroke.replace("stroke-", "border-")` names a class that
- * simply does not exist in the stylesheet — it fails silently, at runtime, and
- * only in the built app. Writing the six out costs nothing and cannot.
- *
- * The slots are the `cat-` ramp from [app.css](app/app.css), which is the logo
- * ring unrolled. `cat-1` is deliberately absent: it is the brand red, and this
- * app spends red on danger and on its one interactive accent.
- *
- * `soft` and `deep` are the outlined pair — a pale fill with a darker rule
- * around it. A bar drawn that way carries its colour at its edge, where two
- * neighbouring bars meet, rather than as a block of ink; `deep` is a genuinely
- * darker shade off the same hue rather than the `cat-` slot itself, because a
- * border in the fill colour on a 15% wash of that fill is not an edge.
- */
 export const TONES = {
   navy: {
     line: "stroke-cat-6",
@@ -107,23 +68,6 @@ export const TONES = {
 
 export type Tone = keyof typeof TONES;
 
-/* ------------------------------------------------------------------ *
- * The analytics chart
- * ------------------------------------------------------------------ */
-
-/**
- * A run of periods, each drawn as two floating marks rather than two columns.
- *
- * A pair of stacked or side-by-side columns compares heights from a shared
- * baseline, which is the right shape when the question is "how big". The
- * question here is "did more go out than came in *that month*", and a floating
- * mark answers it by position alone: the higher mark is the bigger number, and
- * the gap between them is the month's net.
- *
- * Colour never carries meaning on its own: the marks differ in position and
- * weight, the legend names both series, the tooltip prints both figures, and
- * the whole series is repeated as a table for screen readers.
- */
 export function FlowChart({
   points,
   primaryLabel,
@@ -132,8 +76,6 @@ export function FlowChart({
 }: {
   points: FlowPoint[];
   primaryLabel: string;
-  /** Omit to draw a single series — one collector's takings have no matching
-      outflow to plot against them; payouts are the office's. */
   secondaryLabel?: string;
   caption?: string;
 }) {
@@ -148,8 +90,6 @@ export function FlowChart({
   const ticks = axisTicks(max);
   const span = points.length;
 
-  // A share of the plot height, floored just above the axis so a day with a
-  // small-but-real figure doesn't sit *on* the baseline looking like a zero.
   const height = (value: number) =>
     value <= 0 ? 0 : Math.max(1.5, (value / max) * 100);
 
@@ -162,14 +102,9 @@ export function FlowChart({
         )}
       </div>
 
-      {/* `pr-1` keeps the last column's mark off the panel's edge; the left
-          gutter is where the axis labels live. */}
       <div className="relative h-56 w-full pr-1 sm:h-64">
         <Gridlines max={max} ticks={ticks} />
 
-        {/* The plot itself, inset past the axis gutter. `onMouseLeave` here
-            rather than on each column: moving between two adjacent columns
-            would otherwise clear and re-set the active index every time. */}
         <div
           className="absolute inset-y-0 left-13 right-0"
           onMouseLeave={() => setActive(null)}
@@ -192,9 +127,6 @@ export function FlowChart({
             ))}
           </div>
 
-          {/* The tooltip lives outside the columns so it can overflow them,
-              and is positioned from the plot's own width — a popover anchored
-              inside a 20px-wide column would be clipped by nothing but luck. */}
           {active !== null && points[active] && (
             <Tooltip
               point={points[active]}
@@ -214,15 +146,11 @@ export function FlowChart({
         </div>
       </div>
 
-      {/* X labels, in the same gutter offset as the plot above them. Past
-          sixteen columns every other label is dropped rather than rotated — a
-          diagonal label is harder to read than a missing one, and the tooltip
-          carries the period in full anyway. */}
       <div className="ml-13 flex pr-1">
         {points.map((point, index) => (
           <span
             key={point.key}
-            className={`min-w-0 flex-1 truncate text-center text-[10px] tabular-nums transition-colors ${
+            className={`min-w-0 flex-1 truncate text-center text-xs tabular-nums transition-colors ${
               active === index
                 ? "font-semibold text-foreground"
                 : "text-muted"
@@ -237,24 +165,6 @@ export function FlowChart({
         <figcaption className="mt-3 text-xs text-muted">{caption}</figcaption>
       )}
 
-      {/* The same series as a table, for anyone who can't read the marks.
-          `sr-only` rather than a toggle: it costs nothing and can't drift out
-          of date, because it renders from the same array.
-
-          Two things this has to get right, and both were wrong:
-
-          The class goes on a wrapping `div`, never on the `<table>` itself.
-          `sr-only` collapses the box to 1px and clips it, but a table treats
-          `height` as a *minimum* and grows back to fit its rows — so on the
-          table it stayed full size, 216px of it.
-
-          And the `figure` above is `relative` because `sr-only` is
-          `position: absolute`. With no positioned ancestor it resolves against
-          the initial containing block, which walks straight through the app
-          shell's `overflow-hidden` — that clips only descendants it is a
-          containing block for, and it isn't positioned — and stretches the
-          *document*, giving the page a second scrollbar beside its own. A 1px
-          box is enough to do it; the height fix alone was not sufficient. */}
       <div className="sr-only">
         <table id={tableId}>
           <caption>
@@ -283,14 +193,6 @@ export function FlowChart({
   );
 }
 
-/**
- * One period.
- *
- * A `button` because it is genuinely operable — focusing it opens the same
- * tooltip hovering does, which is the only way a keyboard reaches a month's
- * figures. The `aria-label` states them outright, so the tooltip is a
- * convenience rather than the content.
- */
 function Column({
   point,
   isActive,
@@ -321,20 +223,12 @@ function Column({
   return (
     <button
       type="button"
-      // The figures are in the label rather than in a `aria-describedby`
-      // pointing at the table below: describing every one of thirty columns
-      // with the whole table would read the whole series out thirty times.
       aria-label={label}
       onMouseEnter={onActivate}
       onFocus={onActivate}
       onBlur={onDismiss}
       className="group relative h-full min-w-0 flex-1 cursor-default outline-none"
     >
-      {/* The hover column: a wash rather than a fill, so the marks stay the
-          darkest thing in it. It rises to just past the day's top mark rather
-          than to the ceiling — the column is there to carry the eye down to
-          the axis from the figure being read, and a full-height band would
-          instead read as a value of its own. */}
       <span
         aria-hidden="true"
         className={`absolute inset-x-[7%] bottom-0 rounded-t-md bg-linear-to-t from-transparent via-brand/10 to-brand/30 transition-opacity duration-150 group-focus-visible:opacity-100 ${
@@ -345,9 +239,6 @@ function Column({
         }}
       />
 
-      {/* Marks. Positioned by their centre — the `-3px` is half the capsule's
-          height — so the *middle* of the mark reads against the gridline
-          rather than its bottom edge. */}
       {secondaryHeight !== undefined && (
         <span
           aria-hidden="true"
@@ -357,9 +248,6 @@ function Column({
           style={{ bottom: `calc(${secondaryHeight}% - 3px)` }}
         />
       )}
-      {/* Money in is the ring's green (`cat-4`), deepening to `leaf` under the
-          pointer. The active state stays inside the same hue: a mark that
-          changed colour on hover would read as a change of series. */}
       <span
         aria-hidden="true"
         className={`absolute left-1/2 h-1.5 w-[62%] -translate-x-1/2 rounded-full transition-colors ${
@@ -427,13 +315,6 @@ interface TooltipRow {
   className: string;
 }
 
-/**
- * The hover card every chart on this page shares.
- *
- * Positioned from the plot's own box in percentages rather than from a measured
- * anchor, for the reason at the top of this file: nothing here may read the DOM
- * to decide where to draw, or the server and the browser disagree.
- */
 function ChartTooltip({
   title,
   rows,
@@ -447,8 +328,6 @@ function ChartTooltip({
   /** Percent up the plot — the card sits above this. */
   bottom: number;
 }) {
-  // Clamped at both ends: a card centred on the first column would hang off
-  // the panel, so near an edge it hinges from that edge instead.
   const shift =
     left < 14
       ? "translate-x-0"
@@ -462,11 +341,11 @@ function ChartTooltip({
       className={`pointer-events-none absolute z-20 mb-3 w-max rounded-lg border-2 border-border bg-surface px-3 py-2 shadow-sm ${shift}`}
       style={{ left: `${left}%`, bottom: `${bottom}%` }}
     >
-      <p className="text-[11px] font-semibold text-foreground">{title}</p>
+      <p className="text-xs font-semibold text-foreground">{title}</p>
       <div className="mt-1.5 flex gap-4">
         {rows.map((row) => (
           <div key={row.label} className={`border-l-2 pl-2 ${row.className}`}>
-            <p className="text-[10px] uppercase tracking-wide text-muted">
+            <p className="text-xs uppercase tracking-wide text-muted">
               {row.label}
             </p>
             <p className="font-sen text-xs font-semibold tabular-nums text-foreground">
@@ -479,13 +358,6 @@ function ChartTooltip({
   );
 }
 
-/**
- * The gridlines and their axis figures, shared by the three plotted charts.
- *
- * Drawn behind everything, dashed, one step lighter than the panel border —
- * they are a reading aid, not structure. The `w-11` gutter they reserve on the
- * left is what `left-13` insets each plot by.
- */
 function Gridlines({ max, ticks }: { max: number; ticks: number[] }) {
   return (
     <div aria-hidden="true" className="absolute inset-0">
@@ -495,7 +367,7 @@ function Gridlines({ max, ticks }: { max: number; ticks: number[] }) {
           className="absolute inset-x-0 flex items-center gap-2"
           style={{ bottom: `${(tick / max) * 100}%` }}
         >
-          <span className="w-11 shrink-0 text-right text-[10px] tabular-nums text-muted">
+          <span className="w-11 shrink-0 text-right text-xs tabular-nums text-muted">
             {compactGhs(tick)}
           </span>
           <span
@@ -524,7 +396,7 @@ function AxisLabels({
       {labels.map((label, index) => (
         <span
           key={`${label}-${index}`}
-          className={`min-w-0 flex-1 truncate text-center text-[10px] tabular-nums transition-colors ${
+          className={`min-w-0 flex-1 truncate text-center text-xs tabular-nums transition-colors ${
             active === index ? "font-semibold text-foreground" : "text-muted"
           }`}
         >
@@ -535,14 +407,6 @@ function AxisLabels({
   );
 }
 
-/**
- * The invisible hit targets laid over a plot.
- *
- * One `button` per period, for the same reason `Column` is one: hovering and
- * focusing have to open the same card, and a keyboard has no other way to reach
- * a period's figures. The label states them outright, so the card is a
- * convenience rather than the content.
- */
 function HitSlots({
   labels,
   active,
@@ -584,10 +448,6 @@ function HitSlots({
   );
 }
 
-/* ------------------------------------------------------------------ *
- * The trend chart
- * ------------------------------------------------------------------ */
-
 /** One line on a `TrendChart`. */
 export interface TrendSeries {
   key: string;
@@ -599,20 +459,6 @@ export interface TrendSeries {
   area?: boolean;
 }
 
-/**
- * Two or more runs of figures over the same periods, as lines.
- *
- * Lines rather than the paired marks `FlowChart` draws, because the question
- * this one answers is "which way is it going" over twelve weeks, not "in or out"
- * within one month — and a trend is the one thing a line does better than
- * anything else.
- *
- * The plot is an SVG on a 0–100 grid stretched to the box, which is what lets it
- * render identically on the server and in the browser without measuring
- * anything. `vector-effect="non-scaling-stroke"` is load-bearing: without it the
- * stretch would squash the stroke to a hair at one end of the box and a slab at
- * the other.
- */
 export function TrendChart({
   labels,
   titles,
@@ -637,13 +483,6 @@ export function TrendChart({
   const span = labels.length;
   const title = (index: number) => titles?.[index] ?? labels[index] ?? "";
 
-  // Percent across and percent down — SVG's y axis grows downwards, which is
-  // why this is `100 -` and the CSS positions below are not.
-  //
-  // A point sits in the *middle* of its slot rather than at `i / (span - 1)`,
-  // which would put the first point hard against the axis and the last against
-  // the panel edge. The labels below are centred in equal slots, so anything
-  // else would draw each point a few percent off the period it belongs to.
   const x = (index: number) => ((index + 0.5) / span) * 100;
   const y = (value: number) => 100 - (value / max) * 100;
 
@@ -692,8 +531,6 @@ export function TrendChart({
             ))}
           </svg>
 
-          {/* The dots are CSS rather than SVG circles: a circle on a stretched
-              viewBox is an ellipse, and there is no `vector-effect` for that. */}
           {active !== null &&
             series.map((s) => (
               <span
@@ -779,10 +616,6 @@ export function TrendChart({
   );
 }
 
-/* ------------------------------------------------------------------ *
- * The stacked bars
- * ------------------------------------------------------------------ */
-
 /** One band of a `StackedBars` column. */
 export interface BarSeries {
   key: string;
@@ -791,20 +624,6 @@ export interface BarSeries {
   tone: Tone;
 }
 
-/**
- * A run of periods, each a column carrying its parts.
- *
- * Stacked by default, because the total is usually the figure being read — a
- * day's takings — and the split is the second question. Pass `grouped` when the
- * comparison between the parts is the point instead: the bars then sit side by
- * side, each measured off the axis, and the two can be read against each other
- * without subtracting one from the other by eye. The cost is that the total is
- * no longer drawn, which is why it isn't the default.
- *
- * An optional `target` draws a rule across each column: where the day should
- * have reached. It is a mark rather than a bar of its own, so a column that
- * clears it reads as covering it rather than as a taller neighbour.
- */
 export function StackedBars({
   labels,
   titles,
@@ -830,11 +649,6 @@ export function StackedBars({
   const totals = labels.map((_, i) =>
     series.reduce((sum, s) => sum + (s.data[i] ?? 0), 0),
   );
-  /**
-   * How tall each column stands — the sum when stacked, the tallest bar when
-   * grouped. It sets the axis, and it is where the tooltip is anchored, so the
-   * two cannot disagree about the top of a column.
-   */
   const tops = grouped
     ? labels.map((_, i) => Math.max(...series.map((s) => s.data[i] ?? 0)))
     : totals;
@@ -846,9 +660,6 @@ export function StackedBars({
   return (
     <figure className="relative w-full">
       <div className="mb-4 flex flex-wrap items-center gap-4">
-        {/* The swatch wears whatever the bars wear — outlined when they are
-            outlined, solid when they are stacked — or the legend names a
-            colour that is not on the chart. */}
         {series.map((s) => (
           <Key
             key={s.key}
@@ -889,9 +700,6 @@ export function StackedBars({
                   className="relative h-full min-w-0 flex-1"
                 >
                   {grouped ? (
-                    /* Side by side, each bar measured off the axis rather than
-                       off its neighbour. The gap is a percentage so the pair
-                       stays proportionate as the column narrows. */
                     <div
                       className={`absolute inset-x-[14%] bottom-0 top-0 flex items-end gap-[8%] transition-opacity ${dimmed}`}
                     >
@@ -1019,10 +827,6 @@ export function StackedBars({
   );
 }
 
-/* ------------------------------------------------------------------ *
- * The ranked list
- * ------------------------------------------------------------------ */
-
 /** One row of a `BarList`. */
 export interface BarItem {
   key: string;
@@ -1033,14 +837,6 @@ export interface BarItem {
   foot?: string;
 }
 
-/**
- * A short ranked list where the bar is a comparison and the figure is the fact.
- *
- * Widths are a share of the biggest row rather than of the total: this is used
- * for things that are not parts of one whole (five channels out of any number,
- * the top few collectors), and drawing them as shares of a total would imply
- * the list is complete when it is a top five.
- */
 export function BarList({
   items,
   emptyText = "Nothing to show.",
@@ -1076,7 +872,7 @@ export function BarList({
             />
           </div>
           {item.foot && (
-            <p className="mt-1 text-[11px] tabular-nums text-muted">
+            <p className="mt-1 text-xs tabular-nums text-muted">
               {item.foot}
             </p>
           )}
@@ -1086,10 +882,6 @@ export function BarList({
   );
 }
 
-/* ------------------------------------------------------------------ *
- * The ring
- * ------------------------------------------------------------------ */
-
 /** One arc of a `Donut`, and one row of the list beside it. */
 export interface DonutSegment {
   key: string;
@@ -1098,14 +890,6 @@ export interface DonutSegment {
   tone: Tone;
 }
 
-/**
- * A total split into its parts, as a ring with the total in the middle.
- *
- * The `r` is not a round number on purpose: at 15.9155 the circumference is
- * almost exactly 100, so a segment's arc length *is* its percentage and the
- * dash arithmetic needs no scale factor. Rotated a quarter turn so the first
- * segment starts at twelve o'clock, where a reader starts.
- */
 export function Donut({
   segments,
   total,
@@ -1160,7 +944,7 @@ export function Donut({
           <span className="truncate font-sen text-sm font-semibold tabular-nums text-foreground">
             {compactGhs(total)}
           </span>
-          <span className="text-[10px] leading-tight text-muted">
+          <span className="text-xs leading-tight text-muted">
             {centreLabel}
           </span>
         </div>
@@ -1198,10 +982,6 @@ function Key({ className, label }: { className: string; label: string }) {
   );
 }
 
-/* ------------------------------------------------------------------ *
- * The small stuff
- * ------------------------------------------------------------------ */
-
 /** One slice of the book — see `SegmentedBar`. */
 export interface Segment {
   label: string;
@@ -1210,15 +990,6 @@ export interface Segment {
   className: string;
 }
 
-/**
- * A total split into its parts, as one bar and a list.
- *
- * The bar is for proportion — which part of the book is the big one — and the
- * list under it carries the figures, because nobody reconciles against a
- * rectangle. Parts too small to draw are still listed: a segment under half a
- * percent would render as a sliver indistinguishable from a gap, so it is
- * dropped from the bar and kept in the list where its number is exact.
- */
 export function SegmentedBar({
   segments,
   total,
@@ -1267,13 +1038,6 @@ export function SegmentedBar({
   );
 }
 
-/**
- * Progress towards a figure that is a target rather than a limit — the day's
- * round, a cycle's 31 days.
- *
- * Over-shooting is not an error here (a catch-up payment covers four days at
- * once), so the bar clamps at full and the caption keeps the real numbers.
- */
 export function Meter({
   value,
   max,
@@ -1300,13 +1064,6 @@ export function Meter({
   );
 }
 
-/**
- * Period on period, e.g. "↑ 12% vs yesterday".
- *
- * Green for up and red for down would be wrong on half of these — a fall in
- * payouts is not a bad day — so direction is carried by an arrow and the
- * comparison is spelled out, leaving the reader to decide which way is good.
- */
 export function Delta({
   change,
   caption,
@@ -1314,13 +1071,11 @@ export function Delta({
 }: {
   change: Change | null;
   caption: string;
-  /** Shown when there is no basis for a percentage (the previous figure was
-      zero). Usually the previous figure itself. */
   fallback?: string;
 }) {
   if (!change) {
     return (
-      <p className="mt-1 text-[11px] text-muted">
+      <p className="mt-1 text-xs text-muted">
         {fallback ?? "Nothing to compare against"}
       </p>
     );
@@ -1334,7 +1089,7 @@ export function Delta({
         : ArrowRight;
 
   return (
-    <p className="mt-1 flex items-center gap-1 text-[11px] text-muted">
+    <p className="mt-1 flex items-center gap-1 text-xs text-muted">
       <Icon size={12} aria-hidden="true" className="shrink-0" />
       <span className="font-semibold tabular-nums text-foreground">
         {change.percent}%

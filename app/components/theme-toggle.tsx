@@ -1,11 +1,5 @@
 import { useTheme } from "@heroui/react";
 
-/**
- * Light/dark theme toggle. Reads the resolved theme from HeroUI's `useTheme`
- * (which owns the `class` / `data-theme` on `<html>`) and flips between the two
- * concrete themes. `resolvedTheme` is `undefined` during SSR, so we default the
- * icon to the moon until hydration to avoid a mismatch.
- */
 export function ThemeToggle({ className }: { className?: string }) {
   const { resolvedTheme, setTheme } = useTheme("light");
   const isDark = resolvedTheme === "dark";

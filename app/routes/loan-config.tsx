@@ -17,22 +17,6 @@ import { readLoanConfigForm } from "~/lib/loan-form";
 import { toAmountInput } from "~/lib/money";
 import { requireOffice, withAuth } from "~/lib/session.server";
 
-/**
- * The loan product's parameters: three rates and three bounds.
- *
- * Two things about this endpoint shape the page.
- *
- * First, **`PUT /loans/config` replaces the object rather than patching it** —
- * all six fields are required — so the form renders all six prefilled and posts
- * all six back. A form offering one field would blank the other five.
- *
- * Second, the change **applies to new applications and approvals only**. A loan
- * already running keeps the rate it was approved at, which is what makes this
- * safe to edit mid-month, and also means it cannot be used to correct a loan
- * approved at the wrong rate. The page says so rather than leaving it to be
- * discovered.
- */
-
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Loan settings · YADAH Dynamic Enterprise" }];
 }
@@ -118,9 +102,6 @@ export default function LoanSettings({
         The rates and bounds new applications are quoted at.
       </p>
 
-      {/* The config response has no declared shape in the API spec, so a
-          renamed field would silently become a default. Saying which ones were
-          missing turns that from a wrong number on screen into a question. */}
       {!complete && (
         <p className="mt-5 flex gap-2 rounded-lg bg-warning/15 p-3 text-sm text-warning-foreground dark:text-warning">
           <TriangleAlert size={16} className="mt-0.5 shrink-0" />

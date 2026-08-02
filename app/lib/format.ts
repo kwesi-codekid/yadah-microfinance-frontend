@@ -1,20 +1,3 @@
-/**
- * Date formatting, shared so the pages can't render the same timestamp two
- * different ways.
- *
- * Everything here reads the ISO string's own digits rather than going through a
- * `Date`. Two reasons, and both have bitten this kind of app before:
- *
- * - Parsing an ISO *date* to a local `Date` shifts the day backwards for anyone
- *   west of UTC, so a customer registered on the 1st shows as the 31st.
- * - Formatting through the browser's locale and timezone gives one answer on
- *   the server and another after hydration, which React reports as a mismatch
- *   on someone else's machine and never on yours.
- *
- * The API stores UTC and Ghana is UTC+0 all year, so the UTC digits are already
- * the local time for every user of this app.
- */
-
 const MONTHS = [
   "Jan",
   "Feb",
@@ -48,13 +31,6 @@ export function formatMonth(iso?: string): string {
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/**
- * `2026-07-28` → `Tue`. The x-axis label on a run of days.
- *
- * `Date.UTC` rather than `new Date(iso)`: the second parses a bare date as
- * midnight UTC and then *reports* it in the local zone, which hands anyone west
- * of Greenwich the previous weekday for every column on the chart.
- */
 export function weekdayLabel(iso?: string): string {
   if (!iso) return "";
   const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
@@ -87,12 +63,6 @@ const MONTHS_LONG = [
   "December",
 ];
 
-/**
- * `2026-07-29` → `Wednesday, 29 July`. The line over a page's greeting.
- *
- * Spelt out where `formatDate` abbreviates, and no year: this one is read once,
- * at the top of a page, by somebody who knows what year it is.
- */
 export function formatDayLine(iso?: string): string {
   if (!iso) return "";
   const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
@@ -126,7 +96,5 @@ export function formatTime(iso?: string): string {
 
 /** Today in Accra as `YYYY-MM-DD` — the shape `/susu/summary` takes. */
 export function accraToday(): string {
-  // Ghana keeps UTC+0 with no daylight saving, so the UTC date *is* the Accra
-  // calendar day the API reconciles against.
   return new Date().toISOString().slice(0, 10);
 }

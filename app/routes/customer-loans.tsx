@@ -8,20 +8,11 @@ import {
   useSubmit,
 } from "react-router";
 import { Button } from "@heroui/react";
-import {
-  BadgeCheck,
-  CircleAlert,
-  HandCoins,
-  IdCard,
-  Landmark,
-  PiggyBank,
-  TriangleAlert,
-} from "lucide-react";
+import { HandCoins, PiggyBank } from "lucide-react";
 import type { Route } from "./+types/customer-loans";
 import { Breadcrumbs } from "~/components/breadcrumbs";
 import { DataTable, Table } from "~/components/data-table";
 import { FIELD, FieldError } from "~/components/form-fields";
-import { Kpi } from "~/components/kpi";
 import { LoanStatusPill } from "~/components/loan-status";
 import { TextInput } from "~/components/inputs";
 import { ConfirmModal } from "~/components/modals";
@@ -53,21 +44,6 @@ import { readLoanApplicationForm } from "~/lib/loan-form";
 import { formatGhs, parseGhsAmount } from "~/lib/money";
 import { requireOffice, withAuth } from "~/lib/session.server";
 
-/**
- * One customer's loans — the history, the evidence, and the application form.
- *
- * It mirrors [customer-accounts.tsx](app/routes/customer-accounts.tsx): a loan
- * belongs to a customer, so this is also where one is applied for and there is
- * no `/loans/new`. What it adds over the accounts page is the **eligibility
- * summary**, which is not decoration — the API publishes it precisely because
- * the decision is a person's, and a person deciding needs the four months of
- * susu and savings history that sit behind it.
- *
- * Two of those fields are hard gates rather than evidence: a missing Ghana Card
- * and an open loan each guarantee a refusal, so both are checked before the
- * form is offered at all.
- */
-
 export function meta({ loaderData }: Route.MetaArgs) {
   return [
     {
@@ -84,10 +60,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       customersApi.getCustomer(token, params.id),
       loansApi.getLoanEligibility(token, params.id),
       loansApi.listLoans(token, { customerId: params.id, limit: 50 }),
-      // The bounds and rates the application form validates against. Fetched
-      // rather than hard-coded: `PUT /loans/config` can move all six, and a
-      // form checking against last month's ceiling refuses a principal the API
-      // would take.
       loansApi.getLoanConfig(token),
     ]);
     return { customer: customer.customer, eligibility, loans, config };
@@ -127,9 +99,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   try {
     const { data: result, headers } = await withAuth(request, async (token) => {
-      // The bounds are re-read here rather than trusted from a hidden field:
-      // the form was rendered against the config as it was when the page
-      // loaded, and this is a write.
       const raw = await loansApi.getLoanConfig(token);
       const { config } = normalizeLoanConfig(
         (raw as { config?: unknown }).config,
@@ -151,9 +120,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     if ("fieldErrors" in result) return data<ActionData>(result, { headers });
 
-    // Straight to the application that was just recorded — the next thing
-    // anyone does is approve or reject it. `headers` must ride along or the
-    // rotated refresh token is lost on the way.
     return result.loanId
       ? redirect(`/loans/${result.loanId}`, { headers })
       : redirect(`/customers/${params.id}/loans`, { headers });
@@ -162,10 +128,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (error instanceof Response) throw error;
     const failure = toApiFailure(error);
 
-    // The five refusals that mean "not this loan, not this customer" each read
-    // better as a sentence than as the API's terser phrasing — and two of them
-    // (`PRINCIPAL_OUT_OF_RANGE`, `BIG_TIER_LOCKED`) are about the amount, so
-    // they belong on that field rather than in a banner.
     const known = LOAN_APPLICATION_ERRORS[failure.code];
     if (
       failure.code === "PRINCIPAL_OUT_OF_RANGE" ||
@@ -208,9 +170,6 @@ export default function CustomerLoans({
       console.error("[customer-loans] request failed:", actionData.failure);
   }, [actionData]);
 
-  // The three refusals knowable before the form is opened. Checked here rather
-  // than left to the API because each has a different next step, and none of
-  // them is "try a smaller amount".
   const blocker = applicationBlocker(eligibility, customer.status);
 
   return (
@@ -232,10 +191,6 @@ export default function CustomerLoans({
             <PiggyBank size={14} />
             Savings accounts
           </Link>
-          {/* Never disabled, for the same reason the savings page's Withdraw
-              button never is: a grey button with no visible explanation reads
-              as a broken page. The click always lands and answers with the
-              reason it can't go ahead. */}
           <Button
             type="button"
             size="sm"
@@ -263,9 +218,7 @@ export default function CustomerLoans({
         onClose={() => setApplying(false)}
       />
 
-      <EligibilityPanel eligibility={eligibility} blocker={blocker} />
-
-      <section className="mt-6">
+      <section>
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-xs font-bold uppercase tracking-wide text-muted">
             Loan history
@@ -318,14 +271,6 @@ export default function CustomerLoans({
   );
 }
 
-/**
- * Why an application can't be recorded, or null when it can.
- *
- * Each of the three is a guaranteed refusal from the API, and each has a
- * different next step: add the card, settle the loan, reactivate the customer.
- * Answering them here means the instruction arrives on the click rather than as
- * a 422 after a form has been filled in.
- */
 function applicationBlocker(
   eligibility: LoanEligibility,
   customerStatus: string,
@@ -351,133 +296,6 @@ function applicationBlocker(
   return null;
 }
 
-/**
- * The evidence, laid out for the person who has to decide.
- *
- * Nothing here scores anything, because the API doesn't and inventing a score
- * would be this app asserting a lending policy it hasn't been told. It shows
- * what the customer has actually done — how long they have saved, how much has
- * gone through susu, what is sitting in savings — and marks the two facts that
- * are gates rather than evidence.
- */
-function EligibilityPanel({
-  eligibility,
-  blocker,
-}: {
-  eligibility: LoanEligibility;
-  blocker: { title: string; detail: string } | null;
-}) {
-  return (
-    /* Same treatment as the loan page's figures: no outer card, because four
-       bordered tiles inside a fifth border is a box in a box. The heading and
-       the blocker are a caption over the tiles, not a panel around them. */
-    <section>
-      <h2 className="mb-2.5 text-xs font-bold uppercase tracking-wide text-muted">
-        Saving history
-      </h2>
-
-      {blocker && (
-        <p className="mb-3 flex gap-2 rounded-md bg-warning/15 px-2.5 py-1.5 text-xs text-warning-foreground dark:text-warning">
-          <TriangleAlert size={13} className="mt-px shrink-0" />
-          <span>
-            <span className="font-medium">{blocker.title}.</span>{" "}
-            {blocker.detail}
-          </span>
-        </p>
-      )}
-
-      {/* The same tile as the dashboard and the loan page — see
-          [kpi.tsx](app/components/kpi.tsx). */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi
-          icon={<Landmark size={14} />}
-          label="History"
-          value={
-            eligibility.firstActivityAt
-              ? `${eligibility.monthsOfHistory} months`
-              : "None"
-          }
-          foot={
-            <p className="mt-0.5 truncate text-[11px] text-muted">
-              {eligibility.firstActivityAt
-                ? `Since ${formatDate(eligibility.firstActivityAt)}`
-                : "Never saved with us"}
-            </p>
-          }
-        />
-        <Kpi
-          icon={<HandCoins size={14} />}
-          label="Susu"
-          value={formatGhs(eligibility.susu.totalDeposited)}
-          foot={
-            <p className="mt-0.5 truncate text-[11px] text-muted">
-              {eligibility.susu.accounts} accounts ·{" "}
-              {eligibility.susu.activeAccounts} active
-            </p>
-          }
-        />
-        <Kpi
-          icon={<PiggyBank size={14} />}
-          label="Savings"
-          value={formatGhs(eligibility.savings.totalBalance)}
-          foot={
-            <p className="mt-0.5 truncate text-[11px] text-muted">
-              {eligibility.savings.accounts} accounts
-            </p>
-          }
-        />
-        {/* The only tile here that is a gate rather than evidence, so it is the
-            only one that ever takes a tone. */}
-        <Kpi
-          icon={
-            eligibility.customer.hasGhanaCard ? (
-              <IdCard size={14} />
-            ) : (
-              <CircleAlert size={14} />
-            )
-          }
-          label="Ghana Card"
-          value={eligibility.customer.hasGhanaCard ? "On file" : "Missing"}
-          tone={eligibility.customer.hasGhanaCard ? undefined : "danger"}
-          foot={
-            <p className="mt-0.5 truncate text-[11px] text-muted">
-              {eligibility.customer.hasGhanaCard
-                ? "Required for any loan"
-                : "No loan without one"}
-            </p>
-          }
-        />
-      </div>
-
-      {/* The big tier is the one thing here that is *earned* rather than
-          measured, so it gets a line of its own rather than a fifth tile. */}
-      <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
-        {eligibility.bigTierUnlocked ? (
-          <>
-            <BadgeCheck size={13} className="shrink-0 text-success" />
-            Big tier unlocked — a previous small loan was repaid on time.
-          </>
-        ) : (
-          <>
-            <CircleAlert size={13} className="shrink-0" />
-            Small tier only. The big tier opens once a small loan has been
-            repaid on time.
-          </>
-        )}
-      </p>
-    </section>
-  );
-}
-
-/**
- * The application: an amount and a term, and the arithmetic they imply.
- *
- * The figures below the fields are a **projection**, and the drawer says so.
- * The rate is locked from the config at *approval*, not here — so a config
- * change between recording this and approving it moves every number on screen.
- * Showing them anyway is right: this is what the customer is being quoted, and
- * quoting nothing is worse than quoting something dated.
- */
 function ApplyDrawer({
   isOpen,
   config,
@@ -501,8 +319,6 @@ function ApplyDrawer({
   const [confirming, setConfirming] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
-  // The same reader the action runs, run here against the typed value — so the
-  // tier bounds are written once and enforced on both sides.
   const probe = new FormData();
   probe.set("principal", principal);
   probe.set("durationMonths", String(months));
@@ -522,9 +338,6 @@ function ApplyDrawer({
     ? config.bigMaxPesewas
     : config.smallMaxPesewas;
 
-  // See the note on the savings deposit drawer: `submit(form)` rather than
-  // `requestSubmit()`, or the intercepted `onSubmit` would reopen the very
-  // confirmation that called this.
   function confirmAndSend() {
     setConfirming(false);
     if (formRef.current) submit(formRef.current, { method: "post" });
@@ -562,8 +375,6 @@ function ApplyDrawer({
         onOpenChange={setConfirming}
         title="Record this application?"
         closeLabel="Back"
-        // Its backdrop and the drawer's panel are both `z-50`; stated outright
-        // rather than left to DOM order. Same as the savings drawers.
         className="z-60"
         footer={
           <Button
@@ -625,9 +436,6 @@ function ApplyDrawer({
           />
         </div>
 
-        {/* Three fixed options, so they are three buttons rather than a select:
-            the choice changes every figure below it, and a dropdown hides two
-            thirds of the product behind a click. */}
         <fieldset className="space-y-1.5">
           <legend className="text-sm font-medium text-foreground">Term</legend>
           <input type="hidden" name="durationMonths" value={months} />
@@ -654,9 +462,6 @@ function ApplyDrawer({
           <FieldError message={fieldErrors?.durationMonths} />
         </fieldset>
 
-        {/* Always on screen, not only once the amount is valid: this is the
-            arithmetic being checked *while* it is typed, and a panel that
-            appears at the end is one nobody sees. */}
         <dl className="space-y-2 rounded-lg border-2 border-border bg-background p-3">
           <Figure label="Principal" value={formatGhs(pesewas ?? 0)} />
           <Figure label={`Interest at ${rate}%`} value={formatGhs(interest)} />

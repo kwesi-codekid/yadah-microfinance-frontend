@@ -1,11 +1,3 @@
-/**
- * Client-safe customer types, mirroring the API's `components.schemas`.
- * Safe to import from browser components (no server-only code here) — the same
- * split as [auth-client.ts](app/lib/auth-client.ts), which owns the staff side.
- *
- * Source of truth: GET https://yadah-backend-staging.adamusgh.com/api/v1/openapi.json
- */
-
 export type Gender = "male" | "female";
 export type MaritalStatus = "single" | "married" | "other";
 export type IdType = "ghana-card" | "passport" | "drivers-license" | "voter-id";
@@ -79,13 +71,6 @@ export interface Customer {
   purposeOfAccount?: string;
   nextOfKin?: NextOfKin;
   photoUrl?: string;
-  /**
-   * Both sides of the ID, stored as hosted URLs.
-   *
-   * These replaced a single `idDocumentUrl`, and they are plain strings rather
-   * than uploads: the file goes to `POST /uploads/images` first and the URL it
-   * hands back is what gets written here. See [uploads.ts](app/lib/api/uploads.ts).
-   */
   idDocumentFrontUrl?: string;
   idDocumentBackUrl?: string;
   registeredById: string;
@@ -93,11 +78,6 @@ export interface Customer {
   createdAt: string;
 }
 
-/**
- * The write shape for create and update. It lives here rather than beside the
- * `apiFetch` wrappers so the form code — which runs on both sides of the wire —
- * can name it without pulling in a server-only module.
- */
 export interface CustomerInput {
   fullName: string;
   phone: string;
@@ -116,11 +96,6 @@ export interface CustomerInput {
   employerOrBusiness?: string;
   purposeOfAccount?: string;
   nextOfKin?: NextOfKin;
-  /**
-   * Image URLs from `POST /uploads/images`, not files. The customer endpoints
-   * take no multipart body at all — a picture is uploaded on its own and only
-   * its URL is written to the record, on create or on update alike.
-   */
   photoUrl?: string;
   idDocumentFrontUrl?: string;
   idDocumentBackUrl?: string;
@@ -138,12 +113,6 @@ export function isIdType(v: unknown): v is IdType {
   return typeof v === "string" && (ID_TYPES as string[]).includes(v);
 }
 
-/**
- * `dateOfBirth` / `idExpiryDate` come back as ISO date-times but are entered
- * through `<input type="date">`, which only speaks `YYYY-MM-DD`. Slicing the
- * date part off is deliberate: parsing to a local `Date` would shift the day
- * backwards for anyone west of UTC, which is every user of this app.
- */
 export function toDateInput(iso?: string): string {
   return iso ? iso.slice(0, 10) : "";
 }

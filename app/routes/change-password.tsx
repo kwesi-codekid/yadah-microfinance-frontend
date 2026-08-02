@@ -9,23 +9,6 @@ import * as authApi from "~/lib/api/auth";
 import { ApiError } from "~/lib/api/client";
 import { requireUser, withAuth } from "~/lib/session.server";
 
-/**
- * Replace the password you signed in with.
- *
- * Reached one of two ways, and it matters which:
- *
- * - **Forced.** An admin reset this user's password, the API set
- *   `mustChangePassword`, and `requireUser` now sends every request here until
- *   it is cleared. A reset password is one the administrator also knows, so the
- *   session is running on a credential two people hold — there is nothing else
- *   in the app worth reaching until that is fixed.
- * - **Voluntary.** Anyone may open it from the sidebar and change their own.
- *
- * The page is deliberately outside the app shell. Forced, the sidebar would
- * offer links that `requireUser` bounces straight back, which reads as a broken
- * app rather than a gate.
- */
-
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Change password · YADAH Dynamic Enterprise" }];
 }
@@ -68,14 +51,9 @@ export async function action({ request }: Route.ActionArgs) {
   if (!currentPassword) {
     fieldErrors.currentPassword = "Enter your current password.";
   }
-  // The API's own bounds. Checked here so a password that was never going to be
-  // accepted doesn't cost a round trip — and so the message names the rule.
   if (newPassword.length < 8 || newPassword.length > 128) {
     fieldErrors.newPassword = "New password must be 8–128 characters.";
   } else if (newPassword === currentPassword) {
-    // Not the API's rule, ours: a "change" that changes nothing leaves the
-    // password the administrator knows in place, which is the one thing this
-    // screen exists to prevent.
     fieldErrors.newPassword = "Choose a password different from the current one.";
   } else if (newPassword !== confirmPassword) {
     fieldErrors.confirmPassword = "The two passwords don't match.";
@@ -89,14 +67,6 @@ export async function action({ request }: Route.ActionArgs) {
         try {
           await authApi.changePassword(token, { currentPassword, newPassword });
         } catch (error) {
-          /**
-           * A 401 here is ambiguous and `withAuth` can't disambiguate it: by
-           * status alone a wrong current password looks exactly like an expired
-           * access token, so it would spend the refresh token, retry, fail the
-           * same way, and log the user out for a typo. `INVALID_CREDENTIALS` is
-           * the API telling us which one it is, so that case is turned into a
-           * field error here rather than escaping as a 401.
-           */
           if (
             error instanceof ApiError &&
             error.status === 401 &&
@@ -109,17 +79,6 @@ export async function action({ request }: Route.ActionArgs) {
           throw error;
         }
 
-        /**
-         * The password changed, so the copy of the user in the session cookie
-         * is stale — `mustChangePassword` is now false, and the guard reads it
-         * from there on every request. Re-read rather than patched: `/auth/me`
-         * is what the API says is true, and this session survives the change
-         * (the endpoint revokes every *other* one), so the token still works.
-         *
-         * Written through the handle so it lands in the same session `withAuth`
-         * holds; committing it separately would overwrite any token rotation
-         * that just happened with the pre-refresh pair from the request cookie.
-         */
         const { user } = await authApi.me(token);
         session.setUser(user);
         return {} satisfies ActionData;
@@ -162,8 +121,6 @@ export default function ChangePassword({
           <h1 className="font-heading text-2xl font-semibold text-foreground">
             {forced ? "Set a new password" : "Change your password"}
           </h1>
-          {/* Forced, the reason has to be on screen: someone who didn't ask for
-              this page and can't leave it is owed an explanation of why. */}
           <p className="mt-2 text-sm text-muted">
             {forced
               ? `Your password was reset by an administrator, ${name.split(" ")[0]}. Choose one only you know before carrying on.`
@@ -240,8 +197,6 @@ export default function ChangePassword({
           </Button>
         </Form>
 
-        {/* Forced, there is nowhere to go but out — every other route redirects
-            back here — so signing out is the only alternative offered. */}
         <p className="mt-6 text-center text-sm text-muted">
           {forced ? (
             <Link to="/logout" className="hover:text-foreground hover:underline">

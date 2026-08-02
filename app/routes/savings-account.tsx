@@ -43,25 +43,6 @@ import {
 import { readSavingsDepositForm, readWithdrawalForm } from "~/lib/savings-form";
 import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 
-/**
- * One savings account, with its statement.
- *
- * The susu equivalent ([susu-account.tsx](app/routes/susu-account.tsx)) leads
- * with the cycle, because a susu account *is* a cycle and the 31 chips answer
- * every question about it. A savings account has no cycle, and this page leads
- * with nothing: the statement is the account. Everything else about the page is
- * deliberately the same shape, because it is the same job on the next product
- * along.
- *
- * There was a money panel in the slot the cycle chips occupy — balance,
- * available, and the minimum and fee that separate them — and it is gone by
- * request. The consequence worth knowing: **the balance is no longer stated
- * anywhere on this page.** It is still readable, as the `Balance after` on the
- * newest statement row, and `availableToWithdraw` still governs the withdrawal
- * form, which prints it. If the figure is wanted back, it belongs beside the
- * account number in the trail rather than as a panel.
- */
-
 export function meta({ loaderData }: Route.MetaArgs) {
   return [
     {
@@ -78,9 +59,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const { data: result, headers } = await withAuth(request, async (token) => {
     const { account } = await savingsApi.getSavingsAccount(token, params.id);
     const [txns, customer, staff] = await Promise.all([
-      // 50 rather than the default 20: unlike a susu cycle this list has no
-      // ceiling, so it is paged — but a page deep enough to hold a few months
-      // of activity means most accounts never need a second one.
       savingsApi.listSavingsTxns(token, params.id, { limit: 50 }),
       customersApi.getCustomer(token, account.customerId),
       // Only to name who recorded each line, and only office roles may ask.
@@ -98,15 +76,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const staffNames: Record<string, string> = {};
   for (const member of result.staff) staffNames[member.id] = member.name;
 
-  /**
-   * Accra's calendar day, decided here rather than in the component — the page
-   * renders on the server and again in the browser, and asking the clock in
-   * both places draws two different "today"s either side of midnight.
-   *
-   * It is load-bearing here, not decoration: the API allows one cash-out per
-   * Accra day, so this is what tells the withdraw and close buttons whether
-   * today's has already gone.
-   */
   const today = accraToday();
 
   return data(
@@ -123,12 +92,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       today,
       /** True when a withdrawal or closure is already on today's statement. */
       cashedOutToday: hasCashedOutOn(result.txns, today),
-      /**
-       * Two keys, not one. Both writes are things a user might repeat on a bad
-       * connection, and they are separate endpoints — sharing a key between a
-       * deposit and a withdrawal would mean recording one leaves the other
-       * holding a key that has already been spent.
-       */
       depositKey: newIdempotencyKey(),
       withdrawalKey: newIdempotencyKey(),
     },
@@ -136,15 +99,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   );
 }
 
-/**
- * Why a cash-out can't go ahead, or null when it can.
- *
- * Both rules are the API's and the API enforces them regardless — this is only
- * so the answer arrives on the click rather than after a round trip, and so it
- * arrives *at all*: with the balance panel gone, a disabled button on this page
- * has nothing next to it explaining itself. Shared by the withdraw and close
- * buttons because closing is a payout too and the daily limit counts it.
- */
 function withdrawBlockedReason(
   account: SavingsAccount,
   cashedOutToday: boolean,
@@ -157,9 +111,6 @@ function withdrawBlockedReason(
         "One withdrawal per account per calendar day, and closing counts as one. Try again tomorrow — deposits are unaffected.",
     };
   }
-  // Closing releases the minimum balance, so an account sitting exactly on it
-  // has nothing to withdraw and everything to pay out. Only the withdraw path
-  // is blocked by this.
   if (!closing && account.availableToWithdraw === 0) {
     return {
       title: "Nothing available to withdraw",
@@ -184,8 +135,6 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
 
-  // Paying in is anyone's job. Taking money out — a withdrawal or the closing
-  // payout — is office-only, and the API enforces it too.
   if (intent !== "deposit" && !isOffice(user)) {
     return data<ActionData>({
       intent,
@@ -203,9 +152,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (error instanceof Response) throw error;
     const failure = toApiFailure(error);
 
-    // 422 EXCEEDS_AVAILABLE carries what could actually have been taken. Put it
-    // on the field that is wrong, with the real number — a balance can look
-    // ample and still refuse, because the minimum and the fee come out of it.
     const available = readExceedsAvailable(failure.details);
     if (available !== null && intent === "withdraw") {
       return data<ActionData>({
@@ -275,10 +221,6 @@ async function runIntent({
   }
 
   if (intent === "withdraw") {
-    // No `available` passed here: the browser gates the field against the
-    // figure already on screen, and the API owns the authoritative check —
-    // re-fetching the account to repeat it would be a round trip that could
-    // still be stale by the time the withdrawal lands.
     const { amount, idempotencyKey, fieldErrors } = readWithdrawalForm(form);
     if (Object.keys(fieldErrors).length)
       return { intent, fieldErrors } satisfies ActionData;
@@ -342,9 +284,6 @@ export default function SavingsAccountDetail({
     else if (actionData?.formError) notify.error(actionData.formError);
     if (actionData?.failure)
       console.error("[savings-account] request failed:", actionData.failure);
-    // Only a recorded write closes its drawer. A rejected one stays open with
-    // the message on the field it belongs to — closing on failure would throw
-    // away what was typed and hide why it wouldn't go through.
     if (actionData?.ok && actionData.intent === "deposit") setDepositing(false);
     if (actionData?.ok && actionData.intent === "withdraw")
       setWithdrawing(false);
@@ -352,8 +291,6 @@ export default function SavingsAccountDetail({
 
   return (
     <div className="mx-auto w-full px-6 py-8">
-      {/* Same trail as the susu page, with the product and the quotable number
-          as the last crumb — the `id` in the URL means nothing to anyone. */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <Breadcrumbs
           items={[
@@ -361,8 +298,6 @@ export default function SavingsAccountDetail({
             { label: customer.fullName, to: `/customers/${customer.id}` },
             {
               label: "Accounts",
-              // Back to the savings side of the list, not susu's — the product
-              // is a query param now, so the way back has to name it.
               to: `/customers/${customer.id}/accounts?product=savings&status=all`,
             },
             { label: `Savings ${account.accountNumber}` },
@@ -370,8 +305,6 @@ export default function SavingsAccountDetail({
         />
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Paying in is gated on the account, not the role — any collector
-              may take a deposit. Paying out is office-only and gated on both. */}
           {active && (
             <Button
               type="button"
@@ -389,12 +322,6 @@ export default function SavingsAccountDetail({
               size="sm"
               variant="outline"
               className="min-h-9 rounded-md px-3  border-2 border-success text-success hover:bg-success/10"
-              // Never disabled. The page states neither of the two rules that
-              // block a cash-out — no balance panel, no standing note — so a
-              // grey button here would be grey for no visible reason, which is
-              // how this page confused someone once already. The click always
-              // lands and `withdrawBlockedReason` answers with a toast naming
-              // the rule and the figures. The API enforces both regardless.
               onPress={() => {
                 const reason = withdrawBlockedReason(account, cashedOutToday);
                 if (reason) {
@@ -422,9 +349,6 @@ export default function SavingsAccountDetail({
 
       {active && (
         <>
-          {/* Keyed on the idempotency key, which the loader remints on every
-              revalidation: a recorded write therefore resets its form, while a
-              rejected one — same key, same mount — keeps what was typed. */}
           <DepositDrawer
             key={depositKey}
             isOpen={depositing}
@@ -457,8 +381,6 @@ export default function SavingsAccountDetail({
           <h2 className="text-xs font-bold uppercase tracking-wide text-muted">
             Transaaction history
           </h2>
-          {/* This list has no ceiling, so say when there is more of it than is
-              on screen rather than implying the account started 50 lines ago. */}
           {txnTotal > txns.length && (
             <p className="text-xs text-muted">
               Showing the latest {txns.length} of {txnTotal}.
@@ -485,20 +407,12 @@ export default function SavingsAccountDetail({
         >
           {txns.map((txn) => (
             <Table.Row key={txn.id} id={txn.id}>
-              {/* `accraDay` rather than slicing `createdAt`: it is the API's
-                  own calendar-day field, and it is the day the one-per-day
-                  withdrawal rule counts — so a row reading "25 Jul" is the
-                  same 25 Jul that blocks a second cash-out. Ghana is UTC+0, so
-                  the two agree today; the field says which one is meant. */}
               <Table.Cell className="px-4 py-2 text-muted">
                 {formatDate(txn.accraDay)}
               </Table.Cell>
               <Table.Cell className="px-4 py-2">
                 <TxnType type={txn.type} />
               </Table.Cell>
-              {/* Signed, because a statement of three transaction types with an
-                  unsigned amount column is a puzzle: money in and money out
-                  otherwise look identical. */}
               <Table.Cell
                 className={`px-4 py-2 font-medium tabular-nums ${
                   txn.type === "deposit" ? "text-success" : "text-foreground"
@@ -552,11 +466,6 @@ function TxnType({ type }: { type: SavingsTxnType }) {
   );
 }
 
-/**
- * Pay in. An amount and a channel, and nothing else — a savings balance has no
- * cycle to fill, so unlike the susu drawer there is no day count and no total
- * to project.
- */
 function DepositDrawer({
   isOpen,
   account,
@@ -577,8 +486,6 @@ function DepositDrawer({
   const [confirming, setConfirming] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
-  // The same reader the action runs, run here against the typed value — so the
-  // GHS 10 floor is written once and enforced on both sides.
   const probe = new FormData();
   probe.set("amount", amount);
   probe.set("idempotencyKey", idempotencyKey);
@@ -588,9 +495,6 @@ function DepositDrawer({
 
   const formId = "record-savings-deposit";
 
-  // See the note on the susu deposit drawer: `submit(form)` rather than
-  // `requestSubmit()`, or the intercepted `onSubmit` would reopen the very
-  // confirmation that called this.
   function confirmAndSend() {
     setConfirming(false);
     if (formRef.current) submit(formRef.current, { method: "post" });
@@ -628,8 +532,6 @@ function DepositDrawer({
         onOpenChange={setConfirming}
         title="Record this deposit?"
         closeLabel="Back"
-        // Both this and the drawer behind it are `z-50`; see the note on the
-        // susu deposit drawer. Said outright rather than left to DOM order.
         className="z-60"
         footer={
           <Button
@@ -658,8 +560,6 @@ function DepositDrawer({
         </div>
       </ConfirmModal>
 
-      {/* `onSubmit` is intercepted so Enter in the amount field asks for
-          confirmation too, rather than being the one route that skips it. */}
       <Form
         id={formId}
         ref={formRef}
@@ -671,9 +571,6 @@ function DepositDrawer({
         }}
       >
         <input type="hidden" name="intent" value="deposit" />
-        {/* The whole point of the key: this exact value survives a retry, so a
-            second tap on a bad connection replays the first deposit instead of
-            taking the money again. */}
         <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
 
         <div className="space-y-1.5">
@@ -693,8 +590,6 @@ function DepositDrawer({
           <p className="text-xs text-muted">
             {formatGhs(SAVINGS_MIN_DEPOSIT)} or more.
           </p>
-          {/* The typed error wins over the server's: it is about what is in the
-              field now, and the server's is about what was in it last submit. */}
           <FieldError
             message={
               amount ? (liveErrors.amount ?? fieldErrors?.amount) : fieldErrors?.amount
@@ -722,15 +617,6 @@ function DepositDrawer({
   );
 }
 
-/**
- * Pay out.
- *
- * The amount field is **what the customer receives**, which is what they ask
- * for — but the balance falls by that plus the flat fee, and those two numbers
- * being different is the whole reason this drawer shows a breakdown. A teller
- * counting notes reads the top figure; the customer checking their balance
- * afterwards reads the bottom one.
- */
 function WithdrawDrawer({
   isOpen,
   account,
@@ -761,9 +647,6 @@ function WithdrawDrawer({
 
   const formId = "record-savings-withdrawal";
 
-  // See the note on the susu deposit drawer: `submit(form)` rather than
-  // `requestSubmit()`, or the intercepted `onSubmit` would reopen the very
-  // confirmation that called this.
   function confirmAndSend() {
     setConfirming(false);
     if (formRef.current) submit(formRef.current, { method: "post" });
@@ -796,9 +679,6 @@ function WithdrawDrawer({
         </>
       }
     >
-      {/* The heaviest confirmation on the page after closure: cash leaves the
-          drawer, the fee is charged whatever happens, and it uses up the
-          account's one withdrawal for the day. */}
       <ConfirmModal
         isOpen={confirming}
         onOpenChange={setConfirming}
@@ -846,8 +726,6 @@ function WithdrawDrawer({
         </div>
       </ConfirmModal>
 
-      {/* `onSubmit` is intercepted so Enter in the amount field asks for
-          confirmation too, rather than being the one route that skips it. */}
       <Form
         id={formId}
         ref={formRef}
@@ -862,10 +740,6 @@ function WithdrawDrawer({
         <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
 
         <div className="space-y-1.5">
-          {/* The label goes through `TextInput`'s own prop rather than a hand
-              written `<label htmlFor>`: react-aria generates the input's id, so
-              a guessed one would point at nothing and the field would be
-              unlabelled to a screen reader. */}
           <TextInput
             name="amount"
             label="Amount to hand over"
@@ -880,9 +754,6 @@ function WithdrawDrawer({
           />
           <div className="flex items-baseline justify-between gap-2">
             <p className="text-xs text-muted">{formatGhs(available)} available.</p>
-            {/* Filling the field beats making someone work the maximum out
-                from the balance and the fee — and "all of it" is the
-                commonest withdrawal there is. */}
             {available > 0 && (
               <button
                 type="button"
@@ -900,9 +771,6 @@ function WithdrawDrawer({
           />
         </div>
 
-        {/* The three numbers, always — not only once the amount is valid. This
-            is the arithmetic someone is checking *while* they type, and a panel
-            that appears at the end is one they never see. */}
         <dl className="space-y-2 rounded-lg border-2 border-border bg-background p-3">
           <Figure
             label="Customer receives"
@@ -948,8 +816,6 @@ function CloseButton({
   const formRef = useRef<HTMLFormElement>(null);
   const [confirming, setConfirming] = useState(false);
   const payout = closurePayout(account);
-  // The API flags this case on closure; saying so beforehand is what stops a
-  // teller promising a payout that turns out to be nothing.
   const shortOfFee = account.balance < SAVINGS_FEE;
 
   return (
@@ -961,11 +827,6 @@ function CloseButton({
           size="sm"
           variant="danger"
           className="rounded-md"
-          // Same treatment as Withdraw: closing is a payout too, so the
-          // one-per-day rule counts it (the API answers 409
-          // WITHDRAWAL_LIMIT), and the toast is the only thing that says so.
-          // `closing` exempts it from the available-balance rule — releasing
-          // the minimum is precisely what closing does.
           onPress={() => {
             const reason = withdrawBlockedReason(account, cashedOutToday, {
               closing: true,

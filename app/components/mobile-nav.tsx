@@ -2,18 +2,6 @@ import { NavLink } from "react-router";
 import { type AuthUser } from "~/lib/auth-client";
 import { visibleNavItems, type NavItem } from "./nav-items";
 
-/**
- * Mobile primary navigation: a floating bottom tab bar, the native-feeling
- * counterpart to the desktop rail. Every item `visibleNavItems` returns gets a
- * tab; unbuilt sections are filtered out there, so everything here is live.
- *
- * Hidden from `lg` up, where `<Sidebar>` takes over.
- */
-
-/**
- * Sized for thumbs. Icons carry the meaning here; each item's label becomes
- * its `aria-label`, since a tab with no text has no accessible name.
- */
 const ITEM_CLASS =
   "flex flex-1 items-center justify-center rounded-lg px-1 py-2.5 transition-colors";
 

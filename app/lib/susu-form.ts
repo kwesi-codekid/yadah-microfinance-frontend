@@ -6,16 +6,6 @@ import {
   type DepositChannel,
 } from "~/lib/susu-client";
 
-/**
- * Readers for the susu forms, collecting field errors.
- *
- * Isomorphic, the same way [customer-form.ts](app/lib/customer-form.ts) is: the
- * function the action runs is the function the browser runs to gate the submit,
- * so there is no second copy of the rules to drift out of step.
- *
- * Amounts come back as integer pesewas — the API takes nothing else.
- */
-
 /** The 31-day ceiling on a single catch-up, from the API's request schema. */
 const MAX_DAYS_COVERED = 31;
 
@@ -26,13 +16,6 @@ export function readOpenAccountForm(form: FormData): {
   const fieldErrors: Record<string, string> = {};
   const raw = String(form.get("dailyAmount") ?? "");
 
-  // The floor is the API's own (`minimum: 500`), so the message names the real
-  // rule rather than inventing one. No upper bound is invented either: the API
-  // sets none, and a ceiling picked by this app would eventually refuse a
-  // legitimate account. The protection against a fat-fingered `50000` for
-  // `500.00` is the confirmation step, which states the amount, the 31-day
-  // total, and that neither can be changed afterwards without closing the
-  // account.
   const error = validateGhsAmount(raw, {
     label: "Daily amount",
     min: SUSU_MIN_DAILY_AMOUNT,
@@ -62,8 +45,6 @@ export function readDepositForm(
   } else if (daysCovered > MAX_DAYS_COVERED) {
     fieldErrors.daysCovered = `A deposit can cover at most ${MAX_DAYS_COVERED} days.`;
   } else if (remaining !== undefined && daysCovered > remaining) {
-    // The API answers 422 EXCEEDS_REMAINING for this. Same rule, same number,
-    // caught before the round trip.
     fieldErrors.daysCovered =
       remaining === 0
         ? "This cycle is already complete."
@@ -91,14 +72,6 @@ export function readCollectAllForm(form: FormData): {
 
   const error = validateGhsAmount(raw, { label: "Amount collected" });
   if (error) fieldErrors.amount = error;
-
-  // Deliberately *not* checked against the expected total here. The field is
-  // prefilled with it and the breakdown is on screen, but the accounts can
-  // change between the page rendering and the button being pressed — a new
-  // account opened at the counter, one closed. Refusing on a stale total would
-  // block a collection the API would have accepted, and quote a figure that is
-  // no longer right. The API owns the comparison and its 422 carries the
-  // authoritative total; `readAmountMismatch` unpacks it.
 
   const rawChannel = form.get("channel");
   const channel: DepositChannel = isDepositChannel(rawChannel)

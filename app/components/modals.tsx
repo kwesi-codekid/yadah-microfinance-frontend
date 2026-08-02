@@ -1,14 +1,6 @@
 import { Button, Modal } from "@heroui/react"
 import { type ComponentProps, type ReactNode } from "react"
 
-/**
- * Confirmation modal: a heading, a body, and a Close button the caller can sit
- * their own action beside via `footer`.
- *
- * Controlled — pass `isOpen` / `onOpenChange`. Built on HeroUI v3's compound
- * `Modal` (Backdrop → Container → Dialog) and rendered without a
- * `Modal.Trigger`, so whatever opens it can live anywhere in the tree.
- */
 interface Props
     extends Omit<ComponentProps<typeof Modal.Backdrop>, "children" | "title"> {
     title?: string
@@ -40,8 +32,6 @@ export const ConfirmModal = ({
             {...backdropProps}
         >
             <Modal.Container placement={placement} size={size} scroll='inside'>
-                {/* Same corner as the controls inside it — HeroUI's dialog
-                    defaults to a much larger radius. */}
                 <Modal.Dialog className='rounded-lg'>
                     <Modal.Header>
                         <Modal.Heading className='text-base capitalize'>

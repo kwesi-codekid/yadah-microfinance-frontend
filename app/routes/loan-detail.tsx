@@ -51,25 +51,6 @@ import { formatGhs, parseGhsAmount, toAmountInput } from "~/lib/money";
 import { projectedPayout, type SusuAccount } from "~/lib/susu-client";
 import { requireOffice, withAuth } from "~/lib/session.server";
 
-/**
- * One loan: the money, the decision, the schedule and the repayments.
- *
- * The page has two quite different jobs depending on the status, and it shows
- * one or the other rather than both. A **pending** loan is a decision waiting to
- * be made — there is no schedule yet (the API generates it at approval), so the
- * page is the figures and two buttons. An **active** or **arrears** loan is a
- * balance being worked down, so it is the schedule, the history, and the two
- * ways of paying.
- *
- * The second of those ways is the one worth reading the code for. `POST
- * /loans/{id}/repayments/susu-closure` closes a susu account straight into the
- * loan in a single transaction across both modules — and refuses the whole
- * thing if the payout would overshoot the balance, because the API has no
- * answer for the excess. So the drawer compares each account's projected payout
- * against `remaining` *before* the click and says which ones would be refused,
- * rather than offering them and reporting a 422.
- */
-
 export function meta({ loaderData }: Route.MetaArgs) {
   return [
     {
@@ -86,14 +67,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     const open = isOpenLoan(detail.loan.status);
 
     const [customer, staff, susu] = await Promise.all([
-      // `GET /loans/{id}` carries no `customerName` — the list rows do, the
-      // detail does not — so the name costs a second request here.
       customersApi.getCustomer(token, detail.loan.customerId),
       // Only to name who recorded each repayment.
       usersApi.listUsers(token, { limit: 100 }),
-      // The susu-closure repayment path needs the customer's open cycles and
-      // the payout each would produce. Skipped entirely on a loan that can't
-      // take a repayment — a pending or settled loan has nothing to pay into.
       open
         ? susuApi.listSusuAccounts(token, {
             customerId: detail.loan.customerId,
@@ -125,11 +101,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       },
       staffNames,
       susuAccounts: result.susuAccounts,
-      /**
-       * Two keys, not one — the same reasoning as the savings page. Cash
-       * repayment and susu closure are separate endpoints, and sharing a key
-       * would leave one holding a spent one after the other fired.
-       */
       repaymentKey: newIdempotencyKey(),
       susuKey: newIdempotencyKey(),
     },
@@ -162,9 +133,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (error instanceof Response) throw error;
     const failure = toApiFailure(error);
 
-    // 422 EXCEEDS_BALANCE carries what is actually still owed. Put it on the
-    // field with the real figure — a loan cannot be overpaid, so the correction
-    // is exact rather than a guess.
     const remaining = readExceedsBalance(failure.details);
     if (remaining !== null && intent === "repay") {
       return data<ActionData>({
@@ -184,14 +152,6 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 }
 
-/**
- * The refusals whose own phrasing doesn't say what to do next.
- *
- * `PAYOUT_EXCEEDS_BALANCE` is the important one: it sounds like a validation
- * quibble and is actually a fork in the workflow — the API will not close the
- * account and pay the excess out, so the operator has to take a cash repayment
- * and close the account separately.
- */
 function messageFor(failure: ApiFailure): string {
   if (failure.status === 0) return "Something went wrong. Please try again.";
   const known: Record<string, string> = {
@@ -239,8 +199,6 @@ async function runIntent({
   }
 
   if (intent === "repay") {
-    // No `remaining` passed here: the browser gates the field against the
-    // figure already on screen, and the API owns the authoritative check.
     const { amount, channel, idempotencyKey, fieldErrors } =
       readRepaymentForm(form);
     if (Object.keys(fieldErrors).length)
@@ -307,14 +265,6 @@ async function runIntent({
   return { formError: "Unsupported action." } satisfies ActionData;
 }
 
-/**
- * The message a repayment earns — and the reason settlement gets its own.
- *
- * Paying the balance exactly stamps `repaidOnTime`, which is what unlocks the
- * big tier for this customer's next application. That is worth telling the
- * person at the counter, because it is the one consequence of a repayment that
- * isn't visible in the figures.
- */
 function settledMessage(loan: Loan, amount: number): string {
   if (loan.status === "repaid") {
     return loan.repaidOnTime
@@ -347,8 +297,6 @@ export default function LoanDetail({
     else if (actionData?.formError) notify.error(actionData.formError);
     if (actionData?.failure)
       console.error("[loan-detail] request failed:", actionData.failure);
-    // Only a recorded write closes its drawer. A rejected one stays open with
-    // the message on the field it belongs to.
     if (actionData?.ok && actionData.intent === "repay") setRepaying(false);
     if (actionData?.ok && actionData.intent === "repay-susu")
       setClosingSusu(false);
@@ -384,9 +332,6 @@ export default function LoanDetail({
                 <HandCoins size={14} />
                 Record repayment
               </Button>
-              {/* Offered even when no account qualifies — the drawer explains
-                  which ones would be refused and why, which is more use than a
-                  button that isn't there. */}
               <Button
                 type="button"
                 size="sm"
@@ -404,9 +349,6 @@ export default function LoanDetail({
 
       {open && (
         <>
-          {/* Keyed on the idempotency key, which the loader remints on every
-              revalidation: a recorded write therefore resets its form, while a
-              rejected one — same key, same mount — keeps what was typed. */}
           <RepayDrawer
             key={repaymentKey}
             isOpen={repaying}
@@ -431,9 +373,6 @@ export default function LoanDetail({
 
       <MoneyPanel loan={loan} />
 
-      {/* A pending loan has no schedule — the API generates it at approval —
-          and no repayments either, so neither table is rendered as an empty
-          one. What it has instead is a decision, which the buttons above are. */}
       {loan.status === "pending" ? (
         <p className="mt-6 rounded-lg border-2 border-dashed border-border p-6 text-center text-sm text-muted">
           This application is waiting on a decision. Approving it locks the rate
@@ -507,8 +446,6 @@ export default function LoanDetail({
                     {formatGhs(repayment.amount, { symbol: null })}
                   </Table.Cell>
                   <Table.Cell className="px-4 py-2 text-muted">
-                    {/* A susu-closure repayment links back to the account it
-                        emptied — the two records only make sense together. */}
                     {repayment.susuAccountId ? (
                       <Link
                         to={`/susu/${repayment.susuAccountId}`}
@@ -533,22 +470,10 @@ export default function LoanDetail({
   );
 }
 
-/**
- * The figures, and the two things that qualify them.
- *
- * Escalation is the reason this panel exists rather than a row of stat tiles:
- * `ratePercent` is the *current* rate, not the agreed one, and on a loan that
- * has fallen behind the interest on screen is larger than the interest the
- * customer was quoted. A page that showed the number without saying that would
- * be handing an operator a figure they can't explain.
- */
 function MoneyPanel({ loan }: { loan: Loan }) {
   const decided = loan.status !== "pending" && loan.status !== "rejected";
 
   return (
-    /* No outer card. Four tiles that each carry their own border inside a fifth
-       border is a box in a box, and the figures are the panel — the status and
-       the dates are a caption over them, not a header bar. */
     <section>
       <div className="mb-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <LoanStatusPill loan={loan} />
@@ -559,18 +484,13 @@ function MoneyPanel({ loan }: { loan: Loan }) {
         </p>
       </div>
 
-      {/* The same tile the dashboard's six use — see
-          [kpi.tsx](app/components/kpi.tsx). Each foot carries the one thing
-          that makes its figure mean something, which is what keeps this to a
-          single band: the progress bar rides under the total it is a fraction
-          of, rather than costing a row of its own. */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi
           icon={<Banknote size={14} />}
           label="Principal"
           value={formatGhs(loan.principal)}
           foot={
-            <p className="mt-0.5 truncate text-[11px] text-muted">
+            <p className="mt-0.5 truncate text-xs text-muted">
               {LOAN_TIER_LABELS[loan.tier]} tier · {loan.durationMonths} months
             </p>
           }
@@ -580,9 +500,7 @@ function MoneyPanel({ loan }: { loan: Loan }) {
           label={`Interest at ${loan.ratePercent}%`}
           value={formatGhs(loan.interestAmount)}
           foot={
-            <p className="mt-0.5 truncate text-[11px] text-muted">
-              {/* Flat is the fact people get wrong about this product — it is
-                  charged once on the principal, not per month. */}
+            <p className="mt-0.5 truncate text-xs text-muted">
               {loan.escalatedAt ? "Flat, escalated" : "Flat, one-off"}
             </p>
           }
@@ -600,12 +518,12 @@ function MoneyPanel({ loan }: { loan: Loan }) {
                     style={{ width: `${repaidPercent(loan)}%` }}
                   />
                 </span>
-                <span className="shrink-0 text-[11px] tabular-nums text-muted">
+                <span className="shrink-0 text-xs tabular-nums text-muted">
                   {repaidPercent(loan)}%
                 </span>
               </span>
             ) : (
-              <p className="mt-0.5 truncate text-[11px] text-muted">
+              <p className="mt-0.5 truncate text-xs text-muted">
                 Not yet approved
               </p>
             )
@@ -617,7 +535,7 @@ function MoneyPanel({ loan }: { loan: Loan }) {
           value={formatGhs(loan.remaining)}
           tone={loan.status === "arrears" ? "danger" : undefined}
           foot={
-            <p className="mt-0.5 truncate text-[11px] text-muted">
+            <p className="mt-0.5 truncate text-xs text-muted">
               {decided
                 ? `${formatGhs(loan.totalRepaid)} repaid`
                 : "Nothing owed until approval"}
@@ -626,12 +544,6 @@ function MoneyPanel({ loan }: { loan: Loan }) {
         />
       </div>
 
-      {/* Escalation and frozen are one note, not two. They are one event seen
-          from two sides — the ladder moved, and it has run out — and an
-          escalated loan is frozen at the top of the ladder by definition, so
-          stacking them meant this panel's worst case printed five lines of
-          prose about a single fact. The status pill already says "Frozen"; the
-          note only has to say what it means. */}
       {loan.escalatedAt ? (
         <Note tone="danger" icon={<TriangleAlert size={13} />}>
           Rate escalated {formatDate(loan.escalatedAt)} to {loan.ratePercent}%,
@@ -736,10 +648,6 @@ function ApproveButton({ loan, name }: { loan: Loan; name: string }) {
             rate and interest are locked from the settings as they stand now,
             the schedule is generated, and the customer is sent an SMS.
           </p>
-          {/* The figures on a pending loan are the API's own projection at the
-              rate current when it was applied for. They are shown because they
-              are what was quoted — and captioned, because approval re-reads the
-              settings and may not land on the same number. */}
           <dl className="space-y-2 rounded-lg border border-border bg-background p-3">
             <Figure label="Principal" value={formatGhs(loan.principal)} />
             <Figure
@@ -837,14 +745,6 @@ function RejectButton() {
   );
 }
 
-/**
- * A cash repayment.
- *
- * The one thing this drawer does beyond taking an amount is name the moment the
- * payment *settles* the loan rather than merely reducing it — because settling
- * exactly is what stamps `repaidOnTime` and unlocks the big tier, and because
- * anything above the balance is refused outright rather than taken.
- */
 function RepayDrawer({
   isOpen,
   loan,
@@ -874,9 +774,6 @@ function RepayDrawer({
   const ready = pesewas !== null && Object.keys(liveErrors).length === 0;
   const settles = ready && pesewas === remaining;
 
-  // See the note on the savings deposit drawer: `submit(form)` rather than
-  // `requestSubmit()`, or the intercepted `onSubmit` would reopen the very
-  // confirmation that called this.
   function confirmAndSend() {
     setConfirming(false);
     if (formRef.current) submit(formRef.current, { method: "post" });
@@ -944,8 +841,6 @@ function RepayDrawer({
         </div>
       </ConfirmModal>
 
-      {/* `onSubmit` is intercepted so Enter in the amount field asks for
-          confirmation too, rather than being the one route that skips it. */}
       <Form
         ref={formRef}
         method="post"
@@ -956,9 +851,6 @@ function RepayDrawer({
         }}
       >
         <input type="hidden" name="intent" value="repay" />
-        {/* The whole point of the key: this exact value survives a retry, so a
-            second tap on a bad connection replays the first repayment instead
-            of taking the money again. */}
         <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
 
         <div className="space-y-1.5">
@@ -978,8 +870,6 @@ function RepayDrawer({
             <p className="text-xs text-muted">
               {formatGhs(remaining)} still owed.
             </p>
-            {/* Settling in full is the commonest repayment there is, and it is
-                the only one with a consequence beyond the balance. */}
             {remaining > 0 && (
               <button
                 type="button"
@@ -1029,20 +919,6 @@ function RepayDrawer({
   );
 }
 
-/**
- * Repay by closing a susu account.
- *
- * The refusal this drawer is built around is `PAYOUT_EXCEEDS_BALANCE`: the API
- * will not close an account whose payout overshoots what the loan owes, because
- * it has nowhere to put the excess. So each account is measured against
- * `remaining` here and the ones that would be refused say so, with the way
- * through — a cash repayment first, then an ordinary closure.
- *
- * The payout figure is `projectedPayout` from
- * [susu-client.ts](app/lib/susu-client.ts), the same arithmetic the susu pages
- * use: total deposited less one day's commission. It is a projection of what
- * the API will compute, not a figure the API has given us for this purpose.
- */
 function SusuClosureDrawer({
   isOpen,
   loan,
@@ -1070,9 +946,6 @@ function SusuClosureDrawer({
     return {
       account,
       payout,
-      // The two refusals knowable from here. `NO_PAYOUT` is the account that
-      // hasn't yet covered one day's commission; `PAYOUT_EXCEEDS_BALANCE` is
-      // the one that would overshoot.
       blocked:
         payout <= 0
           ? "No payout yet — deposits don't cover the commission."
@@ -1189,9 +1062,6 @@ function SusuClosureDrawer({
               <li key={account.id}>
                 <button
                   type="button"
-                  // Blocked accounts stay clickable and stay visible: hiding
-                  // them would leave someone wondering where an account went,
-                  // and the reason is the useful part.
                   onClick={() => setSelected(account.id)}
                   aria-pressed={selected === account.id}
                   className={`w-full rounded-lg border-2 p-3 text-left transition-colors ${

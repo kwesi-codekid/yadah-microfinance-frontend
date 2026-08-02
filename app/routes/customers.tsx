@@ -5,11 +5,12 @@ import {
   Link,
   redirect,
   useActionData,
+  useNavigate,
   useNavigation,
   useNavigationType,
   useSearchParams,
 } from "react-router";
-import { Button, Tooltip } from "@heroui/react";
+import { Button, Dropdown } from "@heroui/react";
 import {
   Eye,
   HandCoins,
@@ -22,18 +23,23 @@ import {
   LoaderCircle,
   EllipsisVertical,
   Filter,
-  X,
+  ShieldCheck,
+  CircleAlert,
+  TriangleAlert,
 } from "lucide-react";
 import type { Route } from "./+types/customers";
 import { DataTable, Table } from "~/components/data-table";
 import { ConfirmModal } from "~/components/modals";
 import { TextInput } from "~/components/inputs";
-import { FIELD, FilterSelect, IconLink } from "~/components/form-fields";
+import { FIELD, FilterSelect } from "~/components/form-fields";
 import { notify } from "~/components/toast";
 import { ApiError } from "~/lib/api/client";
 import * as customersApi from "~/lib/api/customers";
+import * as loansApi from "~/lib/api/loans";
 import { formatDate } from "~/lib/format";
 import type { Customer, CustomerStatus } from "~/lib/customer-client";
+import type { LoanStatus } from "~/lib/loan-client";
+import { formatGhs } from "~/lib/money";
 import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 
 export function meta(_: Route.MetaArgs) {
@@ -43,18 +49,71 @@ export function meta(_: Route.MetaArgs) {
 // Ties the mobile filter toggle to the group it opens (`aria-controls`).
 const FILTERS_ID = "customer-filters";
 
+/** The API's page ceiling, and how far the loan/owing sweeps will page. */
+const PAGE_SIZE = 100;
+const MAX_PAGES = 10;
+
+type Debt = {
+  loanId: string;
+  /** Pesewas still to pay. Grows on escalation, never shrinks except by paying. */
+  remaining: number;
+  status: LoanStatus;
+};
+
+/** The owing filter's values. Empty is "don't filter". */
+type OwingFilter = "" | "yes" | "arrears" | "no";
+
+function isOwingFilter(v: unknown): v is Exclude<OwingFilter, ""> {
+  return v === "yes" || v === "arrears" || v === "no";
+}
+
+function owingMatches(debt: Debt | undefined, filter: OwingFilter) {
+  if (!filter) return true;
+  if (filter === "no") return !debt;
+  if (filter === "arrears") return debt?.status === "arrears";
+  return Boolean(debt);
+}
+
 // ---- loader ----------------------------------------------------------------
+
+async function fetchAll<T>(
+  fetchPage: (page: number) => Promise<{ items: T[]; total: number }>,
+): Promise<{ items: T[]; total: number; truncated: boolean }> {
+  const first = await fetchPage(1);
+  const pages = Math.min(MAX_PAGES, Math.ceil(first.total / PAGE_SIZE));
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, pages - 1) }, (_, i) => fetchPage(i + 2)),
+  );
+  const items = [first.items, ...rest.map((r) => r.items)].flat();
+  return { items, total: first.total, truncated: items.length < first.total };
+}
+
+async function openLoans(token: string) {
+  const [active, arrears] = await Promise.all([
+    fetchAll((page) =>
+      loansApi.listLoans(token, { page, limit: PAGE_SIZE, status: "active" }),
+    ),
+    fetchAll((page) =>
+      loansApi.listLoans(token, { page, limit: PAGE_SIZE, status: "arrears" }),
+    ),
+  ]);
+
+  const debts: Record<string, Debt> = {};
+  for (const loan of [...active.items, ...arrears.items]) {
+    debts[loan.customerId] = {
+      loanId: loan.id,
+      remaining: loan.remaining,
+      status: loan.status,
+    };
+  }
+  return { debts, truncated: active.truncated || arrears.truncated };
+}
+
 export async function loader({ request }: Route.LoaderArgs) {
-  // Every role may list, and every role sees everyone: the API no longer
-  // narrows a collector's list to customers assigned to them, so there is
-  // nothing to guard here beyond being signed in.
   const user = await requireUser(request);
   const url = new URL(request.url);
   const sp = url.searchParams;
   const page = Math.max(1, Number(sp.get("page") || "1") || 1);
-  // Clamped to the API's own `limit` bound (1–100). Without the ceiling a
-  // hand-edited `?limit=500` is sent as-is and answered with a 400 whose
-  // message names no field — a broken page rather than a clamped one.
   const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || "20") || 20));
   const statusParam = sp.get("status");
   const search = sp.get("search")?.trim() || undefined;
@@ -62,26 +121,58 @@ export async function loader({ request }: Route.LoaderArgs) {
     statusParam === "inactive" ? "inactive" : "active";
   const office = isOffice(user);
 
-  // No collector list is fetched any more. It existed to populate a "filter by
-  // collector" dropdown and to name the assigned collector in the table, and
-  // the API has since dropped assignment entirely — so that was one `/users`
-  // request per page load spent naming a field that no longer exists.
-  const { data: result, headers } = await withAuth(request, (token) =>
-    customersApi.listCustomers(token, { page, limit, status, search }),
-  );
+  const owingParam = sp.get("owing");
+  const owing: OwingFilter =
+    office && isOwingFilter(owingParam) ? owingParam : "";
 
-  /**
-   * A page past the end lands on the last real one instead of on nothing.
-   *
-   * Reachable two ways that both look like a bug: a hand-edited or shared URL,
-   * and — the common one — deleting a search term while deep in the results,
-   * which shrinks the set under someone standing on page 9. Without this the
-   * table renders empty while the pager insists everything is fine, and the
-   * only way back is to notice and click page 1.
-   *
-   * `headers` must ride along, or a rotation `withAuth` just made is lost on
-   * the redirect and the next renewal fails.
-   */
+  const { data: payload, headers } = await withAuth(request, async (token) => {
+    const [loans, sweep, onePage] = await Promise.all([
+      office ? openLoans(token) : null,
+      owing
+        ? fetchAll((p) =>
+            customersApi.listCustomers(token, {
+              page: p,
+              limit: PAGE_SIZE,
+              status,
+              search,
+            }),
+          )
+        : null,
+      owing
+        ? null
+        : customersApi.listCustomers(token, { page, limit, status, search }),
+    ]);
+
+    const debts = loans?.debts ?? {};
+
+    let result: customersApi.CustomerListResult;
+    if (sweep) {
+      const matches = sweep.items.filter((c) => owingMatches(debts[c.id], owing));
+      const start = (page - 1) * limit;
+      result = {
+        items: matches.slice(start, start + limit),
+        page,
+        limit,
+        total: matches.length,
+      };
+    } else {
+      result = onePage!;
+    }
+
+    const shown: Record<string, Debt> = {};
+    for (const c of result.items) {
+      if (debts[c.id]) shown[c.id] = debts[c.id];
+    }
+
+    return {
+      result,
+      debts: shown,
+      truncated: (loans?.truncated ?? false) || (sweep?.truncated ?? false),
+    };
+  });
+
+  const { result, debts, truncated } = payload;
+
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
   if (page > pageCount) {
     url.searchParams.set("page", String(pageCount));
@@ -91,7 +182,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   return data(
     {
       result,
-      filters: { page, limit, status, search: search ?? "" },
+      debts,
+      truncated,
+      filters: { page, limit, status, search: search ?? "", owing },
       canManage: office,
     },
     { headers },
@@ -99,12 +192,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 // ---- action ----------------------------------------------------------------
-/**
- * Only the status switch lives here. Registering happens at `/customers/new`;
- * editing and uploading are on the record itself (`/customers/:id`, with
- * `?edit` for the form) and post to its action — a form that long belongs at a
- * URL you can link to, refresh, and come back to.
- */
 type ActionData = {
   ok?: boolean;
   intent?: string;
@@ -158,16 +245,14 @@ export async function action({ request }: Route.ActionArgs) {
 
 // ---- component -------------------------------------------------------------
 export default function Customers({ loaderData }: Route.ComponentProps) {
-  const { result, filters, canManage } = loaderData;
+  const { result, debts, truncated, filters, canManage } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
-  // The search box types against local state; the URL (and so the loader)
-  // catches up on a debounce. Seeded from the URL so a shared/reloaded link
-  // shows the term it filtered by.
   const [search, setSearch] = useState(filters.search);
-  const activeFilters = filters.status === "inactive" ? 1 : 0;
+  const activeFilters =
+    (filters.status === "inactive" ? 1 : 0) + (filters.owing ? 1 : 0);
   const [filtersOpen, setFiltersOpen] = useState(activeFilters > 0);
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
@@ -204,8 +289,6 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
     return () => clearTimeout(timer);
   }, [search, filters.search, commitSearch]);
 
-  // Back/forward moves the URL out from under the field, so adopt it. Our own
-  // updates above are REPLACE navigations, which never land here.
   useEffect(() => {
     if (navigationType === "POP") setSearch(filters.search);
   }, [navigationType, filters.search]);
@@ -243,8 +326,6 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
         )}
       </div>
 
-      {/* Filters. The form stays a real GET form so these still work with
-          JavaScript off — every control carries the `name` the loader reads. */}
       <Form
         method="get"
         className="mb-4 flex flex-wrap items-end gap-3"
@@ -305,9 +386,6 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
           id={FILTERS_ID}
           className={`${filtersOpen ? "flex" : "hidden"} w-full flex-wrap items-end gap-3 sm:flex sm:w-auto`}
         >
-          {/* No "all" for status in the API, so this is a two-way switch rather
-              than a filter you clear. Active is the default and stays out of
-              the URL — and this is the only route to a deactivated customer. */}
           <FilterSelect
             name="status"
             label="Filter by status"
@@ -320,36 +398,44 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
               { value: "inactive", label: "Inactive customers" },
             ]}
           />
+
+          {canManage && (
+            <FilterSelect
+              name="owing"
+              label="Filter by what's owed"
+              value={filters.owing}
+              onChange={(value) => setParam({ owing: value || null, page: null })}
+              options={[
+                { value: "", label: "All" },
+                { value: "yes", label: "Owing" },
+                { value: "arrears", label: "In arrears" },
+                { value: "no", label: "Owes nothing" },
+              ]}
+            />
+          )}
         </div>
 
       </Form>
 
-      {/* The count, visible rather than screen-reader-only as it was.
-          Pagination with nothing stating the range is a pager you have to
-          trust: "Showing 21–40 of 137" is what tells you the page moved and
-          that there is more behind it. Still `aria-live`, so the number is
-          announced when a search or a filter changes it. */}
-      <p aria-live="polite" className="mb-2 text-xs text-muted">
-        {searching
-          ? "Searching…"
-          : result.total === 0
-            ? "No customers"
-            : `Showing ${(result.page - 1) * result.limit + 1}–${Math.min(
-                result.page * result.limit,
-                result.total,
-              )} of ${result.total}`}
-      </p>
+      {truncated && (
+        <p className="mb-3 rounded-lg border-2 border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
+          More records exist than this page reads ({MAX_PAGES * PAGE_SIZE} at
+          most), so the Owing column may be short a few. Use the{" "}
+          <Link to="/loans" className="font-medium underline">
+            loan book
+          </Link>{" "}
+          for the full picture.
+        </p>
+      )}
 
       <DataTable
-        // Every role gets the column now. It used to be office-only, which left
-        // a collector a directory they could read and nothing they could act
-        // on — View and Accounts are the two that matter to them, and Accounts
-        // is the way to the page where a deposit is recorded.
         columns={[
           "Name",
           "Phone",
           "ID",
+          "KYC",
           "Occupation",
+          ...(canManage ? ["Owing"] : []),
           "Registered",
           "Actions",
         ]}
@@ -360,30 +446,35 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
         onPageChange={(p) => setParam({ page: String(p) })}
         pageSize={result.limit}
         onPageSizeChange={(s) => setParam({ limit: String(s), page: "1" })}
-        // Must contain the loader's default of 20, and stop at the API's
-        // ceiling of 100. The component's own default is [10, 25, 50] — with
-        // that list the selector is handed a `value` of 20 that matches no
-        // option, so the browser shows the first one and the control claims a
-        // page size the list isn't using.
         pageSizeOptions={[10, 20, 50, 100]}
+        summary={
+          searching
+            ? "Searching…"
+            : result.total === 0
+              ? "No customers"
+              : `Showing ${(result.page - 1) * result.limit + 1}–${Math.min(
+                  result.page * result.limit,
+                  result.total,
+                )} of ${result.total}`
+        }
         emptyContent={{
           title: "No customers found",
           subtext: filters.search
             ? `Nothing matches “${filters.search}”. Try a different name, phone or ID.`
-            : filters.status === "inactive"
-              ? "No inactive customers match these filters."
-              : "Try adjusting the filters, or register a customer.",
+            : filters.owing === "arrears"
+              ? "Nobody has fallen behind on a loan. Nothing to chase."
+              : filters.owing === "yes"
+                ? "Nobody has a loan outstanding."
+                : filters.owing === "no"
+                  ? "Everyone here has something outstanding."
+                  : filters.status === "inactive"
+                    ? "No inactive customers match these filters."
+                    : "Try adjusting the filters, or register a customer.",
         }}
       >
         {result.items.map((c) => (
           <Table.Row key={c.id} id={c.id}>
             <Table.Cell className="px-4 py-2 font-medium text-foreground">
-              {/* The name is the way in — every role gets the detail page, and
-                  for a collector it is the only place they can act.
-
-                  The email sits under it rather than in a column of its own:
-                  most customers don't have one, and a column that is mostly
-                  dashes costs the same width as one that is always full. */}
               <Link
                 to={`/customers/${c.id}`}
                 className="flex items-center gap-2 hover:text-success"
@@ -406,22 +497,19 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
             </Table.Cell>
             <Table.Cell className="px-4 py-2 text-muted">{c.phone}</Table.Cell>
             <Table.Cell className="px-4 py-2 text-muted">
-              {/* The number alone. The type used to be prefixed onto it, but
-                  the number's own shape says which it is, and the label was
-                  eating the width the number needed. */}
               {c.identification?.idNumber ?? "—"}
             </Table.Cell>
-            {/* Occupation is what the office reaches for when deciding whether
-                to lend, and it is the one KYC field short enough to sit in a
-                column — an address is not. Optional on the record, so most of
-                this column will be dashes for a directory registered in a
-                hurry, which is itself worth seeing. */}
+            <Table.Cell className="px-4 py-2">
+              <KycChip customer={c} />
+            </Table.Cell>
             <Table.Cell className="max-w-40 truncate px-4 py-2 text-muted">
               {c.occupation || "—"}
             </Table.Cell>
-            {/* How long they have been with us. `createdAt` is required on the
-                record, so this column is never empty, and tenure is the first
-                thing asked about a customer whose name nobody recognises. */}
+            {canManage && (
+              <Table.Cell className="whitespace-nowrap px-4 py-2">
+                <OwingChip debt={debts[c.id]} />
+              </Table.Cell>
+            )}
             <Table.Cell className="whitespace-nowrap px-4 py-2 text-muted">
               {formatDate(c.createdAt)}
             </Table.Cell>
@@ -432,6 +520,51 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
         ))}
       </DataTable>
     </div>
+  );
+}
+
+function KycChip({ customer }: { customer: Customer }) {
+  const missing: string[] = [];
+  if (!customer.identification) missing.push("ID details");
+  else if (!customer.idDocumentFrontUrl || !customer.idDocumentBackUrl) {
+    missing.push("ID scan");
+  }
+  if (!customer.photoUrl) missing.push("Photo");
+
+  if (missing.length === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-xs font-medium text-success">
+        <ShieldCheck size={12} aria-hidden="true" />
+        Complete
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-danger/15 px-2 py-0.5 text-xs font-medium text-danger">
+      <CircleAlert size={12} aria-hidden="true" />
+      {missing.join(" · ")}
+    </span>
+  );
+}
+
+function OwingChip({ debt }: { debt?: Debt }) {
+  if (!debt) return <span className="text-sm text-muted">—</span>;
+
+  const arrears = debt.status === "arrears";
+  return (
+    <Link
+      to={`/loans/${debt.loanId}`}
+      title={arrears ? "In arrears — open the loan" : "Open the loan"}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums transition-opacity hover:opacity-80 ${
+        arrears
+          ? "bg-red-500/15 text-red-600 dark:text-red-400"
+          : "bg-navy/15 text-navy dark:text-navy-light"
+      }`}
+    >
+      {arrears && <TriangleAlert size={12} aria-hidden="true" />}
+      {formatGhs(debt.remaining)}
+    </Link>
   );
 }
 
@@ -456,7 +589,7 @@ function Avatar({ customer }: { customer: Customer }) {
   return (
     <span
       aria-hidden="true"
-      className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-brand/15 text-[10px] font-semibold text-brand-dark dark:bg-white/10 dark:text-brand-light"
+      className="flex size-7 shrink-0 items-center justify-center rounded-sm bg-brand/15 text-xs font-semibold text-brand-dark dark:bg-white/10 dark:text-brand-light"
     >
       {initials}
     </span>
@@ -471,165 +604,132 @@ function RowActions({
   /** Office only: editing the record and switching it on or off. */
   canManage: boolean;
 }) {
-  // Same disclosure as the staff table: icons crowd a phone-width row, so below
-  // `sm` they collapse behind a kebab and open on tap.
-  const [open, setOpen] = useState(false);
-  const actionsId = `actions-${customer.id}`;
-
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        aria-label={
-          open
-            ? `Hide actions for ${customer.fullName}`
-            : `Actions for ${customer.fullName}`
-        }
-        aria-expanded={open}
-        aria-controls={actionsId}
-        onClick={() => setOpen((prev) => !prev)}
-        className="flex size-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground sm:hidden"
-      >
-        {open ? <X size={16} /> : <EllipsisVertical size={16} />}
-      </button>
-
-      <div
-        id={actionsId}
-        className={`${open ? "flex" : "hidden"} items-center gap-1 sm:flex`}
-      >
-        <IconLink label="View" to={`/customers/${customer.id}`}>
-          <Eye size={16} />
-        </IconLink>
-        {/* Accounts, not "Susu": the page holds every product the customer
-            saves into, and it is where a new cycle is opened each month. The
-            wallet of cards is what's literally on the other side of the click
-            — a piggy bank says "saving", which is the whole app. */}
-        <IconLink label="Accounts" to={`/customers/${customer.id}/accounts`}>
-          <WalletCards size={16} />
-        </IconLink>
-        {/* The two above are open to every role — reading a record, and
-            reaching the accounts a collector takes money into. The rest change
-            the record, so they stay with the office. */}
-        {canManage && (
-          <>
-            {/* The directory is where someone stands when they decide to lend,
-                so this is the shortest path to an application — the alternative
-                was opening the record first and finding the button there. Every
-                `/loans` endpoint is office-only, including the eligibility
-                summary that page leads with, so a collector must not see it. */}
-            <IconLink label="Loans" to={`/customers/${customer.id}/loans`}>
-              <HandCoins size={16} />
-            </IconLink>
-            <IconLink label="Edit" to={`/customers/${customer.id}?edit`}>
-              <Pencil size={16} />
-            </IconLink>
-            {customer.status === "active" ? (
-              <StatusForm
-                id={customer.id}
-                name={customer.fullName}
-                intent="deactivate"
-                label="Deactivate"
-                danger
-              >
-                <Ban size={16} />
-              </StatusForm>
-            ) : (
-              <StatusForm
-                id={customer.id}
-                name={customer.fullName}
-                intent="activate"
-                label="Activate"
-              >
-                <RotateCcw size={16} />
-              </StatusForm>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Inline POST for activate/deactivate. Deactivating asks first. */
-function StatusForm({
-  id,
-  name,
-  intent,
-  label,
-  danger,
-  children,
-}: {
-  id: string;
-  name: string;
-  intent: "deactivate" | "activate";
-  label: string;
-  danger?: boolean;
-  children: React.ReactNode;
-}) {
+  const navigate = useNavigate();
   const formRef = useRef<HTMLFormElement>(null);
   const [confirming, setConfirming] = useState(false);
-  // Activating is harmless and instantly reversible; deactivating is not.
-  const needsConfirm = intent === "deactivate";
+  const active = customer.status === "active";
+
+  const items: {
+    id: string;
+    label: string;
+    icon: React.ReactNode;
+    danger?: boolean;
+  }[] = [
+    { id: "view", label: "View record", icon: <Eye size={16} /> },
+    {
+      id: "accounts",
+      label: "Accounts",
+      icon: <WalletCards size={16} />,
+    },
+    ...(canManage
+      ? [
+          { id: "loans", label: "Loans", icon: <HandCoins size={16} /> },
+          { id: "edit", label: "Edit details", icon: <Pencil size={16} /> },
+          active
+            ? {
+                id: "deactivate",
+                label: "Deactivate",
+                icon: <Ban size={16} />,
+                danger: true,
+              }
+            : {
+                id: "activate",
+                label: "Activate",
+                icon: <RotateCcw size={16} />,
+              },
+        ]
+      : []),
+  ];
+
+  function run(key: React.Key) {
+    switch (key) {
+      case "view":
+        return navigate(`/customers/${customer.id}`);
+      case "accounts":
+        return navigate(`/customers/${customer.id}/accounts`);
+      case "loans":
+        return navigate(`/customers/${customer.id}/loans`);
+      case "edit":
+        return navigate(`/customers/${customer.id}?edit`);
+      // Activating is harmless and instantly reversible; deactivating is not.
+      case "activate":
+        return formRef.current?.requestSubmit();
+      case "deactivate":
+        return setConfirming(true);
+    }
+  }
 
   return (
     <>
-      <Form method="post" ref={formRef}>
-        <input type="hidden" name="id" value={id} />
-        {/* The intent rides in a hidden field rather than on the button: a
-            confirmed submit goes through `requestSubmit()` with no submitter,
-            so a name/value on the button would never reach the action. */}
-        <input type="hidden" name="intent" value={intent} />
-        {/* Same hover label as the neutral row icons, in the accent this
-            action carries. */}
-        <Tooltip>
-          <Tooltip.Trigger<"button">
-            className={[
-              "flex size-7 items-center justify-center rounded-lg transition-colors",
-              danger
-                ? "text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                : "text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40",
-            ].join(" ")}
-            render={(props) => (
-              <button
-                {...props}
-                type={needsConfirm ? "button" : "submit"}
-                onClick={needsConfirm ? () => setConfirming(true) : undefined}
-                aria-label={label}
-              />
-            )}
-          >
-            {children}
-          </Tooltip.Trigger>
-          <Tooltip.Content>{label}</Tooltip.Content>
-        </Tooltip>
+      <Form method="post" ref={formRef} className="hidden">
+        <input type="hidden" name="id" value={customer.id} />
+        <input
+          type="hidden"
+          name="intent"
+          value={active ? "deactivate" : "activate"}
+        />
       </Form>
 
-      {needsConfirm && (
-        <ConfirmModal
-          isOpen={confirming}
-          onOpenChange={setConfirming}
-          title="Deactivate this customer?"
-          footer={
-            <Button
-              size="sm"
-              variant="danger"
-              className="rounded-md"
-              onPress={() => {
-                setConfirming(false);
-                formRef.current?.requestSubmit();
-              }}
-            >
-              Deactivate
-            </Button>
-          }
+      <Dropdown>
+        <Dropdown.Trigger
+          aria-label={`Actions for ${customer.fullName}`}
+          className="flex size-8 items-center justify-center rounded-md border-0 bg-transparent text-success shadow-none transition-colors hover:bg-success/10"
         >
-          <p className="text-sm text-muted">
-            <span className="font-medium text-foreground">{name}</span> will be
-            marked inactive. Nothing is deleted — their history stays intact and
-            you can reactivate them later.
-          </p>
-        </ConfirmModal>
-      )}
+          <EllipsisVertical size={16} />
+        </Dropdown.Trigger>
+        <Dropdown.Popover
+          placement="bottom end"
+          className="min-w-44 rounded-lg border-2 border-border p-1"
+        >
+          <Dropdown.Menu
+            aria-label={`Actions for ${customer.fullName}`}
+            onAction={run}
+          >
+            {items.map((item) => (
+              <Dropdown.Item
+                key={item.id}
+                id={item.id}
+                textValue={item.label}
+                className={`flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm ${
+                  item.danger ? "text-red-600 dark:text-red-400" : ""
+                }`}
+              >
+                <span aria-hidden="true" className="shrink-0">
+                  {item.icon}
+                </span>
+                {item.label}
+              </Dropdown.Item>
+            ))}
+          </Dropdown.Menu>
+        </Dropdown.Popover>
+      </Dropdown>
+
+      <ConfirmModal
+        isOpen={confirming}
+        onOpenChange={setConfirming}
+        title="Deactivate this customer?"
+        footer={
+          <Button
+            size="sm"
+            variant="danger"
+            className="rounded-md"
+            onPress={() => {
+              setConfirming(false);
+              formRef.current?.requestSubmit();
+            }}
+          >
+            Deactivate
+          </Button>
+        }
+      >
+        <p className="text-sm text-muted">
+          <span className="font-medium text-foreground">
+            {customer.fullName}
+          </span>{" "}
+          will be marked inactive. Nothing is deleted — their history stays
+          intact and you can reactivate them later.
+        </p>
+      </ConfirmModal>
     </>
   );
 }

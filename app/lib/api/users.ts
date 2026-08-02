@@ -1,13 +1,6 @@
 import type { AuthUser, Role } from "~/lib/auth-client";
 import { apiFetch } from "~/lib/api/client";
 
-/**
- * Staff (`/users`) endpoint wrappers. Listing is allowed for admin + manager;
- * every mutation is admin-only (the API enforces this too). Each call takes the
- * caller's access token and returns the parsed success body; failures throw
- * `ApiError`.
- */
-
 export interface UserListResult {
   items: AuthUser[];
   page: number;

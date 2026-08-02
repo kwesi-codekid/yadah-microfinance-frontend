@@ -24,7 +24,7 @@ export const links: Route.LinksFunction = () => [
   },
   {
     rel: "stylesheet",
-    href: "https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&family=Nunito:ital,wght@0,200..1000;1,200..1000&family=Sen:wght@400..800&display=swap",
+    href: "https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&family=Sen:wght@400..800&display=swap",
   },
 ];
 
@@ -56,9 +56,6 @@ export default function App() {
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  // The page only ever shows a sentence; the console gets the whole thing.
-  // Without this, an error thrown in a loader during SSR is visible only in the
-  // terminal, and one thrown during a client navigation is swallowed entirely.
   useEffect(() => {
     console.error("[route error]", error);
   }, [error]);

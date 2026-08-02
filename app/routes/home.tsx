@@ -11,8 +11,6 @@ export function meta({}: Route.MetaArgs) {
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  // Decide where the splash sends the user: their dashboard if signed in,
-  // otherwise the login screen.
   const user = await getOptionalUser(request);
   return { target: user ? "/dashboard" : "/login" };
 }

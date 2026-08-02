@@ -20,15 +20,6 @@ import {
 import { validatePassword, validatePhone, validateUsername } from "~/lib/validation";
 import { Button } from "@heroui/react";
 
-/**
- * Sign in, by username + password or by phone.
- *
- * The phone route stops here at "send code": entering the code happens on
- * [login/verify](./verify-otp.tsx), against a number held in the session
- * cookie. One step per page, so the back button means "wrong number" and
- * nothing on screen is disabled-but-visible.
- */
-
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Sign in · YADAH Dynamic Enterprise" }];
 }
@@ -65,9 +56,6 @@ export async function action({ request }: Route.ActionArgs) {
       const username = String(form.get("username") ?? "").trim();
       const password = String(form.get("password") ?? "");
 
-      // One problem at a time, top-down: the username has to be right before a
-      // password error is worth showing. Flagging both at once makes the user
-      // fix two things at once and re-read the whole form to find out which.
       const u = validateUsername(username);
       if (u) return data<ActionData>({ fieldErrors: { username: u } }, { status: 400 });
 
@@ -85,8 +73,6 @@ export async function action({ request }: Route.ActionArgs) {
         return data<ActionData>({ fieldErrors: { phone: err } }, { status: 400 });
       }
       await authApi.requestOtp({ phone });
-      // The code is now in flight; the number moves to the session and the
-      // user moves to the verify page.
       return startOtpVerification(request, { phone, redirectTo });
     }
 
@@ -103,14 +89,6 @@ function mapAuthError(intent: FormDataEntryValue | null, error: unknown): Action
     if (error.status === 429) {
       return { formError: "Too many attempts. Please wait a moment and try again." };
     }
-    // A rejected credential belongs under a field, not in the form-level alert,
-    // and it goes on the first one so the eye lands on it straight away.
-    //
-    // It cannot say *which* half was wrong: `POST /auth/login` answers a bad
-    // username and a bad password with the same bare 401 — no code, no field —
-    // and that is deliberate. An API that distinguished them would confirm which
-    // usernames exist, which is exactly how account lists get harvested. So the
-    // wording stays honest about covering both.
     if (error.status === 401 && intent === "password") {
       return { fieldErrors: { username: "Incorrect username or password." } };
     }
@@ -127,8 +105,6 @@ export default function Login() {
 
   const [tab, setTab] = useState<"password" | "phone">("password");
 
-  // Errors belong to the method that produced them. Without this, switching
-  // tabs leaves "Incorrect username or password" sitting above a phone field.
   const fieldErrors = navigation.state === "idle" ? actionData?.fieldErrors : undefined;
   const formError = navigation.state === "idle" ? actionData?.formError : undefined;
 

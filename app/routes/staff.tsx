@@ -72,8 +72,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     statusParam === "disabled" ? "disabled" : "active";
   const role = isRole(roleParam) ? roleParam : undefined;
 
-  // `headers` may carry a refreshed session cookie — it has to ride along on
-  // the response or the rotated refresh token is lost.
   const { data: result, headers } = await withAuth(request, (token) =>
     usersApi.listUsers(token, { page, limit, role, status, search }),
   );
@@ -111,9 +109,6 @@ export async function action({ request }: Route.ActionArgs) {
   const id = String(form.get("id") ?? "");
 
   try {
-    // `withAuth` may run this twice — once on an expired token, once on a
-    // fresh one. Safe here: a 401 means the API refused the call outright, so
-    // nothing was written. Its `headers` carry the renewed session cookie.
     const { data: result, headers } = await withAuth(request, (token) =>
       runIntent({ token, intent, id, form }),
     );
@@ -172,23 +167,6 @@ async function runIntent({
       password: input.password,
     });
 
-    /**
-     * Make the temporary password actually temporary.
-     *
-     * `POST /users` has no `mustChangePassword` field, so the API creates staff
-     * with it false — a new joiner could work indefinitely on the password an
-     * administrator typed into this form, which is a credential two people
-     * hold. `POST /users/{id}/reset-password` is the only thing that sets the
-     * flag, so it is re-issued here with the *same* password: the handover note
-     * the admin just wrote stays correct, and `requireUser` pins them to
-     * /change-password from their first sign-in until they replace it.
-     *
-     * A failure is reported, not thrown, and that is deliberate. `withAuth`
-     * retries the whole intent on a 401, and a retry after the account already
-     * exists would fail `createUser` with a 409 on the username — so this step
-     * must not raise one. The account is real either way; the admin is told the
-     * flag is missing and where to set it.
-     */
     try {
       await usersApi.resetUserPassword(token, created.id, {
         newPassword: input.password,
@@ -271,13 +249,7 @@ export default function Staff({ loaderData }: Route.ComponentProps) {
   const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
   const [drawer, setDrawer] = useState<DrawerState>(null);
-  // The search box types against local state; the URL (and so the loader)
-  // catches up on a debounce. Seeded from the URL so a shared/reloaded link
-  // shows the term it filtered by.
   const [search, setSearch] = useState(filters.search);
-  // Anything that isn't the default view. Drives the toggle's dot, and opens
-  // the group on load when a link arrives already filtered — otherwise the
-  // narrowed table on a phone has no visible explanation.
   const activeFilters =
     (filters.role ? 1 : 0) + (filters.status === "disabled" ? 1 : 0);
   const [filtersOpen, setFiltersOpen] = useState(activeFilters > 0);
@@ -304,26 +276,18 @@ export default function Staff({ loaderData }: Route.ComponentProps) {
           next.delete("page");
           return next;
         },
-        // `replace` keeps the back button pointing at wherever the user came
-        // from rather than at every term they typed through on the way here.
         { replace: true, preventScrollReset: true },
       );
     },
     [setSearchParams],
   );
 
-  // Live search: one request per pause in typing, not per keystroke. The guard
-  // also covers the round trip — once the loader answers, `filters.search`
-  // matches and this settles instead of re-firing.
   useEffect(() => {
     if (search === filters.search) return;
     const timer = setTimeout(() => commitSearch(search), 300);
     return () => clearTimeout(timer);
   }, [search, filters.search, commitSearch]);
 
-  // Back/forward moves the URL out from under the field, so adopt it. Our own
-  // updates above are REPLACE navigations, which never land here — a slow
-  // response therefore can't overwrite what is being typed.
   useEffect(() => {
     if (navigationType === "POP") setSearch(filters.search);
   }, [navigationType, filters.search]);
@@ -366,10 +330,6 @@ export default function Staff({ loaderData }: Route.ComponentProps) {
         )}
       </div>
 
-      {/* Filters. The form stays a real GET form so these still work with
-          JavaScript off — every control carries the `name` the loader reads, so
-          a native submit sends the whole bar. With JS on, `onSubmit` hands over
-          to the live search and the selects apply on change. */}
       <Form
         method="get"
         className="mb-4 flex flex-wrap items-end gap-3"
@@ -379,13 +339,6 @@ export default function Staff({ loaderData }: Route.ComponentProps) {
           commitSearch(search); // Enter = search now, don't wait out the debounce
         }}
       >
-        {/* The icon is positioned over the field, so the input carries `pl-8`
-            to keep typed text clear of it. `aria-label` stands in for the
-            visible label this field no longer has.
-
-            `py-1` is what actually shortens it: HeroUI's `.input` ships `py-2`,
-            which with a 20px line and the 2px borders renders ~40px however
-            low `min-h` goes. */}
         <div className="flex w-full max-w-xs items-center gap-2">
           <div className="relative flex-1">
             <TextInput
@@ -414,9 +367,6 @@ export default function Staff({ loaderData }: Route.ComponentProps) {
             )}
           </div>
 
-          {/* Mobile only: search is the common case and keeps the bar, the two
-              selects fold behind this. Styled off the fields so it reads as
-              their peer rather than as an action. */}
           <button
             type="button"
             aria-label={
@@ -430,8 +380,6 @@ export default function Staff({ loaderData }: Route.ComponentProps) {
             className="relative flex size-9 shrink-0 items-center justify-center rounded-md border-2 border-border bg-field text-muted transition-colors hover:text-foreground sm:hidden"
           >
             <Filter size={16} />
-            {/* Collapsed filters are still applied — say so, or a narrowed list
-                looks like missing data. */}
             {activeFilters > 0 && (
               <span
                 aria-hidden="true"
@@ -457,10 +405,6 @@ export default function Staff({ loaderData }: Route.ComponentProps) {
             ]}
           />
 
-          {/* The API has no "all" for status, so this is a two-way switch rather
-              than a filter you clear. Active is the default, so it stays out of
-              the URL. Disabled staff are only reachable through here — and this
-              is the only route to the Enable action on their rows. */}
           <FilterSelect
             name="status"
             label="Filter by status"
@@ -475,8 +419,6 @@ export default function Staff({ loaderData }: Route.ComponentProps) {
           />
         </div>
 
-        {/* Results change without the user submitting anything, so announce the
-            count for screen readers. */}
         <p aria-live="polite" className="sr-only">
           {searching ? "Searching…" : `${result.total} staff found.`}
         </p>
@@ -489,9 +431,6 @@ export default function Staff({ loaderData }: Route.ComponentProps) {
             : ["Name", "Username", "Phone", "Role"]
         }
         ariaLabel="Staff directory"
-        // Skeletons for page / page-size changes, but not while typing — the
-        // table flashing on every keystroke reads worse than rows that lag a
-        // moment behind. The spinner in the field carries that state instead.
         isLoading={navigation.state === "loading" && !searching}
         page={result.page}
         pageCount={pageCount}
@@ -554,9 +493,6 @@ function RowActions({
   onEdit: () => void;
   onReset: () => void;
 }) {
-  // Three icons per row crowd a phone-width table, so below `sm` they collapse
-  // behind a kebab and open on tap. From `sm` up they are always inline and the
-  // toggle is gone, so this state simply never applies there.
   const [open, setOpen] = useState(false);
   const actionsId = `actions-${user.id}`;
 
@@ -568,8 +504,6 @@ function RowActions({
         aria-expanded={open}
         aria-controls={actionsId}
         onClick={() => setOpen((prev) => !prev)}
-        // Bigger than the actions it reveals: it is the one control a thumb has
-        // to find on a phone. Back to the row size once it hides at `sm`.
         className="flex size-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-background hover:text-foreground sm:hidden"
       >
         {open ? <X size={16} /> : <EllipsisVertical size={16} />}
@@ -605,7 +539,6 @@ function RowActions({
   );
 }
 
-
 /** Inline POST for enable/disable. Disabling asks for confirmation first. */
 function StatusForm({
   id,
@@ -631,9 +564,6 @@ function StatusForm({
     <>
       <Form method="post" ref={formRef}>
         <input type="hidden" name="id" value={id} />
-        {/* The intent rides in a hidden field rather than on the button: a
-            confirmed submit goes through `requestSubmit()` with no submitter,
-            so a name/value on the button would never reach the action. */}
         <input type="hidden" name="intent" value={intent} />
         <button
           type={needsConfirm ? "button" : "submit"}
@@ -713,8 +643,6 @@ function StaffDrawer({
     mode === "create" ? "create" : mode === "edit" ? "update" : "reset-password";
   const submitLabel =
     mode === "create" ? "Create" : mode === "edit" ? "Save changes" : "Reset password";
-  // Doubles as the form's `key`, so switching target remounts it (and resets
-  // every defaultValue), and as the `id` the footer's submit button points at.
   const formId = `staff-${mode}-${user?.id ?? "new"}`;
 
   return (

@@ -24,8 +24,6 @@ type FloatItem = {
   delay: number;
 };
 
-/* Simple, flat line-icons — a payment card, a coin, and a growth chart.
-   Kept minimal so they read instantly at low opacity. */
 const CardIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
     <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
@@ -93,9 +91,6 @@ const CediCoinIcon = (
 
 const ICONS = [CediIcon, CardIcon, CediCoinIcon, ChartIcon, CoinIcon, WalletIcon];
 
-/* A dense, scattered constellation of small finance glyphs. Kept intentionally
-   small so the *pattern* dominates the field while the logo stays the focal
-   point. Positions are hand-tuned to spread evenly without crowding the mark. */
 const FLOATERS: FloatItem[] = [
   { x: "8%", y: "12%", size: 20 }, { x: "22%", y: "8%", size: 16 },
   { x: "38%", y: "14%", size: 22 }, { x: "62%", y: "10%", size: 18 },
@@ -115,20 +110,9 @@ const FLOATERS: FloatItem[] = [
   delay: (i % 7) * 0.28,
 }));
 
-/**
- * Shared light-green field used by the splash and the login brand panel: white
- * at the top fading to a soft mint at the base. Light enough for black text
- * and quiet enough that the multicolour logo mark carries the screen.
- */
 export const FINANCE_BACKDROP =
   "radial-gradient(115% 100% at 50% 0%, #ffffff 0%, #eef8f6 45%, #bfe5dd 100%)";
 
-/**
- * The scattered, gently-drifting field of finance glyphs (cedis, cards, coins,
- * charts, wallets). Renders absolutely-positioned inside a `relative` parent —
- * drop it into any brand surface to get the same texture as the splash.
- * Honours `prefers-reduced-motion` (fades in without drifting).
- */
 export function FinanceMotifs({
   glyphClassName = "text-white/[0.18]",
   className,
@@ -174,13 +158,6 @@ export function FinanceMotifs({
   );
 }
 
-/**
- * Full-screen brand splash shown on app launch.
- * Modern-fintech look: a soft warm-light field with financial motifs
- * (card, coin, growth chart, wallet) drifting gently behind the logo.
- * Mobile-first (works from ~360px up) and honours `prefers-reduced-motion`.
- * Auto-dismisses after `duration` and calls `onDone`.
- */
 export function SplashScreen({
   onDone,
   duration = 2600,
@@ -201,8 +178,6 @@ export function SplashScreen({
       style={{
         paddingTop: "env(safe-area-inset-top)",
         paddingBottom: "env(safe-area-inset-bottom)",
-        // Warm-light field with a soft lift toward the top-center, so the logo
-        // sits in light. Same in light & dark themes.
         background: FINANCE_BACKDROP,
       }}
       initial={{ opacity: 1 }}
@@ -293,10 +268,6 @@ export function SplashScreen({
   );
 }
 
-/**
- * Convenience wrapper: renders the splash on first mount, then swaps to
- * `children` once it finishes. Drop this around a page to give it a launch splash.
- */
 export function WithSplash({
   children,
   ...props

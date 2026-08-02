@@ -2,16 +2,6 @@ import { Fragment } from "react";
 import { Link } from "react-router";
 import { ChevronRight } from "lucide-react";
 
-/**
- * The trail back up, for a page nested under a record.
- *
- * Real `<Link>`s to each ancestor rather than `history.back()`: these pages are
- * reachable by URL — a shared link, a bookmark, a redirect after saving — and
- * in those cases there is nothing behind them to go back to.
- *
- * The last crumb is the page you are on, so it is text, not a link, and carries
- * `aria-current="page"`. Anything before it must have a `to`.
- */
 export type Crumb = { label: string; to?: string };
 
 export function Breadcrumbs({
