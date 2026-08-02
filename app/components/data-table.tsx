@@ -14,6 +14,8 @@ interface EmptyContent {
 interface DataTableProps {
   columns: string[];
   children: ReactNode;
+  /** For an `aria-controls` pointed at the table, e.g. from a tab bar. */
+  id?: string;
   isLoading?: boolean;
   ariaLabel?: string;
   /** Tailwind max-height for the scroll area. */
@@ -38,6 +40,7 @@ interface DataTableProps {
 export const DataTable = ({
   columns,
   children,
+  id,
   isLoading,
   ariaLabel = "Data table",
   heightClass = "max-h-[60vh]",
@@ -100,7 +103,7 @@ export const DataTable = ({
   }
 
   return (
-    <div className={`flex min-w-0 flex-col gap-4 ${className}`}>
+    <div id={id} className={`flex min-w-0 flex-col gap-4 ${className}`}>
       <div
         className={`w-full overflow-hidden rounded-lg border-2 border-black/10 bg-surface shadow-none dark:bg-canvas ${
           capped ? "flex-auto" : "shrink-0 grow"

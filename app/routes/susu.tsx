@@ -12,15 +12,15 @@ import {
   ChevronRight,
   Coins,
   CornerDownRight,
-  Filter,
   LoaderCircle,
   Search,
 } from "lucide-react";
 import type { Route } from "./+types/susu";
 import { SusuStatusPill } from "~/components/account-status";
 import { DataTable, Table } from "~/components/data-table";
-import { FIELD, FilterSelect } from "~/components/form-fields";
+import { FIELD } from "~/components/form-fields";
 import { TextInput } from "~/components/inputs";
+import { TabLink, TabList } from "~/components/tabs";
 import * as susuApi from "~/lib/api/susu";
 import {
   matchNumber,
@@ -45,7 +45,7 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Susu · YADAH Dynamic Enterprise" }];
 }
 
-const FILTERS_ID = "susu-filters";
+const LIST_ID = "susu-list";
 
 /** A whole-book scan reads further than the per-customer one; see `truncated`. */
 const SCAN_MAX_PAGES = 10;
@@ -55,7 +55,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
     value: status,
     label: SUSU_ACCOUNT_STATUS_LABELS[status],
   })),
-  { value: "all", label: "All accounts" },
+  { value: "all", label: "All" },
 ];
 
 /** The line under a saver's name — where their cycle stands, in words. */
@@ -174,7 +174,11 @@ function AccountRow({
       id={account.id}
       className={nested ? "bg-surface-tertiary/40" : undefined}
     >
-      <Table.Cell className={`${CELL} font-medium text-foreground`}>
+      <Table.Cell
+        className={`${CELL} font-medium text-foreground ${
+          nested ? "border-l-2 border-l-success/50" : ""
+        }`}
+      >
         {saver}
       </Table.Cell>
       <Table.Cell className={`${CELL} tabular-nums text-muted`}>
@@ -211,8 +215,6 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
   const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
   const [number, setNumber] = useState(filters.accountNumber);
-  const activeFilters = filters.status === "active" ? 0 : 1;
-  const [filtersOpen, setFiltersOpen] = useState(activeFilters > 0);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
@@ -262,6 +264,16 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
     if (navigationType === "POP") setNumber(filters.accountNumber);
   }, [navigationType, filters.accountNumber]);
 
+  // "active" is the loader's default, so it needs no parameter of its own.
+  function statusHref(value: string) {
+    const next = new URLSearchParams(searchParams);
+    if (value === "active") next.delete("status");
+    else next.set("status", value);
+    next.delete("page");
+    const qs = next.toString();
+    return `/susu${qs ? `?${qs}` : ""}`;
+  }
+
   function setParam(patch: Record<string, string | null>) {
     const next = new URLSearchParams(searchParams);
     for (const [k, v] of Object.entries(patch)) {
@@ -292,17 +304,17 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
         </Link>
       </div>
 
-      {/* A real GET form, so the filters still work with JavaScript off. */}
-      <Form
-        method="get"
-        className="mb-4 flex flex-wrap items-end gap-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          commitNumber(number);
-        }}
-      >
-        <div className="flex w-full max-w-xs items-center gap-2">
-          <div className="relative flex-1">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {/* A real GET form, so the search still works with JavaScript off. */}
+        <Form
+          method="get"
+          className="w-full max-w-xs"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commitNumber(number);
+          }}
+        >
+          <div className="relative">
             <TextInput
               name="accountNumber"
               aria-label="Search by susu account number"
@@ -329,40 +341,24 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
               />
             )}
           </div>
+        </Form>
 
-          <button
-            type="button"
-            aria-label={
-              activeFilters ? `Filters (${activeFilters} applied)` : "Filters"
-            }
-            aria-expanded={filtersOpen}
-            aria-controls={FILTERS_ID}
-            onClick={() => setFiltersOpen((prev) => !prev)}
-            className="relative flex size-9 shrink-0 items-center justify-center rounded-md border-2 border-border bg-field text-muted transition-colors hover:text-foreground sm:hidden"
-          >
-            <Filter size={16} />
-            {activeFilters > 0 && (
-              <span
-                aria-hidden="true"
-                className="absolute -right-1 -top-1 size-2.5 rounded-full bg-success ring-2 ring-surface"
-              />
-            )}
-          </button>
-        </div>
-
-        <div
-          id={FILTERS_ID}
-          className={`${filtersOpen ? "flex" : "hidden"} w-full flex-wrap items-end gap-3 sm:flex sm:w-auto`}
+        <TabList
+          label="Filter by status"
+          className="max-w-full overflow-x-auto"
         >
-          <FilterSelect
-            name="status"
-            label="Filter by status"
-            value={filters.status}
-            onChange={(value) => setParam({ status: value, page: null })}
-            options={STATUS_OPTIONS}
-          />
-        </div>
-      </Form>
+          {STATUS_OPTIONS.map((option) => (
+            <TabLink
+              key={option.value}
+              to={statusHref(option.value)}
+              selected={option.value === filters.status}
+              controls={LIST_ID}
+            >
+              {option.label}
+            </TabLink>
+          ))}
+        </TabList>
+      </div>
 
       {truncated && (
         <p className="mb-3 rounded-lg border-2 border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
@@ -372,6 +368,7 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
       )}
 
       <DataTable
+        id={LIST_ID}
         columns={[
           "Saver",
           "Account",
@@ -434,23 +431,7 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
               account={group.primary}
               saver={
                 <>
-                  <span className="flex items-start gap-1.5">
-                    {group.rest.length > 0 && (
-                      <button
-                        type="button"
-                        aria-expanded={open}
-                        aria-label={`${open ? "Hide" : "Show"} ${group.rest.length} more account${
-                          group.rest.length === 1 ? "" : "s"
-                        } for ${group.primary.customerName ?? "this saver"}`}
-                        onClick={() => toggleSaver(group.key)}
-                        className="-ml-1 mt-px flex size-5 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-surface-tertiary hover:text-foreground"
-                      >
-                        <ChevronRight
-                          size={14}
-                          className={`transition-transform ${open ? "rotate-90" : ""}`}
-                        />
-                      </button>
-                    )}
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <Link
                       to={`/susu/${group.primary.id}`}
                       className="min-w-0 truncate hover:text-success hover:underline"
@@ -458,9 +439,32 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
                       {group.primary.customerName ?? "Unnamed customer"}
                     </Link>
                     {group.rest.length > 0 && (
-                      <span className="shrink-0 rounded-full bg-surface-tertiary px-1.5 py-0.5 text-[0.6875rem] font-medium text-muted">
-                        {group.rest.length + 1} accounts
-                      </span>
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        aria-label={`${
+                          open
+                            ? `Hide ${group.rest.length}`
+                            : `+${group.rest.length} more`
+                        } account${group.rest.length === 1 ? "" : "s"} for ${
+                          group.primary.customerName ?? "this saver"
+                        }`}
+                        onClick={() => toggleSaver(group.key)}
+                        className={`flex shrink-0 items-center gap-1 rounded-full border-2 px-2 py-0.5 text-[0.6875rem] font-semibold transition-colors ${
+                          open
+                            ? "border-success bg-success text-white"
+                            : "border-success/40 bg-success/10 text-success hover:bg-success/20"
+                        }`}
+                      >
+                        <ChevronRight
+                          size={12}
+                          aria-hidden="true"
+                          className={`transition-transform ${open ? "rotate-90" : ""}`}
+                        />
+                        {open
+                          ? "Hide"
+                          : `+${group.rest.length} more account${group.rest.length === 1 ? "" : "s"}`}
+                      </button>
                     )}
                   </span>
                   <span className="mt-0.5 block text-[0.8125rem] font-normal text-navy dark:text-navy-light">

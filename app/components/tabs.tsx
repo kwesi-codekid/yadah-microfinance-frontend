@@ -3,14 +3,15 @@ import { Link, type LinkProps } from "react-router";
 const TRACK =
   "inline-flex min-h-8 shrink-0 items-stretch gap-1 rounded-full border-2 border-border bg-surface p-0.5";
 
-const RING = {
-  success: "ring-success",
-  navy: "ring-navy dark:ring-navy-light",
-  teal: "ring-teal-dark dark:ring-teal",
-  brand: "ring-brand dark:ring-brand-light",
+/** The selected pill's fill; the lighter shade carries it on a dark canvas. */
+const FILL = {
+  success: "bg-success text-white",
+  navy: "bg-navy text-white dark:bg-navy-light",
+  teal: "bg-teal-dark text-white dark:bg-teal",
+  brand: "bg-brand text-white dark:bg-brand-light dark:text-brand-dark",
 } as const;
 
-export type TabTone = keyof typeof RING;
+export type TabTone = keyof typeof FILL;
 
 /** Shared by both flavours — the pill itself, selected or not. */
 function tabClass(selected: boolean, tone: TabTone) {
@@ -18,8 +19,7 @@ function tabClass(selected: boolean, tone: TabTone) {
     "flex items-center justify-center gap-1.5 rounded-full px-3.5 text-sm",
     "transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent",
     selected
-      ? // No fill of its own — the track is already the surface colour, so a
-        `font-semibold text-foreground ring-2 ${RING[tone]}`
+      ? `font-semibold ${FILL[tone]}`
       : "font-medium text-muted hover:bg-surface-tertiary hover:text-foreground",
   ].join(" ");
 }
