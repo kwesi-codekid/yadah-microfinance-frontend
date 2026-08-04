@@ -150,24 +150,22 @@ export const DataTable = ({
           </Table.ScrollContainer>
         </Table>
 
+        {showFooter ? (
+          // Inside the card, under the rows — sticking it to the viewport made it
+          // ride over the table on mobile. Wraps so a narrow screen stacks instead.
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border bg-surface px-3 py-2 dark:bg-canvas">
+            {showSizeSelect ? (
+              <PageSizeSelect value={curSize} options={pageSizeOptions} onChange={handleSize} />
+            ) : null}
+            {summary ? (
+              <span aria-live="polite" className="min-w-0 truncate text-xs text-muted">
+                {summary}
+              </span>
+            ) : null}
+            <TablePagination page={curPage} pageCount={pageCount} onPageChange={handlePage} />
+          </div>
+        ) : null}
       </div>
-
-      {showFooter ? (
-        // Same footer as `CollectionFooter` below. The mobile offset clears the
-        // floating tab bar in `mobile-nav.tsx` (3.5rem tall, `fixed` at
-        // `max(0.75rem, safe-area)`); from `lg` the rail takes over.
-        <div className="sticky bottom-[calc(4rem+max(0.75rem,env(safe-area-inset-bottom)))] z-10 flex items-center gap-3 border-t border-border bg-canvas py-2 lg:bottom-0">
-          {showSizeSelect ? (
-            <PageSizeSelect value={curSize} options={pageSizeOptions} onChange={handleSize} />
-          ) : null}
-          {summary ? (
-            <span aria-live="polite" className="min-w-0 truncate text-xs text-muted">
-              {summary}
-            </span>
-          ) : null}
-          <TablePagination page={curPage} pageCount={pageCount} onPageChange={handlePage} />
-        </div>
-      ) : null}
 
       {bottomContent}
     </div>

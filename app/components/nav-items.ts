@@ -62,3 +62,31 @@ export function visibleNavItems(user: AuthUser | null): NavItem[] {
       (!item.roles || (user != null && item.roles.includes(user.role))),
   );
 }
+
+/**
+ * Destinations kept in the phone bar. Four plus More is five slots — the most a
+ * bottom bar fits at a 44px touch target, and what leaves room for labels.
+ */
+export const MOBILE_PRIMARY_COUNT = 4;
+
+/** The phone bar's two halves. `overflow` is empty when everything fits. */
+export function splitNavItems(user: AuthUser | null): {
+  primary: NavItem[];
+  overflow: NavItem[];
+} {
+  const items = visibleNavItems(user);
+  // A fifth destination needs no More button to reach it.
+  if (items.length <= MOBILE_PRIMARY_COUNT + 1) {
+    return { primary: items, overflow: [] };
+  }
+  return {
+    primary: items.slice(0, MOBILE_PRIMARY_COUNT),
+    overflow: items.slice(MOBILE_PRIMARY_COUNT),
+  };
+}
+
+/** Whether a path is inside an item, matching `NavLink`'s `end` semantics. */
+export function isNavItemActive(pathname: string, item: NavItem): boolean {
+  if (item.end) return pathname === item.to;
+  return pathname === item.to || pathname.startsWith(`${item.to}/`);
+}

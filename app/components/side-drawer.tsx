@@ -8,7 +8,8 @@ interface SideDrawerProps {
     children: ReactNode
     title?: string
     footer?: ReactNode
-    position?: "left" | "right"
+    /** `bottom` is the phone sheet; it ignores `width` and spans the screen. */
+    position?: "left" | "right" | "bottom"
     width?: string
 }
 
@@ -21,8 +22,17 @@ export function SideDrawer({
     position = "right",
     width = "w-[340px] max-w-full",
 }: SideDrawerProps) {
-    const slideDirection = position === "right" ? "100%" : "-100%"
-    const positionClass = position === "right" ? "right-0" : "left-0"
+    const isBottom = position === "bottom"
+
+    // Sheets rise; side drawers slide in from their own edge.
+    const hidden = isBottom
+        ? { y: "100%" }
+        : { x: position === "right" ? "100%" : "-100%" }
+    const shown = isBottom ? { y: 0 } : { x: 0 }
+
+    const panelClass = isBottom
+        ? "inset-x-0 bottom-0 max-h-[80dvh] w-full rounded-t-2xl pb-[env(safe-area-inset-bottom)]"
+        : `top-0 h-full ${width} ${position === "right" ? "right-0" : "left-0"}`
 
     return (
         <AnimatePresence>
@@ -36,11 +46,11 @@ export function SideDrawer({
                         className='fixed inset-0 z-40 bg-black/30 backdrop-blur-md'
                     />
                     <motion.div
-                        initial={{ x: slideDirection }}
-                        animate={{ x: 0 }}
-                        exit={{ x: slideDirection }}
+                        initial={hidden}
+                        animate={shown}
+                        exit={hidden}
                         transition={{ type: "tween", duration: 0.3 }}
-                        className={`fixed ${positionClass} top-0 z-50 h-full ${width} bg-surface border-border flex flex-col`}
+                        className={`fixed z-50 ${panelClass} bg-surface border-border flex flex-col`}
                     >
                         <div className='flex items-center justify-between px-5 py-4 border-b border-zinc-200 dark:border-zinc-800 shrink-0'>
                             {title && (
