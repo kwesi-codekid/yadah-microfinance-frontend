@@ -21,23 +21,34 @@ export function Kpi({
   } as const;
 
   return (
-    <div className={`${PANEL} px-4 py-2.5`}>
-      <p className="flex items-center gap-1.5 truncate text-xs font-medium uppercase tracking-wide text-muted">
-        {icon && (
-          <span aria-hidden="true" className="shrink-0">
-            {icon}
-          </span>
-        )}
-        {label}
-      </p>
-      <p
-        className={`mt-0.5 truncate font-sen text-lg font-semibold tabular-nums 2xl:text-xl ${
-          tone ? VALUE_TONE[tone] : "text-foreground"
-        }`}
-      >
-        {value}
-      </p>
-      {foot}
+    <div className={`${PANEL} relative overflow-hidden px-4 py-2.5`}>
+      {/* The same glyph, blown up and barely there — texture, not information. */}
+      {icon && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -bottom-3 -right-3 text-foreground opacity-[0.035] mask-[linear-gradient(to_top_left,black,transparent)] dark:opacity-[0.06] [&>svg]:size-20 [&>svg]:stroke-[1.25]"
+        >
+          {icon}
+        </span>
+      )}
+      <div className="relative">
+        <p className="flex items-center gap-1.5 truncate text-xs font-medium uppercase tracking-wide text-muted">
+          {icon && (
+            <span aria-hidden="true" className="shrink-0">
+              {icon}
+            </span>
+          )}
+          {label}
+        </p>
+        <p
+          className={`mt-0.5 truncate font-sen text-lg font-semibold tabular-nums 2xl:text-xl ${
+            tone ? VALUE_TONE[tone] : "text-foreground"
+          }`}
+        >
+          {value}
+        </p>
+        {foot}
+      </div>
     </div>
   );
 }

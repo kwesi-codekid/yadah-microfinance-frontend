@@ -3,7 +3,6 @@ import { data, Form, useNavigation } from "react-router";
 import { Button } from "@heroui/react";
 import { Info, TriangleAlert } from "lucide-react";
 import type { Route } from "./+types/loan-config";
-import { Breadcrumbs } from "~/components/breadcrumbs";
 import { Field } from "~/components/form-fields";
 import { notify } from "~/components/toast";
 import {
@@ -89,15 +88,10 @@ export default function LoanSettings({
   }, [actionData]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-6 py-8">
-      <Breadcrumbs
-        className="mb-5"
-        items={[{ label: "Loans", to: "/loans" }, { label: "Settings" }]}
-      />
-
-      <h1 className="font-heading text-2xl font-semibold text-foreground">
+    <div>
+      <h2 className="font-heading text-lg font-semibold text-foreground">
         Loan settings
-      </h1>
+      </h2>
       <p className="mt-1 text-sm text-muted">
         The rates and bounds new applications are quoted at.
       </p>

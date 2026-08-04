@@ -10,6 +10,7 @@ import {
 } from "react-router";
 import { Button } from "@heroui/react";
 import {
+  ArrowLeftRight,
   ChevronRight,
   Coins,
   CornerDownRight,
@@ -25,21 +26,20 @@ import {
   type CustomerMatch,
 } from "~/components/customer-picker";
 import { DataTable, Table } from "~/components/data-table";
-import { FIELD, FieldError, IconLink } from "~/components/form-fields";
+import {
+  FIELD,
+  FieldError,
+  IconAction,
+  IconLink,
+} from "~/components/form-fields";
 import { TextInput } from "~/components/inputs";
 import { SideDrawer } from "~/components/side-drawer";
+import { TransferDrawer } from "~/components/transfer-drawer";
 import { TabLink, TabList } from "~/components/tabs";
 import { notify } from "~/components/toast";
 import { toApiFailure, type ApiFailure } from "~/lib/api/client";
 import * as susuApi from "~/lib/api/susu";
 import { pickedCustomer } from "~/lib/customer-search.server";
-import {
-  matchNumber,
-  pageOf,
-  scanAccounts,
-  SCAN_LIMIT,
-  typedDigits,
-} from "~/lib/account-scan";
 import { formatDate } from "~/lib/format";
 import { formatGhs, parseGhsAmount } from "~/lib/money";
 import {
@@ -49,9 +49,11 @@ import {
   SUSU_ACCOUNT_STATUSES,
   SUSU_CYCLE_TARGET,
   SUSU_MIN_DAILY_AMOUNT,
+  projectedPayout,
   type SusuAccount,
   type SusuAccountStatus,
 } from "~/lib/susu-client";
+import type { TransferSourceInfo } from "~/lib/transfer-client";
 import { readOpenAccountForm } from "~/lib/susu-form";
 import { isOffice, requireUser, withAuth } from "~/lib/session.server";
 
@@ -60,9 +62,6 @@ export function meta(_: Route.MetaArgs) {
 }
 
 const LIST_ID = "susu-list";
-
-/** A whole-book scan reads further than the per-customer one; see `truncated`. */
-const SCAN_MAX_PAGES = 10;
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   ...SUSU_ACCOUNT_STATUSES.map((status) => ({
@@ -80,6 +79,9 @@ function cycleBlurb(account: SusuAccount): string {
       ? "Target reached — ready to close."
       : `${left} more deposit${left === 1 ? "" : "s"} to finish the cycle.`;
   }
+  if (account.status === "pending-payout") {
+    return `${formatGhs(account.payoutRemaining ?? 0)} still to be handed over.`;
+  }
   if (account.payoutAmount !== undefined) {
     return `Paid out ${formatGhs(account.payoutAmount)} after commission.`;
   }
@@ -95,11 +97,15 @@ interface SaverGroup {
   rest: SusuAccount[];
 }
 
-/** Which account speaks for a saver: a running cycle, else the newest. */
+/**
+ * Which account speaks for a saver: a running cycle first, then one with cash
+ * still to hand over — that is the one an office needs to act on.
+ */
 const STATUS_RANK: Record<SusuAccountStatus, number> = {
   active: 0,
-  completed: 1,
-  closed: 2,
+  "pending-payout": 1,
+  completed: 2,
+  closed: 3,
 };
 
 function groupBySaver(accounts: SusuAccount[]): SaverGroup[] {
@@ -129,7 +135,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const page = Math.max(1, Number(sp.get("page") || "1") || 1);
   // Clamped to the API's own bound (1–100); see the note in customers.tsx.
   const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || "20") || 20));
-  const typed = typedDigits(sp.get("accountNumber"), "susu");
+  // Fuzzy server-side: a name, a phone, or the first digits of a number.
+  const search = sp.get("search")?.trim().slice(0, 100) || undefined;
   // `?open=<id>` arrives from a customer's page — the drawer opens on them.
   const openFor = sp.get("open");
 
@@ -142,25 +149,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     selected === "all" ? undefined : (selected as SusuAccountStatus);
 
   const { data: payload, headers } = await withAuth(request, async (token) => {
-    const prefill = openFor ? await pickedCustomer(token, openFor) : null;
-    // Digits narrow the list, so read several pages and match them here.
-    if (typed) {
-      const { items, truncated } = await scanAccounts(
-        (p) =>
-          susuApi.listSusuAccounts(token, { page: p, limit: SCAN_LIMIT, status }),
-        SCAN_MAX_PAGES,
-      );
-      return {
-        result: pageOf(matchNumber(items, typed), page, limit),
-        truncated,
-        prefill,
-      };
-    }
-    const result = await susuApi.listSusuAccounts(token, { page, limit, status });
-    return { result, truncated: false, prefill };
+    const [result, prefill] = await Promise.all([
+      susuApi.listSusuAccounts(token, { page, limit, status, search }),
+      openFor ? pickedCustomer(token, openFor) : null,
+    ]);
+    return { result, prefill };
   });
 
-  const { result, truncated, prefill } = payload;
+  const { result, prefill } = payload;
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
   if (page > pageCount) {
@@ -171,10 +167,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   return data(
     {
       result,
-      truncated,
       prefill,
       canManage: isOffice(user),
-      filters: { page, limit, status: selected, accountNumber: typed },
+      filters: { page, limit, status: selected, search: search ?? "" },
     },
     { headers },
   );
@@ -224,15 +219,39 @@ export async function action({ request }: Route.ActionArgs) {
 
 const CELL = "px-4 py-3 align-top";
 
+/**
+ * What a cycle can send. One awaiting payout gives only the part still owed;
+ * a running one moves whole, which stops it. Null when there is nothing to send.
+ */
+function susuTransferSource(account: SusuAccount): TransferSourceInfo | null {
+  if (account.status === "closed") return null;
+  const awaitingPayout = account.status === "pending-payout";
+  const amount = awaitingPayout
+    ? (account.payoutRemaining ?? 0)
+    : projectedPayout(account);
+  if (amount <= 0) return null;
+
+  return {
+    key: `susu:${account.id}`,
+    kind: "susu",
+    title: `Susu ${account.accountNumber}`,
+    amount,
+    partial: awaitingPayout,
+  };
+}
+
 /** One account line. `saver` fills the first column; nested lines sit under it. */
 function AccountRow({
   account,
   saver,
   nested,
+  onTransfer,
 }: {
   account: SusuAccount;
   saver: ReactNode;
   nested?: boolean;
+  /** Omitted for anyone who may not move money; the icon then never appears. */
+  onTransfer?: (account: SusuAccount) => void;
 }) {
   return (
     <Table.Row
@@ -271,12 +290,22 @@ function AccountRow({
         {formatDate(account.openedAt)}
       </Table.Cell>
       <Table.Cell className={CELL}>
-        <IconLink
-          label={`Open account ${account.accountNumber}`}
-          to={`/susu/${account.id}`}
-        >
-          <Eye size={16} />
-        </IconLink>
+        <div className="flex items-center gap-1">
+          <IconLink
+            label={`Open account ${account.accountNumber}`}
+            to={`/susu/${account.id}`}
+          >
+            <Eye size={16} />
+          </IconLink>
+          {onTransfer && susuTransferSource(account) && (
+            <IconAction
+              label={`Transfer from ${account.accountNumber}`}
+              onClick={() => onTransfer(account)}
+            >
+              <ArrowLeftRight size={16} />
+            </IconAction>
+          )}
+        </div>
       </Table.Cell>
     </Table.Row>
   );
@@ -418,12 +447,20 @@ function OpenSusuDrawer({
 }
 
 export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
-  const { result, truncated, prefill, canManage, filters } = loaderData;
+  const { result, prefill, canManage, filters } = loaderData;
   const navigation = useNavigation();
   const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [number, setNumber] = useState(filters.accountNumber);
+  const [search, setSearch] = useState(filters.search);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Kept after closing so the drawer can animate out rather than vanish.
+  const [transferFor, setTransferFor] = useState<SusuAccount | null>(null);
+  const [transferOpen, setTransferOpen] = useState(false);
+
+  function openTransfer(account: SusuAccount) {
+    setTransferFor(account);
+    setTransferOpen(true);
+  }
   // Bumped on every account opened, to remount the drawer empty and closed.
   const [opened, setOpened] = useState(0);
 
@@ -438,21 +475,19 @@ export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
     });
   }
 
-  const pendingNumber =
+  const pendingSearch =
     navigation.state === "loading" && navigation.location
-      ? (new URLSearchParams(navigation.location.search).get("accountNumber") ??
-        "")
+      ? (new URLSearchParams(navigation.location.search).get("search") ?? "")
       : null;
-  const searching =
-    pendingNumber !== null && pendingNumber !== filters.accountNumber;
+  const searching = pendingSearch !== null && pendingSearch !== filters.search;
 
-  const commitNumber = useCallback(
+  const commitSearch = useCallback(
     (value: string) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          if (value) next.set("accountNumber", value);
-          else next.delete("accountNumber");
+          if (value) next.set("search", value);
+          else next.delete("search");
           next.delete("page");
           return next;
         },
@@ -464,15 +499,15 @@ export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
 
   // Live search: one request per pause in typing, not per keystroke.
   useEffect(() => {
-    if (number === filters.accountNumber) return;
-    const timer = setTimeout(() => commitNumber(number), 300);
+    if (search === filters.search) return;
+    const timer = setTimeout(() => commitSearch(search), 300);
     return () => clearTimeout(timer);
-  }, [number, filters.accountNumber, commitNumber]);
+  }, [search, filters.search, commitSearch]);
 
   // Back/forward moves the URL out from under the field, so adopt it.
   useEffect(() => {
-    if (navigationType === "POP") setNumber(filters.accountNumber);
-  }, [navigationType, filters.accountNumber]);
+    if (navigationType === "POP") setSearch(filters.search);
+  }, [navigationType, filters.search]);
 
   useEffect(() => {
     if (actionData?.ok) {
@@ -541,18 +576,17 @@ export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
           className="w-full max-w-xs"
           onSubmit={(event) => {
             event.preventDefault();
-            commitNumber(number);
+            commitSearch(search);
           }}
         >
           <div className="relative">
             <TextInput
-              name="accountNumber"
-              aria-label="Search by susu account number"
-              value={number}
-              onChange={(value) => setNumber(typedDigits(value, "susu"))}
+              name="search"
+              aria-label="Search susu accounts"
+              value={search}
+              onChange={setSearch}
               inputProps={{
-                placeholder: "Account number",
-                inputMode: "numeric",
+                placeholder: "Name, phone or account number",
                 autoComplete: "off",
                 className: `${FIELD} py-1 pl-8`,
               }}
@@ -589,13 +623,6 @@ export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
           ))}
         </TabList>
       </div>
-
-      {truncated && (
-        <p className="mb-3 rounded-lg border-2 border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
-          More accounts exist than this search reads, so a matching number may be
-          missing. Type more digits to narrow it.
-        </p>
-      )}
 
       <DataTable
         id={LIST_ID}
@@ -635,8 +662,8 @@ export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
         emptyContent={{
           icon: <Coins size={20} />,
           title: "No susu accounts found",
-          subtext: filters.accountNumber
-            ? `No account number contains “${filters.accountNumber}”.`
+          subtext: filters.search
+            ? `Nothing matches “${filters.search}”.`
             : filters.status === "all"
               ? "Open the first one — search for the customer as you go."
               : `No cycles are ${SUSU_ACCOUNT_STATUS_LABELS[
@@ -650,6 +677,7 @@ export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
             <AccountRow
               key={group.primary.id}
               account={group.primary}
+              onTransfer={canManage ? openTransfer : undefined}
               saver={
                 <>
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -703,6 +731,7 @@ export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
                   key={account.id}
                   account={account}
                   nested
+                  onTransfer={canManage ? openTransfer : undefined}
                   saver={
                     <span className="flex items-start gap-1.5 pl-5">
                       <CornerDownRight
@@ -726,6 +755,16 @@ export default function Susu({ loaderData, actionData }: Route.ComponentProps) {
           return rows;
         })}
       </DataTable>
+
+      {transferFor && susuTransferSource(transferFor) && (
+        <TransferDrawer
+          isOpen={transferOpen}
+          onClose={() => setTransferOpen(false)}
+          customerId={transferFor.customerId}
+          customerName={transferFor.customerName ?? "This customer"}
+          source={susuTransferSource(transferFor)!}
+        />
+      )}
     </div>
   );
 }

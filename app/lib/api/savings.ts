@@ -29,6 +29,8 @@ export interface ListSavingsAccountsParams {
   status?: SavingsAccountStatus;
   /** Exactly ten digits — a savings number, not a susu one, which is six. */
   accountNumber?: string;
+  /** Fuzzy and typo-tolerant: customer name, phone, or account-number prefix. */
+  search?: string;
 }
 
 /** GET /savings/accounts */
@@ -42,6 +44,7 @@ export function listSavingsAccounts(
   if (params.customerId) q.set("customerId", params.customerId);
   if (params.status) q.set("status", params.status);
   if (params.accountNumber) q.set("accountNumber", params.accountNumber);
+  if (params.search) q.set("search", params.search);
   const qs = q.toString();
   return apiFetch<SavingsAccountListResult>(
     `/savings/accounts${qs ? `?${qs}` : ""}`,

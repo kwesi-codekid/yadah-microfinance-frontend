@@ -6,6 +6,7 @@ import {
   Ban,
   Banknote,
   Check,
+  Clock,
   HandCoins,
   Percent,
   PiggyBank,
@@ -19,7 +20,6 @@ import { Breadcrumbs } from "~/components/breadcrumbs";
 import { DataTable, Table } from "~/components/data-table";
 import { FIELD, FieldError, SelectField } from "~/components/form-fields";
 import { Kpi } from "~/components/kpi";
-import { LoanStatusPill } from "~/components/loan-status";
 import { TextInput, TextareaInput } from "~/components/inputs";
 import { ConfirmModal } from "~/components/modals";
 import { SideDrawer } from "~/components/side-drawer";
@@ -38,11 +38,8 @@ import { formatDate, formatDateTime } from "~/lib/format";
 import { newIdempotencyKey, readIdempotencyKey } from "~/lib/idempotency";
 import {
   isOpenLoan,
-  LOAN_TIER_LABELS,
   readExceedsBalance,
-  repaidPercent,
   repaymentSourceLabel,
-  scheduleStatusLabel,
   settlementAmount,
   type Loan,
 } from "~/lib/loan-client";
@@ -67,7 +64,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     const open = isOpenLoan(detail.loan.status);
 
     const [customer, staff, susu] = await Promise.all([
-      customersApi.getCustomer(token, detail.loan.customerId),
+      // The loan usually names its customer; only fetch when it doesn't.
+      detail.loan.customerName
+        ? null
+        : customersApi.getCustomer(token, detail.loan.customerId),
       // Only to name who recorded each repayment.
       usersApi.listUsers(token, { limit: 100 }),
       open
@@ -81,7 +81,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
     return {
       detail,
-      customer: customer.customer,
+      customerName:
+        detail.loan.customerName ??
+        customer?.customer.fullName ??
+        "Unnamed customer",
       staff: staff.items,
       susuAccounts: susu?.items ?? [],
     };
@@ -96,8 +99,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       schedule: result.detail.schedule,
       repayments: result.detail.repayments,
       customer: {
-        id: result.customer.id,
-        fullName: result.customer.fullName,
+        id: result.detail.loan.customerId,
+        fullName: result.customerName,
       },
       staffNames,
       susuAccounts: result.susuAccounts,
@@ -159,8 +162,10 @@ function messageFor(failure: ApiFailure): string {
       "This application has already been decided — someone got there first.",
     LOAN_NOT_OPEN:
       "This loan isn't open, so no repayment can be recorded against it.",
+    // The spec now says the excess is handled, but still lists this code —
+    // so it is mapped in case staging is running the older behaviour.
     PAYOUT_EXCEEDS_BALANCE:
-      "That account's payout is more than the loan still owes, and the difference can't be paid out in the same step. Record a cash repayment for the balance, then close the account normally.",
+      "This API build still refuses a payout larger than the loan owes. Record a cash repayment for the balance, then close the account normally.",
     ALREADY_CLOSED: "That susu account has already been closed.",
     CUSTOMER_MISMATCH: "That susu account belongs to a different customer.",
     NO_PAYOUT:
@@ -236,9 +241,13 @@ async function runIntent({
     if (Object.keys(fieldErrors).length)
       return { intent, fieldErrors } satisfies ActionData;
 
+    const excessTo =
+      form.get("excessTo") === "savings" ? "savings" : "pending-withdrawal";
+
     const result = await loansApi.repayLoanFromSusu(token, id, {
       susuAccountId,
       idempotencyKey,
+      excessTo,
     });
 
     if (result.replayed) {
@@ -254,11 +263,23 @@ async function runIntent({
     const detail = closure
       ? ` Commission ${formatGhs(closure.commission)} kept.`
       : "";
+
+    // The API caps what it applies at the balance; the rest went somewhere.
+    const excess = closure
+      ? Math.max(0, closure.payout - result.repayment.amount)
+      : 0;
+    const spare =
+      excess > 0
+        ? excessTo === "savings"
+          ? ` ${formatGhs(excess)} over went to their savings.`
+          : ` ${formatGhs(excess)} over stays in the susu account for them to collect.`
+        : "";
+
     return {
       ok: true,
       intent,
       message:
-        settledMessage(result.loan, result.repayment.amount) + detail,
+        settledMessage(result.loan, result.repayment.amount) + detail + spare,
     } satisfies ActionData;
   }
 
@@ -280,7 +301,6 @@ export default function LoanDetail({
 }: Route.ComponentProps) {
   const {
     loan,
-    schedule,
     repayments,
     customer,
     staffNames,
@@ -315,6 +335,7 @@ export default function LoanDetail({
         />
 
         <div className="flex flex-wrap items-center gap-2">
+          {loan.status === "repaid" && <SettledBanner loan={loan} />}
           {loan.status === "pending" && (
             <>
               <ApproveButton loan={loan} name={customer.fullName} />
@@ -380,191 +401,85 @@ export default function LoanDetail({
           the monthly schedule, and sends the customer an SMS.
         </p>
       ) : loan.status === "rejected" ? null : (
-        <>
-          <section className="mt-6">
-            <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted">
-              Repayment schedule
-            </h2>
-            <DataTable
-              columns={["#", "Due", "Amount due", "Paid", "Status"]}
-              ariaLabel="Repayment schedule"
-              emptyContent={{
-                title: "No schedule",
-                subtext: "A schedule is generated when a loan is approved.",
-              }}
-            >
-              {schedule.map((instalment) => (
-                <Table.Row
-                  key={instalment.installmentNumber}
-                  id={String(instalment.installmentNumber)}
-                >
-                  <Table.Cell className="px-4 py-2 font-medium text-foreground">
-                    {instalment.installmentNumber}
-                  </Table.Cell>
-                  <Table.Cell className="px-4 py-2 text-muted">
-                    {formatDate(instalment.dueDate)}
-                  </Table.Cell>
-                  <Table.Cell className="px-4 py-2 tabular-nums text-muted">
-                    {formatGhs(instalment.amountDue, { symbol: null })}
-                  </Table.Cell>
-                  <Table.Cell
-                    className={`px-4 py-2 tabular-nums ${
-                      instalment.amountPaid >= instalment.amountDue
-                        ? "font-medium text-success"
-                        : "text-muted"
-                    }`}
-                  >
-                    {formatGhs(instalment.amountPaid, { symbol: null })}
-                  </Table.Cell>
-                  <Table.Cell className="px-4 py-2 text-muted">
-                    {scheduleStatusLabel(instalment.status)}
-                  </Table.Cell>
-                </Table.Row>
-              ))}
-            </DataTable>
-          </section>
-
-          <section className="mt-6">
-            <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted">
-              Repayment history
-            </h2>
-            <DataTable
-              columns={["Date", "Amount", "Source", "Recorded by"]}
-              ariaLabel="Repayment history"
-              emptyContent={{
-                icon: <HandCoins size={20} />,
-                title: "No repayments yet",
-                subtext: "The first repayment will appear here.",
-              }}
-            >
-              {repayments.map((repayment) => (
-                <Table.Row key={repayment.id} id={repayment.id}>
-                  <Table.Cell className="px-4 py-2 text-muted">
-                    {formatDateTime(repayment.createdAt)}
-                  </Table.Cell>
-                  <Table.Cell className="px-4 py-2 font-medium tabular-nums text-success">
-                    {formatGhs(repayment.amount, { symbol: null })}
-                  </Table.Cell>
-                  <Table.Cell className="px-4 py-2 text-muted">
-                    {repayment.susuAccountId ? (
-                      <Link
-                        to={`/susu/${repayment.susuAccountId}`}
-                        className="hover:text-success hover:underline"
-                      >
-                        {repaymentSourceLabel(repayment.source)}
-                      </Link>
-                    ) : (
-                      repaymentSourceLabel(repayment.source)
-                    )}
-                  </Table.Cell>
-                  <Table.Cell className="px-4 py-2 text-muted">
-                    {staffNames[repayment.recordedById] ?? "Unknown"}
-                  </Table.Cell>
-                </Table.Row>
-              ))}
-            </DataTable>
-          </section>
-        </>
+        <section className="mt-6">
+          <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted">
+            Repayment history
+          </h2>
+          <DataTable
+            columns={["Date", "Amount", "Source", "Recorded by"]}
+            ariaLabel="Repayment history"
+            emptyContent={{
+              icon: <HandCoins size={20} />,
+              title: "No repayments yet",
+              subtext: "The first repayment will appear here.",
+            }}
+          >
+            {repayments.map((repayment) => (
+              <Table.Row key={repayment.id} id={repayment.id}>
+                <Table.Cell className="px-4 py-2 text-muted">
+                  {formatDateTime(repayment.createdAt)}
+                </Table.Cell>
+                <Table.Cell className="px-4 py-2 font-medium tabular-nums text-success">
+                  {formatGhs(repayment.amount, { symbol: null })}
+                </Table.Cell>
+                <Table.Cell className="px-4 py-2 text-muted">
+                  {repayment.susuAccountId ? (
+                    <Link
+                      to={`/susu/${repayment.susuAccountId}`}
+                      className="hover:text-success hover:underline"
+                    >
+                      {repaymentSourceLabel(repayment.source)}
+                    </Link>
+                  ) : (
+                    repaymentSourceLabel(repayment.source)
+                  )}
+                </Table.Cell>
+                <Table.Cell className="px-4 py-2 text-muted">
+                  {staffNames[repayment.recordedById] ?? "Unknown"}
+                </Table.Cell>
+              </Table.Row>
+            ))}
+          </DataTable>
+        </section>
       )}
     </div>
   );
 }
 
 function MoneyPanel({ loan }: { loan: Loan }) {
-  const decided = loan.status !== "pending" && loan.status !== "rejected";
-
   return (
     <section>
-      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <LoanStatusPill loan={loan} />
-        <p className="text-xs text-muted">
-          Applied {formatDate(loan.appliedAt)}
-          {loan.approvedAt && ` · approved ${formatDate(loan.approvedAt)}`}
-          {loan.dueDate && ` · due ${formatDate(loan.dueDate)}`}
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi
           icon={<Banknote size={14} />}
           label="Principal"
           value={formatGhs(loan.principal)}
-          foot={
-            <p className="mt-0.5 truncate text-xs text-muted">
-              {LOAN_TIER_LABELS[loan.tier]} tier · {loan.durationMonths} months
-            </p>
-          }
         />
         <Kpi
           icon={<Percent size={14} />}
           label={`Interest at ${loan.ratePercent}%`}
           value={formatGhs(loan.interestAmount)}
-          foot={
-            <p className="mt-0.5 truncate text-xs text-muted">
-              {loan.escalatedAt ? "Flat, escalated" : "Flat, one-off"}
-            </p>
-          }
         />
         <Kpi
           icon={<Receipt size={14} />}
           label="Total repayable"
           value={formatGhs(loan.totalDue)}
-          foot={
-            decided ? (
-              <span className="mt-1.5 flex items-center gap-2">
-                <span className="h-1 flex-1 overflow-hidden rounded-full bg-border">
-                  <span
-                    className="block h-full rounded-full bg-success transition-all"
-                    style={{ width: `${repaidPercent(loan)}%` }}
-                  />
-                </span>
-                <span className="shrink-0 text-xs tabular-nums text-muted">
-                  {repaidPercent(loan)}%
-                </span>
-              </span>
-            ) : (
-              <p className="mt-0.5 truncate text-xs text-muted">
-                Not yet approved
-              </p>
-            )
-          }
+        />
+        <Kpi
+          icon={<HandCoins size={14} />}
+          label="Paid"
+          value={formatGhs(loan.totalRepaid)}
+          tone="success"
         />
         <Kpi
           icon={<Wallet size={14} />}
           label="Still owed"
           value={formatGhs(loan.remaining)}
           tone={loan.status === "arrears" ? "danger" : undefined}
-          foot={
-            <p className="mt-0.5 truncate text-xs text-muted">
-              {decided
-                ? `${formatGhs(loan.totalRepaid)} repaid`
-                : "Nothing owed until approval"}
-            </p>
-          }
         />
       </div>
 
-      {loan.escalatedAt ? (
-        <Note tone="danger" icon={<TriangleAlert size={13} />}>
-          Rate escalated {formatDate(loan.escalatedAt)} to {loan.ratePercent}%,
-          charged on the original principal — the total above is higher than the
-          figure quoted at approval.
-          {loan.frozen && " It can rise no further; this loan now needs a person."}
-        </Note>
-      ) : loan.frozen ? (
-        <Note tone="muted" icon={<Snowflake size={13} />}>
-          Frozen — the rate can rise no further. This loan needs a person.
-        </Note>
-      ) : null}
-
-      {loan.status === "repaid" && (
-        <Note tone="success" icon={<Check size={13} />}>
-          Settled{loan.closedAt ? ` ${formatDate(loan.closedAt)}` : ""} —{" "}
-          {loan.repaidOnTime
-            ? "on time, so this customer can borrow at the big tier."
-            : "late, so the big tier stays locked."}
-        </Note>
-      )}
+      {(loan.escalatedAt || loan.frozen) && <RatePrompt loan={loan} />}
 
       {loan.status === "rejected" && loan.rejectionReason && (
         <Note tone="muted">
@@ -573,6 +488,109 @@ function MoneyPanel({ loan }: { loan: Loan }) {
         </Note>
       )}
     </section>
+  );
+}
+
+/**
+ * What the rate ladder has done to this loan, and what the office does next.
+ * Stated rather than implied: an escalated total is larger than the figure the
+ * customer was quoted, and whoever is holding the counter has to explain it.
+ */
+function RatePrompt({ loan }: { loan: Loan }) {
+  const frozen = loan.frozen;
+
+  return (
+    <div
+      className={`mt-3 overflow-hidden rounded-lg border-2 ${
+        frozen
+          ? "border-border bg-surface-secondary"
+          : "border-red-500/40 bg-red-500/5"
+      }`}
+    >
+      <div className="flex gap-3 p-3.5">
+        <span
+          aria-hidden="true"
+          className={`grid size-8 shrink-0 place-items-center rounded-full ${
+            frozen
+              ? "bg-border text-muted"
+              : "bg-red-500/15 text-red-600 dark:text-red-400"
+          }`}
+        >
+          {frozen ? <Snowflake size={16} /> : <TriangleAlert size={16} />}
+        </span>
+
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm font-semibold text-foreground">
+            {frozen
+              ? "Frozen — this one needs a person"
+              : `The rate has climbed to ${loan.ratePercent}%`}
+          </p>
+
+          <p className="text-xs text-muted">
+            {loan.escalatedAt && (
+              <>
+                Escalated {formatDate(loan.escalatedAt)}, charged on the
+                original {formatGhs(loan.principal)} rather than the balance —
+                so the {formatGhs(loan.totalDue)} above is more than the
+                customer was quoted at approval.{" "}
+              </>
+            )}
+            {frozen &&
+              "The ladder is exhausted, so nothing further will be added automatically."}
+          </p>
+        </div>
+      </div>
+
+      {/* The instruction, kept apart from the explanation above it. */}
+      <p
+        className={`border-t px-3.5 py-2 text-xs ${
+          frozen
+            ? "border-border text-muted"
+            : "border-red-500/20 text-red-600 dark:text-red-400"
+        }`}
+      >
+        <span className="font-medium">What to do:</span>{" "}
+        {frozen
+          ? "Agree terms with the customer and settle it by hand — the API will not move this loan again on its own."
+          : "Quote the new total before taking anything at the counter, and chase the arrears while the ladder can still climb."}
+      </p>
+    </div>
+  );
+}
+
+/** A closed loan's verdict, sat opposite the breadcrumbs where the actions were. */
+function SettledBanner({ loan }: { loan: Loan }) {
+  const onTime = loan.repaidOnTime;
+
+  return (
+    <div
+      className={`flex items-center gap-2.5 rounded-lg border-2 py-1.5 pl-2 pr-3.5 ${
+        onTime
+          ? "border-success/30 bg-success/10"
+          : "border-warning/40 bg-warning/10"
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className={`grid size-7 shrink-0 place-items-center rounded-full ${
+          onTime
+            ? "bg-success/15 text-success"
+            : "bg-warning/20 text-warning-foreground dark:text-warning"
+        }`}
+      >
+        {onTime ? <Check size={15} /> : <Clock size={15} />}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold leading-tight text-foreground">
+          Settled{loan.closedAt ? ` ${formatDate(loan.closedAt)}` : ""}
+        </span>
+        <span className="block text-xs leading-tight text-muted">
+          {onTime
+            ? "On time — the big tier is unlocked for their next loan."
+            : "Late — the big tier stays locked."}
+        </span>
+      </span>
+    </div>
   );
 }
 
@@ -941,6 +959,13 @@ function SusuClosureDrawer({
   const formRef = useRef<HTMLFormElement>(null);
   const remaining = settlementAmount(loan);
 
+  // A payout larger than the balance is no longer refused: the API applies what
+  // the loan owes and hands the rest back one of two ways, so only an account
+  // with nothing to give is blocked.
+  const [excessTo, setExcessTo] = useState<"pending-withdrawal" | "savings">(
+    "pending-withdrawal",
+  );
+
   const rows = accounts.map((account) => {
     const payout = projectedPayout(account);
     return {
@@ -949,14 +974,14 @@ function SusuClosureDrawer({
       blocked:
         payout <= 0
           ? "No payout yet — deposits don't cover the commission."
-          : payout > remaining
-            ? `Payout is more than the ${formatGhs(remaining)} still owed. Take a cash repayment first, then close this account normally.`
-            : null,
+          : null,
     };
   });
 
   const chosen = rows.find((row) => row.account.id === selected) ?? null;
   const ready = chosen !== null && chosen.blocked === null;
+  const applied = chosen ? Math.min(chosen.payout, remaining) : 0;
+  const excess = chosen ? Math.max(0, chosen.payout - remaining) : 0;
 
   return (
     <SideDrawer
@@ -1010,8 +1035,8 @@ function SusuClosureDrawer({
             <span className="font-medium text-foreground">
               {chosen?.account.accountNumber}
             </span>{" "}
-            closes and its payout goes straight to the loan — the customer
-            receives no cash. Both happen together or neither does.
+            stops and its payout goes straight to the loan — the customer
+            receives no cash now. Both happen together or neither does.
           </p>
           <dl className="space-y-2 rounded-lg border border-border bg-background p-3">
             <Figure
@@ -1022,15 +1047,21 @@ function SusuClosureDrawer({
               label="Commission kept"
               value={formatGhs(chosen?.account.dailyAmount ?? 0)}
             />
-            <Figure
-              label="Applied to loan"
-              value={formatGhs(chosen?.payout ?? 0)}
-              strong
-            />
+            <Figure label="Applied to loan" value={formatGhs(applied)} strong />
             <Figure
               label="Owed after"
-              value={formatGhs(Math.max(0, remaining - (chosen?.payout ?? 0)))}
+              value={formatGhs(Math.max(0, remaining - applied))}
             />
+            {excess > 0 && (
+              <Figure
+                label={
+                  excessTo === "savings"
+                    ? "Into their savings"
+                    : "Left in the susu account"
+                }
+                value={formatGhs(excess)}
+              />
+            )}
           </dl>
           <p>The account can't be reopened, and this can't be reversed.</p>
         </div>
@@ -1095,13 +1126,72 @@ function SusuClosureDrawer({
           </ul>
         )}
 
+        {/* Only worth asking once there is something left over to place. */}
+        {excess > 0 && (
+          <fieldset className="space-y-1.5">
+            <legend className="text-sm font-medium text-foreground">
+              The {formatGhs(excess)} over
+            </legend>
+            <input type="hidden" name="excessTo" value={excessTo} />
+            <div className="flex gap-2">
+              <ExcessChoice
+                selected={excessTo === "pending-withdrawal"}
+                onSelect={() => setExcessTo("pending-withdrawal")}
+                title="Leave it in the account"
+                detail="They collect it in cash whenever they come in."
+              />
+              <ExcessChoice
+                selected={excessTo === "savings"}
+                onSelect={() => setExcessTo("savings")}
+                title="Into their savings"
+                detail="Credited in the same transaction, no deposit minimum."
+              />
+            </div>
+          </fieldset>
+        )}
+
         <p className="text-xs text-muted">
           The payout is this app's projection — deposits less one day's
-          commission. The API computes its own at closure, and refuses the whole
-          operation if it comes to more than the loan owes.
+          commission. The API computes its own, applies at most the{" "}
+          {formatGhs(remaining)} still owed, and hands back whatever is over.
         </p>
       </Form>
     </SideDrawer>
+  );
+}
+
+/** Where the money over the loan's balance goes. Two ways, both the API's. */
+function ExcessChoice({
+  selected,
+  onSelect,
+  title,
+  detail,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      onClick={onSelect}
+      className={`flex-1 rounded-md border-2 px-3 py-2 text-left transition-colors ${
+        selected
+          ? "border-success"
+          : "border-border hover:border-success/50"
+      }`}
+    >
+      <span
+        className={`block text-sm ${
+          selected ? "font-semibold text-foreground" : "font-medium text-muted"
+        }`}
+      >
+        {title}
+      </span>
+      <span className="mt-0.5 block text-xs text-muted">{detail}</span>
+    </button>
   );
 }
 

@@ -7,7 +7,7 @@ import { TextInput } from "~/components/inputs";
 import { ThemeToggle } from "~/components/theme-toggle";
 import * as authApi from "~/lib/api/auth";
 import { ApiError } from "~/lib/api/client";
-import { requireUser, withAuth } from "~/lib/session.server";
+import { requireUser, safeRedirect, withAuth } from "~/lib/session.server";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Change password · YADAH Dynamic Enterprise" }];
@@ -15,13 +15,6 @@ export function meta(_: Route.MetaArgs) {
 
 const FIELD_CLASS =
   "min-h-[40px] rounded-md dark:bg-white/5 border-2 border-success/50 focus:ring-0";
-
-/** Only permit same-origin, absolute-path redirects (guards against open redirect). */
-function safeRedirect(value: FormDataEntryValue | null, fallback = "/dashboard") {
-  if (typeof value !== "string") return fallback;
-  if (!value.startsWith("/") || value.startsWith("//")) return fallback;
-  return value;
-}
 
 export async function loader({ request }: Route.LoaderArgs) {
   // Exempt from its own guard — see `requireUser`.
@@ -197,17 +190,23 @@ export default function ChangePassword({
           </Button>
         </Form>
 
-        <p className="mt-6 text-center text-sm text-muted">
+        <div className="mt-6 text-center text-sm text-muted">
           {forced ? (
-            <Link to="/logout" className="hover:text-foreground hover:underline">
-              Sign out instead
-            </Link>
+            // A POST: the GET route only bounces back here with the session intact.
+            <Form method="post" action="/logout">
+              <button
+                type="submit"
+                className="hover:text-foreground hover:underline"
+              >
+                Sign out instead
+              </button>
+            </Form>
           ) : (
             <Link to={redirectTo} className="hover:text-foreground hover:underline">
               Cancel
             </Link>
           )}
-        </p>
+        </div>
       </div>
     </div>
   );

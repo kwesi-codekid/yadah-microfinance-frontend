@@ -13,6 +13,8 @@ const PILL =
 const SUSU_TONE: Record<SusuAccountStatus, string> = {
   active: "bg-success/15 text-success",
   completed: "bg-navy/15 text-navy dark:text-navy-light",
+  // Money is still owed to the customer, so it reads as unfinished business.
+  "pending-payout": "bg-warning/15 text-warning-foreground dark:text-warning",
   closed: "bg-muted/15 text-muted",
 };
 

@@ -25,7 +25,9 @@ import {
 import { fieldErrorsFromFailure, readCustomerForm } from "~/lib/customer-form";
 import {
   describeUploads,
+  discardUploads,
   readImageSlots,
+  replacedPublicIds,
   uploadImageSlots,
 } from "~/lib/customer-uploads.server";
 import { formatDate } from "~/lib/format";
@@ -135,8 +137,22 @@ async function runIntent({
     if (Object.keys(fieldErrors).length)
       return { intent, fieldErrors } satisfies ActionData;
 
-    const images = await uploadImageSlots(token, pending);
-    await customersApi.updateCustomer(token, id, { ...input, ...images });
+    const { patch, publicIds } = await uploadImageSlots(token, pending);
+
+    // Read the record before overwriting it, so the pictures this save
+    // replaces can be deleted rather than left hosted and unreferenced.
+    const replaced = pending.length
+      ? replacedPublicIds((await customersApi.getCustomer(token, id)).customer, patch)
+      : [];
+
+    await customersApi
+      .updateCustomer(token, id, { ...input, ...patch })
+      .catch(async (error) => {
+        await discardUploads(token, publicIds);
+        throw error;
+      });
+
+    await discardUploads(token, replaced);
 
     return {
       ok: true,

@@ -133,6 +133,13 @@ export interface RepayFromSusuInput {
   susuAccountId: string;
   /** 8–128 chars, from `newIdempotencyKey()`. Required. */
   idempotencyKey: string;
+  /**
+   * Where a payout larger than the loan owes should go. The API caps what it
+   * applies at the remaining balance and does one of two things with the rest:
+   * leaves it in the susu account awaiting withdrawal (the default), or credits
+   * the customer's active savings account in the same transaction.
+   */
+  excessTo?: "pending-withdrawal" | "savings";
 }
 
 export function repayLoanFromSusu(

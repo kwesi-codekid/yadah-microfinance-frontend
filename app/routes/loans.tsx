@@ -13,7 +13,6 @@ import {
 import { Button } from "@heroui/react";
 import {
   Eye,
-  Filter,
   HandCoins,
   LoaderCircle,
   Search,
@@ -26,10 +25,11 @@ import {
 } from "~/components/customer-picker";
 import { DataTable, Table } from "~/components/data-table";
 import { TextInput } from "~/components/inputs";
-import { FIELD, FieldError, FilterSelect, IconLink } from "~/components/form-fields";
+import { FIELD, FieldError, IconLink } from "~/components/form-fields";
 import { LoanStatusPill } from "~/components/loan-status";
 import { ConfirmModal } from "~/components/modals";
 import { SideDrawer } from "~/components/side-drawer";
+import { TabLink, TabList } from "~/components/tabs";
 import { notify } from "~/components/toast";
 import { toApiFailure, type ApiFailure } from "~/lib/api/client";
 import * as loansApi from "~/lib/api/loans";
@@ -40,7 +40,6 @@ import {
   LOAN_APPLICATION_ERRORS,
   LOAN_DURATIONS,
   LOAN_STATUS_LABELS,
-  LOAN_STATUSES,
   LOAN_TIER_LABELS,
   normalizeLoanConfig,
   projectInstalments,
@@ -62,15 +61,26 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Loans · YADAH Dynamic Enterprise" }];
 }
 
-const FILTERS_ID = "loan-filters";
+const LIST_ID = "loan-list";
 
-/** Statuses worth surfacing as a filter, in the order the office works them. */
+/**
+ * Statuses in the order the office works them: the live book first, then the
+ * queue and the trouble, with the finished ones and "all" behind those.
+ */
+const TAB_ORDER: LoanStatus[] = [
+  "active",
+  "arrears",
+  "pending",
+  "repaid",
+  "rejected",
+];
+
 const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "", label: "All loans" },
-  ...LOAN_STATUSES.map((status) => ({
+  ...TAB_ORDER.map((status) => ({
     value: status,
     label: LOAN_STATUS_LABELS[status],
   })),
+  { value: "", label: "All loans" },
 ];
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -552,8 +562,6 @@ export default function Loans({ loaderData, actionData }: Route.ComponentProps) 
   const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState(filters.search);
-  const activeFilters = filters.status ? 1 : 0;
-  const [filtersOpen, setFiltersOpen] = useState(activeFilters > 0);
   // Bumped on every application recorded, to remount the drawer empty.
   const [recorded, setRecorded] = useState(0);
 
@@ -613,6 +621,16 @@ export default function Loans({ loaderData, actionData }: Route.ComponentProps) 
       console.error("[loans] request failed:", actionData.failure);
   }, [actionData]);
 
+  // "All loans" is the loader's default, so it needs no parameter of its own.
+  function statusHref(value: string) {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set("status", value);
+    else next.delete("status");
+    next.delete("page");
+    const qs = next.toString();
+    return `/loans${qs ? `?${qs}` : ""}`;
+  }
+
   function setParam(patch: Record<string, string | null>) {
     const next = new URLSearchParams(searchParams);
     for (const [k, v] of Object.entries(patch)) {
@@ -644,7 +662,7 @@ export default function Loans({ loaderData, actionData }: Route.ComponentProps) 
             formError={actionData?.formError}
           />
           <Link
-            to="/loans/config"
+            to="/settings/loans"
             className="flex min-h-8 items-center gap-1.5 rounded-md border-2 border-border px-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-secondary"
           >
             <Settings2 size={12} />
@@ -653,17 +671,17 @@ export default function Loans({ loaderData, actionData }: Route.ComponentProps) 
         </div>
       </div>
 
-      {/* A real GET form, so the filters still work with JavaScript off. */}
-      <Form
-        method="get"
-        className="mb-4 flex flex-wrap items-end gap-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          commitSearch(search);
-        }}
-      >
-        <div className="flex w-full max-w-xs items-center gap-2">
-          <div className="relative flex-1">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {/* A real GET form, so the search still works with JavaScript off. */}
+        <Form
+          method="get"
+          className="w-full max-w-xs"
+          onSubmit={(event) => {
+            event.preventDefault();
+            commitSearch(search);
+          }}
+        >
+          <div className="relative">
             <TextInput
               name="search"
               aria-label="Search loans"
@@ -689,64 +707,37 @@ export default function Loans({ loaderData, actionData }: Route.ComponentProps) 
               />
             )}
           </div>
+        </Form>
 
-          <button
-            type="button"
-            aria-label={
-              activeFilters ? `Filters (${activeFilters} applied)` : "Filters"
-            }
-            aria-expanded={filtersOpen}
-            aria-controls={FILTERS_ID}
-            onClick={() => setFiltersOpen((prev) => !prev)}
-            className="relative flex size-9 shrink-0 items-center justify-center rounded-md border-2 border-border bg-field text-muted transition-colors hover:text-foreground sm:hidden"
-          >
-            <Filter size={16} />
-            {activeFilters > 0 && (
-              <span
-                aria-hidden="true"
-                className="absolute -right-1 -top-1 size-2.5 rounded-full bg-success ring-2 ring-surface"
-              />
-            )}
-          </button>
-        </div>
-
-        <div
-          id={FILTERS_ID}
-          className={`${filtersOpen ? "flex" : "hidden"} w-full flex-wrap items-end gap-3 sm:flex sm:w-auto`}
+        <TabList
+          label="Filter by status"
+          className="max-w-full overflow-x-auto"
         >
-          <FilterSelect
-            name="status"
-            label="Filter by status"
-            value={filters.status}
-            onChange={(value) => setParam({ status: value || null, page: null })}
-            options={STATUS_OPTIONS}
-          />
-        </div>
+          {STATUS_OPTIONS.map((option) => (
+            <TabLink
+              key={option.value}
+              to={statusHref(option.value)}
+              selected={option.value === filters.status}
+              controls={LIST_ID}
+            >
+              {option.label}
+            </TabLink>
+          ))}
+        </TabList>
+      </div>
 
-        {filters.customerId && (
-          <button
-            type="button"
-            onClick={() => setParam({ customerId: null, page: null })}
-            className="flex min-h-8 items-center gap-1.5 rounded-full border-2 border-border px-3 text-xs font-medium text-muted transition-colors hover:text-foreground"
-          >
-            One customer only · clear
-          </button>
-        )}
-
-      </Form>
-
-      <p aria-live="polite" className="mb-2 text-xs text-muted">
-        {searching
-          ? "Searching…"
-          : result.total === 0
-            ? "No loans"
-            : `Showing ${(result.page - 1) * result.limit + 1}–${Math.min(
-                result.page * result.limit,
-                result.total,
-              )} of ${result.total}`}
-      </p>
+      {filters.customerId && (
+        <button
+          type="button"
+          onClick={() => setParam({ customerId: null, page: null })}
+          className="mb-3 flex min-h-8 items-center gap-1.5 rounded-full border-2 border-border px-3 text-xs font-medium text-muted transition-colors hover:text-foreground"
+        >
+          One customer only · clear
+        </button>
+      )}
 
       <DataTable
+        id={LIST_ID}
         columns={[
           "Customer",
           "Principal",
@@ -765,6 +756,16 @@ export default function Loans({ loaderData, actionData }: Route.ComponentProps) 
         onPageSizeChange={(s) => setParam({ limit: String(s), page: "1" })}
         // Contains the loader's default of 20; see the note in customers.tsx.
         pageSizeOptions={[10, 20, 50, 100]}
+        summary={
+          searching
+            ? "Searching…"
+            : result.total === 0
+              ? "No loans"
+              : `Showing ${(result.page - 1) * result.limit + 1}–${Math.min(
+                  result.page * result.limit,
+                  result.total,
+                )} of ${result.total}`
+        }
         emptyContent={{
           icon: <HandCoins size={20} />,
           title: "No loans found",

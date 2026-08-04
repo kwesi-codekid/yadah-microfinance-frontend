@@ -9,7 +9,15 @@ import {
   useSearchParams,
 } from "react-router";
 import { Button } from "@heroui/react";
-import { Eye, Filter, LoaderCircle, PiggyBank, Plus, Search } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Eye,
+  Filter,
+  LoaderCircle,
+  PiggyBank,
+  Plus,
+  Search,
+} from "lucide-react";
 import type { Route } from "./+types/savings";
 import { SavingsStatusPill } from "~/components/account-status";
 import {
@@ -21,21 +29,16 @@ import {
   FIELD,
   FieldError,
   FilterSelect,
+  IconAction,
   IconLink,
 } from "~/components/form-fields";
 import { TextInput } from "~/components/inputs";
 import { SideDrawer } from "~/components/side-drawer";
+import { TransferDrawer } from "~/components/transfer-drawer";
 import { notify } from "~/components/toast";
 import { toApiFailure, type ApiFailure } from "~/lib/api/client";
 import * as savingsApi from "~/lib/api/savings";
 import { pickedCustomer } from "~/lib/customer-search.server";
-import {
-  matchNumber,
-  pageOf,
-  scanAccounts,
-  SCAN_LIMIT,
-  typedDigits,
-} from "~/lib/account-scan";
 import { formatDate } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import { formatGhs, parseGhsAmount } from "~/lib/money";
@@ -46,6 +49,7 @@ import {
   SAVINGS_FEE,
   SAVINGS_MIN_BALANCE,
   SAVINGS_MIN_DEPOSIT,
+  type SavingsAccount,
   type SavingsAccountStatus,
 } from "~/lib/savings-client";
 import { readOpenSavingsForm } from "~/lib/savings-form";
@@ -56,9 +60,6 @@ export function meta(_: Route.MetaArgs) {
 }
 
 const FILTERS_ID = "savings-filters";
-
-/** A whole-book scan reads further than the per-customer one; see `truncated`. */
-const SCAN_MAX_PAGES = 10;
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "", label: "All accounts" },
@@ -76,7 +77,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const page = Math.max(1, Number(sp.get("page") || "1") || 1);
   // Clamped to the API's own bound (1–100); see the note in customers.tsx.
   const limit = Math.min(100, Math.max(1, Number(sp.get("limit") || "20") || 20));
-  const typed = typedDigits(sp.get("accountNumber"), "savings");
+  // Fuzzy server-side: a name, a phone, or the first digits of a number.
+  const search = sp.get("search")?.trim().slice(0, 100) || undefined;
   // `?open=<id>` arrives from a customer's page — the drawer opens on them.
   const openFor = sp.get("open");
   const statusParam = sp.get("status");
@@ -87,33 +89,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     : undefined;
 
   const { data: payload, headers } = await withAuth(request, async (token) => {
-    const prefill = openFor ? await pickedCustomer(token, openFor) : null;
-    // Digits narrow the list, so read several pages and match them here.
-    if (typed) {
-      const { items, truncated } = await scanAccounts(
-        (p) =>
-          savingsApi.listSavingsAccounts(token, {
-            page: p,
-            limit: SCAN_LIMIT,
-            status,
-          }),
-        SCAN_MAX_PAGES,
-      );
-      return {
-        result: pageOf(matchNumber(items, typed), page, limit),
-        truncated,
-        prefill,
-      };
-    }
-    const result = await savingsApi.listSavingsAccounts(token, {
-      page,
-      limit,
-      status,
-    });
-    return { result, truncated: false, prefill };
+    const [result, prefill] = await Promise.all([
+      savingsApi.listSavingsAccounts(token, { page, limit, status, search }),
+      openFor ? pickedCustomer(token, openFor) : null,
+    ]);
+    return { result, prefill };
   });
 
-  const { result, truncated, prefill } = payload;
+  const { result, prefill } = payload;
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
   if (page > pageCount) {
@@ -124,7 +107,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   return data(
     {
       result,
-      truncated,
       prefill,
       canManage: isOffice(user),
       /** Fresh each load, so a resubmit of the same page can't double-open. */
@@ -133,7 +115,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         page,
         limit,
         status: status ?? "",
-        accountNumber: typed,
+        search: search ?? "",
       },
     },
     { headers },
@@ -328,34 +310,34 @@ export default function Savings({
   loaderData,
   actionData,
 }: Route.ComponentProps) {
-  const { result, truncated, prefill, canManage, savingsKey, filters } =
-    loaderData;
+  const { result, prefill, canManage, savingsKey, filters } = loaderData;
   const navigation = useNavigation();
   const navigationType = useNavigationType();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [number, setNumber] = useState(filters.accountNumber);
+  const [search, setSearch] = useState(filters.search);
   const activeFilters = filters.status ? 1 : 0;
   const [filtersOpen, setFiltersOpen] = useState(activeFilters > 0);
   // Bumped on every account opened, to remount the drawer empty and closed.
   const [opened, setOpened] = useState(0);
+  // Kept after closing so the drawer can animate out rather than vanish.
+  const [transferFor, setTransferFor] = useState<SavingsAccount | null>(null);
+  const [transferOpen, setTransferOpen] = useState(false);
 
   const pageCount = Math.max(1, Math.ceil(result.total / result.limit));
 
-  const pendingNumber =
+  const pendingSearch =
     navigation.state === "loading" && navigation.location
-      ? (new URLSearchParams(navigation.location.search).get("accountNumber") ??
-        "")
+      ? (new URLSearchParams(navigation.location.search).get("search") ?? "")
       : null;
-  const searching =
-    pendingNumber !== null && pendingNumber !== filters.accountNumber;
+  const searching = pendingSearch !== null && pendingSearch !== filters.search;
 
-  const commitNumber = useCallback(
+  const commitSearch = useCallback(
     (value: string) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          if (value) next.set("accountNumber", value);
-          else next.delete("accountNumber");
+          if (value) next.set("search", value);
+          else next.delete("search");
           next.delete("page");
           return next;
         },
@@ -367,15 +349,15 @@ export default function Savings({
 
   // Live search: one request per pause in typing, not per keystroke.
   useEffect(() => {
-    if (number === filters.accountNumber) return;
-    const timer = setTimeout(() => commitNumber(number), 300);
+    if (search === filters.search) return;
+    const timer = setTimeout(() => commitSearch(search), 300);
     return () => clearTimeout(timer);
-  }, [number, filters.accountNumber, commitNumber]);
+  }, [search, filters.search, commitSearch]);
 
   // Back/forward moves the URL out from under the field, so adopt it.
   useEffect(() => {
-    if (navigationType === "POP") setNumber(filters.accountNumber);
-  }, [navigationType, filters.accountNumber]);
+    if (navigationType === "POP") setSearch(filters.search);
+  }, [navigationType, filters.search]);
 
   useEffect(() => {
     if (actionData?.ok) {
@@ -434,19 +416,18 @@ export default function Savings({
         className="mb-4 flex flex-wrap items-end gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          commitNumber(number);
+          commitSearch(search);
         }}
       >
         <div className="flex w-full max-w-xs items-center gap-2">
           <div className="relative flex-1">
             <TextInput
-              name="accountNumber"
-              aria-label="Search by savings account number"
-              value={number}
-              onChange={(value) => setNumber(typedDigits(value, "savings"))}
+              name="search"
+              aria-label="Search savings accounts"
+              value={search}
+              onChange={setSearch}
               inputProps={{
-                placeholder: "Account number",
-                inputMode: "numeric",
+                placeholder: "Name, phone or account number",
                 autoComplete: "off",
                 className: `${FIELD} py-1 pl-8`,
               }}
@@ -500,13 +481,6 @@ export default function Savings({
         </div>
       </Form>
 
-      {truncated && (
-        <p className="mb-3 rounded-lg border-2 border-warning/40 bg-warning/10 px-3 py-2 text-xs text-foreground">
-          More accounts exist than this search reads, so a matching number may be
-          missing. Type more digits to narrow it.
-        </p>
-      )}
-
       <DataTable
         columns={[
           "Customer",
@@ -539,8 +513,8 @@ export default function Savings({
         emptyContent={{
           icon: <PiggyBank size={20} />,
           title: "No savings accounts found",
-          subtext: filters.accountNumber
-            ? `No account number contains “${filters.accountNumber}”.`
+          subtext: filters.search
+            ? `Nothing matches “${filters.search}”.`
             : filters.status
               ? `No accounts are ${SAVINGS_ACCOUNT_STATUS_LABELS[
                   filters.status as SavingsAccountStatus
@@ -574,16 +548,46 @@ export default function Savings({
               {formatDate(account.openedAt)}
             </Table.Cell>
             <Table.Cell className="px-4 py-2">
-              <IconLink
-                label={`Open account ${account.accountNumber}`}
-                to={`/savings/${account.id}`}
-              >
-                <Eye size={16} />
-              </IconLink>
+              <div className="flex items-center gap-1">
+                <IconLink
+                  label={`Open account ${account.accountNumber}`}
+                  to={`/savings/${account.id}`}
+                >
+                  <Eye size={16} />
+                </IconLink>
+                {canManage && account.status === "active" && (
+                  <IconAction
+                    label={`Transfer from ${account.accountNumber}`}
+                    onClick={() => {
+                      setTransferFor(account);
+                      setTransferOpen(true);
+                    }}
+                  >
+                    <ArrowLeftRight size={16} />
+                  </IconAction>
+                )}
+              </div>
             </Table.Cell>
           </Table.Row>
         ))}
       </DataTable>
+
+      {transferFor && (
+        <TransferDrawer
+          isOpen={transferOpen}
+          onClose={() => setTransferOpen(false)}
+          customerId={transferFor.customerId}
+          customerName={transferFor.customerName ?? "This customer"}
+          source={{
+            key: `savings:${transferFor.id}`,
+            kind: "savings",
+            title: `Savings ${transferFor.accountNumber}`,
+            // The fee and the minimum balance bound it, so a part always moves.
+            amount: transferFor.availableToWithdraw,
+            partial: true,
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -57,3 +57,21 @@ export function changePassword(
   });
 }
 
+/**
+ * POST /auth/password/forgot — sends a reset OTP.
+ * Answers 200 whether or not the phone is registered, so it can't be used to
+ * discover who has an account. Same cooldown as the login OTP (429).
+ */
+export function forgotPassword(input: { phone: string }): Promise<void> {
+  return apiFetch("/auth/password/forgot", { method: "POST", json: input });
+}
+
+/** POST /auth/password/reset — spends the code and revokes every session. */
+export function resetPassword(input: {
+  phone: string;
+  code: string;
+  newPassword: string;
+}): Promise<void> {
+  return apiFetch("/auth/password/reset", { method: "POST", json: input });
+}
+

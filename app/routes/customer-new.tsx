@@ -8,6 +8,7 @@ import { toApiFailure, type ApiFailure } from "~/lib/api/client";
 import * as customersApi from "~/lib/api/customers";
 import { fieldErrorsFromFailure, readCustomerForm } from "~/lib/customer-form";
 import {
+  discardUploads,
   readImageSlots,
   uploadImageSlots,
 } from "~/lib/customer-uploads.server";
@@ -42,11 +43,14 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     const { data: id, headers } = await withAuth(request, async (token) => {
-      const images = await uploadImageSlots(token, pending);
-      const created = await customersApi.createCustomer(token, {
-        ...input,
-        ...images,
-      });
+      const { patch, publicIds } = await uploadImageSlots(token, pending);
+      // A refused registration leaves the images hosted; take them back down.
+      const created = await customersApi
+        .createCustomer(token, { ...input, ...patch })
+        .catch(async (error) => {
+          await discardUploads(token, publicIds);
+          throw error;
+        });
 
       const newId = created?.customer?.id;
       if (!newId) {

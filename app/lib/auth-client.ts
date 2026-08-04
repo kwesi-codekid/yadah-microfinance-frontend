@@ -9,6 +9,10 @@ export const ROLE_LABELS: Record<Role, string> = {
   collector: "Collector",
 };
 
+export function isRole(value: unknown): value is Role {
+  return typeof value === "string" && (ROLES as string[]).includes(value);
+}
+
 /** The `PublicUser` schema — what the API returns for a user. */
 export interface AuthUser {
   id: string;

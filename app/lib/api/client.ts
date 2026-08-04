@@ -74,6 +74,46 @@ export interface ApiFetchOptions extends Omit<RequestInit, "body"> {
   accessToken?: string;
 }
 
+/**
+ * The raw `Response`, for endpoints that answer with something other than JSON
+ * — the reports, when asked for `format=csv`. Errors still arrive as JSON, so
+ * they are read and thrown as `ApiError` exactly as `apiFetch` does.
+ */
+export async function apiFetchRaw(
+  path: string,
+  { accessToken, headers, ...init }: ApiFetchOptions = {},
+): Promise<Response> {
+  const url = `${env.apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+
+  const finalHeaders = new Headers(headers);
+  if (accessToken) finalHeaders.set("Authorization", `Bearer ${accessToken}`);
+
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, headers: finalHeaders });
+  } catch (cause) {
+    throw new ApiError(0, {
+      code: "NETWORK_ERROR",
+      message: "Could not reach the server. Check your connection and retry.",
+      details: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    const body: ApiErrorBody =
+      payload && typeof payload === "object" && "error" in payload
+        ? (payload.error as ApiErrorBody)
+        : {
+            code: "UNKNOWN",
+            message: response.statusText || "Request failed.",
+          };
+    throw new ApiError(response.status, body);
+  }
+
+  return response;
+}
+
 export async function apiFetch<T>(
   path: string,
   { json, formData, accessToken, headers, ...init }: ApiFetchOptions = {},

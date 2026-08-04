@@ -1,4 +1,5 @@
 import type {
+  CollectAllResult,
   DepositChannel,
   RecordDepositResult,
   SusuAccount,
@@ -28,7 +29,10 @@ export interface ListSusuAccountsParams {
   limit?: number;
   customerId?: string;
   status?: SusuAccountStatus;
+  /** Exact match. For part of a number, or a name or phone, use `search`. */
   accountNumber?: string;
+  /** Fuzzy and typo-tolerant: customer name, phone, or account-number prefix. */
+  search?: string;
 }
 
 /** GET /susu/accounts */
@@ -42,6 +46,7 @@ export function listSusuAccounts(
   if (params.customerId) q.set("customerId", params.customerId);
   if (params.status) q.set("status", params.status);
   if (params.accountNumber) q.set("accountNumber", params.accountNumber);
+  if (params.search) q.set("search", params.search);
   const qs = q.toString();
   return apiFetch<SusuAccountListResult>(`/susu/accounts${qs ? `?${qs}` : ""}`, {
     accessToken,
@@ -106,6 +111,58 @@ export function recordSusuDeposit(
   input: RecordDepositInput,
 ): Promise<RecordDepositResult> {
   return apiFetch(`/susu/accounts/${id}/deposits`, {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+export interface CollectAllInput {
+  customerId: string;
+  /** Must equal the sum of the active accounts' daily amounts, in pesewas. */
+  amount: number;
+  /** 8–128 chars, from `newIdempotencyKey()`. Required. */
+  idempotencyKey: string;
+  channel?: DepositChannel;
+}
+
+/** POST /susu/collect-all — one cash amount split across every active cycle. */
+export function collectAll(
+  accessToken: string,
+  input: CollectAllInput,
+): Promise<CollectAllResult> {
+  return apiFetch("/susu/collect-all", {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+export interface SusuPayoutInput {
+  /** Omit to hand over everything that is left. */
+  amount?: number;
+  /** 8–128 chars, from `newIdempotencyKey()`. Required. */
+  idempotencyKey: string;
+}
+
+export interface SusuPayoutResult {
+  account: SusuAccount;
+  /** What was actually handed over. */
+  amount: number;
+  /** True when the API replayed an earlier identical request. */
+  replayed: boolean;
+}
+
+/**
+ * POST /susu/accounts/{id}/payout — hands over a pending-payout balance in
+ * cash. The account closes when nothing is left owing.
+ */
+export function payoutSusuAccount(
+  accessToken: string,
+  id: string,
+  input: SusuPayoutInput,
+): Promise<SusuPayoutResult> {
+  return apiFetch(`/susu/accounts/${id}/payout`, {
     method: "POST",
     json: input,
     accessToken,

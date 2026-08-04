@@ -62,20 +62,55 @@ export function readImageSlots(form: FormData): {
   return { pending, fieldErrors };
 }
 
+export interface UploadedSlots {
+  patch: Partial<Record<ImageUrlField, string>>;
+  /** Handles for `discardUploads`, should the save that follows fail. */
+  publicIds: string[];
+}
+
 export async function uploadImageSlots(
   accessToken: string,
   pending: PendingImage[],
-): Promise<Partial<Record<ImageUrlField, string>>> {
+): Promise<UploadedSlots> {
   const patch: Partial<Record<ImageUrlField, string>> = {};
+  const publicIds: string[] = [];
   for (const image of pending) {
-    const { url } = await uploadsApi.uploadImage(
+    const { url, publicId } = await uploadsApi.uploadImage(
       accessToken,
       image.file,
       image.kind,
     );
     patch[image.target] = url;
+    publicIds.push(publicId);
   }
-  return patch;
+  return { patch, publicIds };
+}
+
+/**
+ * Delete uploads the record never took: a failed save, or a picture replaced by
+ * a newer one. Best-effort — an orphaned image is not worth failing a save for.
+ */
+export async function discardUploads(
+  accessToken: string,
+  publicIds: (string | null)[],
+): Promise<void> {
+  await Promise.all(
+    publicIds.filter((id): id is string => id !== null).map((id) =>
+      uploadsApi.deleteImage(accessToken, id).catch((error) => {
+        console.error("[uploads] could not delete", id, error);
+      }),
+    ),
+  );
+}
+
+/** The old images a patch is about to overwrite, as deletable public ids. */
+export function replacedPublicIds(
+  previous: Partial<Record<ImageUrlField, string>>,
+  patch: Partial<Record<ImageUrlField, string>>,
+): (string | null)[] {
+  return Object.keys(patch)
+    .map((key) => previous[key as ImageUrlField])
+    .map((url) => uploadsApi.publicIdFromUrl(url));
 }
 
 /** "Photo and ID document (front)" — for the confirmation message. */

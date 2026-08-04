@@ -10,17 +10,24 @@ export const SUSU_CYCLE_TARGET = 31;
 
 export const SUSU_MIN_DAILY_AMOUNT = 500;
 
-export type SusuAccountStatus = "active" | "completed" | "closed";
+export type SusuAccountStatus =
+  | "active"
+  | "completed"
+  /** Stopped with value still owed to the customer — see `payoutRemaining`. */
+  | "pending-payout"
+  | "closed";
 
 export const SUSU_ACCOUNT_STATUSES: SusuAccountStatus[] = [
   "active",
   "completed",
+  "pending-payout",
   "closed",
 ];
 
 export const SUSU_ACCOUNT_STATUS_LABELS: Record<SusuAccountStatus, string> = {
   active: "Active",
   completed: "Completed",
+  "pending-payout": "Awaiting payout",
   closed: "Closed",
 };
 
@@ -46,6 +53,12 @@ export interface SusuAccount {
   commissionAmount?: number;
   /** Set at closure: total − commission. */
   payoutAmount?: number;
+  /**
+   * Value the customer is still owed and hasn't taken — the excess left after a
+   * susu-funded loan or HP payment, drawn down by `POST .../payout`. Zero on an
+   * ordinary account; when it reaches zero the account closes.
+   */
+  payoutRemaining: number;
   openedAt: string;
   closedAt?: string;
 }
@@ -99,6 +112,16 @@ export interface SusuCloseResult {
   flagged: boolean;
 }
 
+/** The result of one `collect-all` — every deposit it made, in one batch. */
+export interface CollectAllResult {
+  batchId: string;
+  totalAmount: number;
+  deposits: SusuDeposit[];
+  accounts: SusuAccount[];
+  /** True when the API replayed an earlier identical request. */
+  replayed: boolean;
+}
+
 /** The result of recording a single deposit. */
 export interface RecordDepositResult {
   deposit: SusuDeposit;
@@ -131,6 +154,22 @@ export function projectedPayout(account: SusuAccount): number {
 }
 
 export { newIdempotencyKey } from "~/lib/idempotency";
+
+/** What one round of `collect-all` takes: a day's deposit on every open cycle. */
+export function collectAllTotal(accounts: SusuAccount[]): number {
+  return accounts
+    .filter((account) => account.status === "active")
+    .reduce((sum, account) => sum + account.dailyAmount, 0);
+}
+
+/** `422 AMOUNT_MISMATCH` — the total the API expected, so the field can re-seed. */
+export function readRequiredAmount(details: unknown): number | null {
+  if (details && typeof details === "object" && "required" in details) {
+    const required = (details as { required?: unknown }).required;
+    if (typeof required === "number") return required;
+  }
+  return null;
+}
 
 /** `422 EXCEEDS_REMAINING` — how many days are actually left on the cycle. */
 export function readExceedsRemaining(details: unknown): number | null {

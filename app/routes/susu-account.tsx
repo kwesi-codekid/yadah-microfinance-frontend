@@ -96,10 +96,13 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
 
-  if (intent === "close" && !isOffice(user)) {
+  if ((intent === "close" || intent === "payout") && !isOffice(user)) {
     return data<ActionData>({
       intent,
-      formError: "Only office staff can close an account.",
+      formError:
+        intent === "payout"
+          ? "Only office staff can hand cash back."
+          : "Only office staff can close an account.",
     });
   }
 
@@ -189,6 +192,26 @@ async function runIntent({
     } satisfies ActionData;
   }
 
+  if (intent === "payout") {
+    const idempotencyKey = String(form.get("idempotencyKey") ?? "");
+    if (idempotencyKey.length < 8) {
+      return { intent, formError: "Reload the page and try again." };
+    }
+    // No amount: hand over everything left, which is what closes the account.
+    const result = await susuApi.payoutSusuAccount(token, id, {
+      idempotencyKey,
+    });
+    return {
+      ok: true,
+      intent,
+      message: result.replayed
+        ? "Already paid out — this is the same handover, not a second one."
+        : result.account.payoutRemaining > 0
+          ? `Paid out ${formatGhs(result.amount)}. ${formatGhs(result.account.payoutRemaining)} still owed.`
+          : `Paid out ${formatGhs(result.amount)}. Nothing is left owing, so the account is closed.`,
+    } satisfies ActionData;
+  }
+
   if (intent === "close") {
     const result = await susuApi.closeSusuAccount(token, id);
     return {
@@ -267,7 +290,14 @@ export default function SusuAccountDetail({
               Record deposit
             </Button>
           )}
-          {canManage && !closed && (
+          {canManage && account.status === "pending-payout" && (
+            <PayoutButton
+              account={account}
+              name={customer.fullName}
+              idempotencyKey={idempotencyKey}
+            />
+          )}
+          {canManage && !closed && account.status !== "pending-payout" && (
             <CloseButton account={account} name={customer.fullName} />
           )}
         </div>
@@ -518,6 +548,71 @@ function DepositDrawer({
 }
 
 /** Closing pays cash out and cannot be undone, so it asks — with the figures. */
+/**
+ * Hands back what an account still owes the customer — the excess left after a
+ * susu-funded loan or HP payment. Paying it all is what closes the account.
+ */
+function PayoutButton({
+  account,
+  name,
+  idempotencyKey,
+}: {
+  account: SusuAccount;
+  name: string;
+  idempotencyKey: string;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <>
+      <Form method="post" ref={formRef}>
+        <input type="hidden" name="intent" value="payout" />
+        <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+        <Button
+          type="button"
+          size="sm"
+          className="min-h-9 rounded-md bg-success px-3"
+          onPress={() => setConfirming(true)}
+        >
+          <HandCoins size={14} />
+          Pay out {formatGhs(account.payoutRemaining ?? 0)}
+        </Button>
+      </Form>
+
+      <ConfirmModal
+        isOpen={confirming}
+        onOpenChange={setConfirming}
+        title="Hand over this money?"
+        footer={
+          <Button
+            size="sm"
+            className="rounded-md bg-success"
+            onPress={() => {
+              setConfirming(false);
+              formRef.current?.requestSubmit();
+            }}
+          >
+            Pay out
+          </Button>
+        }
+      >
+        <div className="space-y-3 text-sm text-muted">
+          <p>
+            <span className="font-medium text-foreground">{name}</span> is owed{" "}
+            {formatGhs(account.payoutRemaining ?? 0)} from this account — what was
+            left after it was put towards something else.
+          </p>
+          <p>
+            Handing over all of it closes the account. Count the cash first;
+            this can't be reversed.
+          </p>
+        </div>
+      </ConfirmModal>
+    </>
+  );
+}
+
 function CloseButton({
   account,
   name,

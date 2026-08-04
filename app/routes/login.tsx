@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   data,
   Form,
+  Link,
   redirect,
   useActionData,
   useNavigation,
@@ -15,6 +16,7 @@ import * as authApi from "~/lib/api/auth";
 import {
   createUserSession,
   getOptionalUser,
+  safeRedirect,
   startOtpVerification,
 } from "~/lib/session.server";
 import { validatePassword, validatePhone, validateUsername } from "~/lib/validation";
@@ -22,13 +24,6 @@ import { Button } from "@heroui/react";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Sign in · YADAH Dynamic Enterprise" }];
-}
-
-/** Only permit same-origin, absolute-path redirects (guards against open redirect). */
-function safeRedirect(value: FormDataEntryValue | null, fallback = "/") {
-  if (typeof value !== "string") return fallback;
-  if (!value.startsWith("/") || value.startsWith("//")) return fallback;
-  return value;
 }
 
 type ActionData = {
@@ -53,8 +48,22 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     if (intent === "password") {
-      const username = String(form.get("username") ?? "").trim();
+      // Usernames are lowercase by rule, so a stray capital is a typo, not a miss.
+      const username = String(form.get("username") ?? "")
+        .trim()
+        .toLowerCase();
       const password = String(form.get("password") ?? "");
+
+      if (username.includes("@")) {
+        return data<ActionData>(
+          {
+            fieldErrors: {
+              username: "Sign in with your username, not your email address.",
+            },
+          },
+          { status: 400 },
+        );
+      }
 
       const u = validateUsername(username);
       if (u) return data<ActionData>({ fieldErrors: { username: u } }, { status: 400 });
@@ -90,7 +99,8 @@ function mapAuthError(intent: FormDataEntryValue | null, error: unknown): Action
       return { formError: "Too many attempts. Please wait a moment and try again." };
     }
     if (error.status === 401 && intent === "password") {
-      return { fieldErrors: { username: "Incorrect username or password." } };
+      // The pair is wrong, not the username — pinning it to one field misleads.
+      return { formError: "Incorrect username or password." };
     }
     return { formError: error.message };
   }
@@ -119,6 +129,16 @@ export default function Login() {
           className="mb-4 rounded-md border-2 border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-600 dark:text-red-400"
         >
           {formError}
+        </p>
+      )}
+
+      {/* `?reset=1` is the handoff from /forgot-password. */}
+      {searchParams.get("reset") === "1" && (
+        <p
+          role="status"
+          className="mb-4 rounded-md border-2 border-success/40 bg-success/10 px-3 py-2 text-sm text-success"
+        >
+          Password set. Sign in with it.
         </p>
       )}
 
@@ -229,7 +249,6 @@ export default function Login() {
         </Form>
       )}
 
-      {/* Switch between auth methods (replaces the old forgot-password link). */}
       <p className="mt-6 text-center text-sm">
         <button
           type="button"
@@ -240,6 +259,12 @@ export default function Login() {
             ? "Login with phone"
             : "Login with username and password"}
         </button>
+      </p>
+
+      <p className="mt-2 text-center text-sm">
+        <Link to="/forgot-password" className="text-muted hover:text-foreground">
+          Forgot your password?
+        </Link>
       </p>
     </AuthShell>
   );

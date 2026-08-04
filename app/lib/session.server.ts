@@ -15,6 +15,49 @@ export const CHANGE_PASSWORD_PATH = "/change-password";
 /** Where the OTP code is entered, once a code has been requested. */
 export const VERIFY_OTP_PATH = "/login/verify";
 
+/** What single fetch appends when the client asks a route for data only. */
+const DATA_SUFFIX = ".data";
+
+/** Long enough for any real path; short enough that nesting can't reach 431. */
+const MAX_REDIRECT_LENGTH = 512;
+
+/**
+ * The page a request belongs to. Single fetch asks for `/x.data`, which is the
+ * same route as `/x` — comparing the raw pathname against a known path misses,
+ * and a guard that redirects on the miss loops until the URL is too large.
+ */
+function pagePath(url: URL): string {
+  if (!url.pathname.endsWith(DATA_SUFFIX)) return url.pathname;
+  const base = url.pathname.slice(0, -DATA_SUFFIX.length);
+  // `/_root.data` is the root route asking for itself.
+  return base === "/_root" || base === "" ? "/" : base;
+}
+
+/**
+ * Only same-origin, absolute-path page redirects — never a single-fetch URL,
+ * and never one long enough to have been built by a loop.
+ */
+export function safeRedirect(
+  value: FormDataEntryValue | string | null,
+  fallback = "/dashboard",
+): string {
+  if (typeof value !== "string") return fallback;
+  if (!value.startsWith("/") || value.startsWith("//")) return fallback;
+  if (value.length > MAX_REDIRECT_LENGTH) return fallback;
+  // A `.data` path is React Router's own resource URL, not somewhere to land.
+  if (value.split("?")[0].endsWith(DATA_SUFFIX)) return fallback;
+  return value;
+}
+
+/** Where to send someone back to: the page they wanted, not its data URL. */
+function returnTo(url: URL): string {
+  const search = new URLSearchParams(url.search);
+  // Single fetch's own parameter is not part of the destination.
+  search.delete("_routes");
+  const qs = search.toString();
+  return safeRedirect(`${pagePath(url)}${qs ? `?${qs}` : ""}`);
+}
+
 type SessionData = {
   user: AuthUser;
   accessToken: string;
@@ -128,10 +171,8 @@ export async function requireUser(request: Request): Promise<AuthUser> {
   if (!user) throw await loginRedirect(request, session);
 
   const url = new URL(request.url);
-  if (user.mustChangePassword && url.pathname !== CHANGE_PASSWORD_PATH) {
-    const params = new URLSearchParams({
-      redirectTo: url.pathname + url.search,
-    });
+  if (user.mustChangePassword && pagePath(url) !== CHANGE_PASSWORD_PATH) {
+    const params = new URLSearchParams({ redirectTo: returnTo(url) });
     throw redirect(`${CHANGE_PASSWORD_PATH}?${params}`);
   }
 
@@ -154,9 +195,7 @@ export function isOffice(user: AuthUser): boolean {
 /** Send the user to /login with a clean slate, remembering where they were. */
 async function loginRedirect(request: Request, session: Session<SessionData>) {
   const url = new URL(request.url);
-  const params = new URLSearchParams({
-    redirectTo: url.pathname + url.search,
-  });
+  const params = new URLSearchParams({ redirectTo: returnTo(url) });
   return redirect(`/login?${params}`, {
     headers: { "Set-Cookie": await storage.destroySession(session) },
   });
