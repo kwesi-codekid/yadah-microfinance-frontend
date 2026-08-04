@@ -53,23 +53,36 @@ export async function action({ request }: Route.ActionArgs) {
   }
   if (Object.keys(fieldErrors).length) return data<ActionData>({ fieldErrors });
 
+  /**
+   * `withAuth` renews an expired token by running its callback a second time,
+   * and a password change cannot be repeated — the second run would send the
+   * old password against the new one and report it as wrong. Only the reads
+   * after it may run again.
+   */
+  let changed = false;
+
   try {
     const { data: result, headers } = await withAuth(
       request,
       async (token, session) => {
-        try {
-          await authApi.changePassword(token, { currentPassword, newPassword });
-        } catch (error) {
-          if (
-            error instanceof ApiError &&
-            error.status === 401 &&
-            error.code === "INVALID_CREDENTIALS"
-          ) {
-            return {
-              fieldErrors: { currentPassword: "That isn't your current password." },
-            } satisfies ActionData;
+        if (!changed) {
+          try {
+            await authApi.changePassword(token, { currentPassword, newPassword });
+            changed = true;
+          } catch (error) {
+            if (
+              error instanceof ApiError &&
+              error.status === 401 &&
+              error.code === "INVALID_CREDENTIALS"
+            ) {
+              return {
+                fieldErrors: {
+                  currentPassword: "That isn't your current password.",
+                },
+              } satisfies ActionData;
+            }
+            throw error;
           }
-          throw error;
         }
 
         const { user } = await authApi.me(token);
