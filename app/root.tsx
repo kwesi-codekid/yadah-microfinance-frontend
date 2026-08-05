@@ -9,6 +9,7 @@ import {
 } from "react-router";
 
 import type { Route } from "./+types/root";
+import { ErrorPage } from "~/components/error-page";
 import { Toaster } from "~/components/toast";
 import "./app.css";
 
@@ -60,30 +61,28 @@ export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
     console.error("[route error]", error);
   }, [error]);
 
-  let message = "Oops!";
-  let details = "An unexpected error occurred.";
+  let code: string | undefined;
+  let title = "Something went wrong";
+  let details = "An unexpected error occurred. Try again in a moment.";
   let stack: string | undefined;
 
   if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? "404" : "Error";
+    code = String(error.status);
+    title = error.status === 404 ? "Page not found" : "Request failed";
     details =
       error.status === 404
-        ? "The requested page could not be found."
+        ? "The page you were looking for doesn't exist or has moved."
         : error.statusText || details;
   } else if (import.meta.env.DEV && error && error instanceof Error) {
     details = error.message;
     stack = error.stack;
   }
 
+  // The boundary replaces `App`, so the toaster has to be mounted again here.
   return (
-    <main className="pt-16 p-4 container mx-auto">
-      <h1>{message}</h1>
-      <p>{details}</p>
-      {stack && (
-        <pre className="w-full p-4 overflow-x-auto">
-          <code>{stack}</code>
-        </pre>
-      )}
-    </main>
+    <>
+      <ErrorPage code={code} title={title} details={details} stack={stack} />
+      <Toaster />
+    </>
   );
 }

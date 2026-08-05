@@ -408,11 +408,11 @@ function StatusButton({ customer }: { customer: Customer }) {
         }
       >
         <p className="text-sm text-muted">
+          Are you sure to deactivate{" "}
           <span className="font-medium text-foreground">
             {customer.fullName}
-          </span>{" "}
-          will be marked inactive. Nothing is deleted — their history stays
-          intact and you can reactivate them later.
+          </span>
+          ?
         </p>
       </ConfirmModal>
     </>

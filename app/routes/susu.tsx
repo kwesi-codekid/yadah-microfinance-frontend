@@ -47,7 +47,6 @@ import {
   isSusuAccountStatus,
   SUSU_ACCOUNT_STATUS_LABELS,
   SUSU_ACCOUNT_STATUSES,
-  SUSU_CYCLE_TARGET,
   SUSU_MIN_DAILY_AMOUNT,
   projectedPayout,
   type SusuAccount,
@@ -411,35 +410,15 @@ function OpenSusuDrawer({
             <FieldError message={errors?.dailyAmount} />
           </div>
 
-          <div className="space-y-3 text-sm text-muted">
-            {pesewas !== null && pesewas >= SUSU_MIN_DAILY_AMOUNT ? (
-              <p>
-                <span className="font-medium text-foreground">
-                  {formatGhs(pesewas)}
-                </span>{" "}
-                every day for {SUSU_CYCLE_TARGET} days —{" "}
-                <span className="font-medium text-foreground">
-                  {formatGhs(pesewas * SUSU_CYCLE_TARGET)}
-                </span>{" "}
-                over the full cycle.
-              </p>
-            ) : (
-              pesewas !== null && (
-                <p>
-                  The smallest daily amount is{" "}
-                  <span className="font-medium text-foreground">
-                    {formatGhs(SUSU_MIN_DAILY_AMOUNT)}
-                  </span>
-                  .
-                </p>
-              )
-            )}
-            <p>
-              The daily amount can't be changed afterwards. To save a different
-              amount, this account has to be closed and a new one opened — and
-              one day's deposit is kept as commission when it closes.
+          {pesewas !== null && pesewas < SUSU_MIN_DAILY_AMOUNT && (
+            <p className="text-sm text-muted">
+              The smallest daily amount is{" "}
+              <span className="font-medium text-foreground">
+                {formatGhs(SUSU_MIN_DAILY_AMOUNT)}
+              </span>
+              .
             </p>
-          </div>
+          )}
         </Form>
       </SideDrawer>
     </>

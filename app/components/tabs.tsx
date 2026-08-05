@@ -1,33 +1,26 @@
 import { Link, type LinkProps } from "react-router";
 
-const TRACK = "inline-flex shrink-0 items-stretch gap-6";
+/** HeroUI's solid tabs: a padded track with a pill behind the selected tab. */
+const TRACK =
+  "inline-flex shrink-0 items-center gap-1 rounded-[calc(var(--radius)*2.5)] bg-default p-1";
 
-/** The selected tab's ink — text and the rule under it. */
-const INK = {
-  brand: {
-    text: "text-brand dark:text-brand-light",
-    rule: "bg-brand dark:bg-brand-light",
-  },
-  success: { text: "text-success", rule: "bg-success" },
-  navy: {
-    text: "text-navy dark:text-navy-light",
-    rule: "bg-navy dark:bg-navy-light",
-  },
-  teal: {
-    text: "text-teal-dark dark:text-teal",
-    rule: "bg-teal-dark dark:bg-teal",
-  },
+/** The selected tab's pill. */
+const PILL = {
+  brand: "bg-brand text-brand-foreground",
+  success: "bg-success text-success-foreground",
+  navy: "bg-navy text-white",
+  teal: "bg-teal text-white",
 } as const;
 
-type TabTone = keyof typeof INK;
+type TabTone = keyof typeof PILL;
 
 /** Shared by both flavours — the tab itself, selected or not. */
 function tabClass(selected: boolean, tone: TabTone) {
   return [
-    "relative flex items-center justify-center gap-1.5 whitespace-nowrap px-0.5 pb-2 pt-1 text-sm",
+    "relative flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-3xl px-4 text-sm",
     "transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
     selected
-      ? `font-semibold ${INK[tone].text}`
+      ? `font-semibold ${PILL[tone]}`
       : "font-medium text-muted hover:text-foreground",
   ].join(" ");
 }
@@ -52,7 +45,7 @@ export function TabLink({
   selected,
   controls,
   icon,
-  tone = "brand",
+  tone = "success",
   children,
   ...props
 }: {
@@ -60,7 +53,7 @@ export function TabLink({
   /** `id` of the panel this tab swaps. */
   controls?: string;
   icon?: React.ReactNode;
-  /** The panel's own colour, if it has one. See `INK`. */
+  /** The pill's colour; green unless overridden. See `PILL`. */
   tone?: TabTone;
   children: React.ReactNode;
 } & Omit<LinkProps, "children">) {
@@ -79,12 +72,6 @@ export function TabLink({
         </span>
       )}
       {children}
-      {selected && (
-        <span
-          aria-hidden="true"
-          className={`absolute inset-x-0 bottom-0 h-0.5 rounded-full ${INK[tone].rule}`}
-        />
-      )}
     </Link>
   );
 }
