@@ -1,26 +1,34 @@
 import { Link, type LinkProps } from "react-router";
 
-const TRACK =
-  "inline-flex min-h-8 shrink-0 items-stretch gap-1 rounded-full border-2 border-border bg-surface p-0.5";
+const TRACK = "inline-flex shrink-0 items-stretch gap-6";
 
-/** The selected pill's fill; the lighter shade carries it on a dark canvas. */
-const FILL = {
-  success: "bg-success text-white",
-  navy: "bg-navy text-white dark:bg-navy-light",
-  teal: "bg-teal-dark text-white dark:bg-teal",
-  brand: "bg-brand text-white dark:bg-brand-light dark:text-brand-dark",
+/** The selected tab's ink — text and the rule under it. */
+const INK = {
+  brand: {
+    text: "text-brand dark:text-brand-light",
+    rule: "bg-brand dark:bg-brand-light",
+  },
+  success: { text: "text-success", rule: "bg-success" },
+  navy: {
+    text: "text-navy dark:text-navy-light",
+    rule: "bg-navy dark:bg-navy-light",
+  },
+  teal: {
+    text: "text-teal-dark dark:text-teal",
+    rule: "bg-teal-dark dark:bg-teal",
+  },
 } as const;
 
-type TabTone = keyof typeof FILL;
+type TabTone = keyof typeof INK;
 
-/** Shared by both flavours — the pill itself, selected or not. */
+/** Shared by both flavours — the tab itself, selected or not. */
 function tabClass(selected: boolean, tone: TabTone) {
   return [
-    "flex items-center justify-center gap-1.5 rounded-full px-3.5 text-sm",
-    "transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent",
+    "relative flex items-center justify-center gap-1.5 whitespace-nowrap px-0.5 pb-2 pt-1 text-sm",
+    "transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
     selected
-      ? `font-semibold ${FILL[tone]}`
-      : "font-medium text-muted hover:bg-surface-tertiary hover:text-foreground",
+      ? `font-semibold ${INK[tone].text}`
+      : "font-medium text-muted hover:text-foreground",
   ].join(" ");
 }
 
@@ -44,7 +52,7 @@ export function TabLink({
   selected,
   controls,
   icon,
-  tone = "success",
+  tone = "brand",
   children,
   ...props
 }: {
@@ -52,7 +60,7 @@ export function TabLink({
   /** `id` of the panel this tab swaps. */
   controls?: string;
   icon?: React.ReactNode;
-  /** The panel's own colour, if it has one. See `FILL`. */
+  /** The panel's own colour, if it has one. See `INK`. */
   tone?: TabTone;
   children: React.ReactNode;
 } & Omit<LinkProps, "children">) {
@@ -71,7 +79,12 @@ export function TabLink({
         </span>
       )}
       {children}
+      {selected && (
+        <span
+          aria-hidden="true"
+          className={`absolute inset-x-0 bottom-0 h-0.5 rounded-full ${INK[tone].rule}`}
+        />
+      )}
     </Link>
   );
 }
-

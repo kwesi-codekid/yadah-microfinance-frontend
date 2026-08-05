@@ -131,12 +131,40 @@
   --link: #f19aa0;
 }
 
+/* HeroUI's shadows, off — transparent rather than `none` so rings still compose. */
+:root,
+.light,
+.default,
+.dark,
+[data-theme="light"],
+[data-theme="default"],
+[data-theme="dark"] {
+  --surface-shadow: 0 0 0 0 transparent;
+  --overlay-shadow: 0 0 0 0 transparent;
+  --field-shadow: 0 0 0 0 transparent;
+}
+
 html,
 body {
   @apply bg-background text-foreground;
 
   @media (prefers-color-scheme: dark) {
     color-scheme: dark;
+  }
+}
+
+/* The shadow was what lifted these off the page; a border does it now. */
+@layer components {
+  .popover,
+  .select__popover,
+  .dropdown__popover,
+  .combo-box__popover,
+  .autocomplete__popover,
+  .date-picker__popover,
+  .date-range-picker__popover,
+  .color-picker__popover,
+  .tooltip {
+    border: 2px solid var(--border);
   }
 }
 
@@ -159,6 +187,29 @@ body {
 
 .input-otp__slot[data-invalid="true"][data-active="true"] {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--danger) 25%, transparent);
+}
+
+/* Fields focus green; the brand red is reserved for the invalid state. */
+.input:not([data-invalid="true"]),
+.textarea:not([data-invalid="true"]),
+.input-group:not([data-invalid="true"]),
+.search-field:not([data-invalid="true"]),
+.number-field:not([data-invalid="true"]),
+.combo-box:not([data-invalid="true"]),
+.select:not([data-invalid="true"]),
+.date-input-group:not([data-invalid="true"]),
+.input-otp__slot:not([data-invalid="true"]) {
+  &:focus,
+  &:focus-within,
+  &:focus-visible,
+  &[data-focused="true"],
+  &[data-focus-visible="true"],
+  &[data-focus-within="true"],
+  &[data-active="true"] {
+    --focus: var(--success);
+    border-color: var(--success);
+    box-shadow: none;
+  }
 }
 
 @layer base {

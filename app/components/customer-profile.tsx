@@ -1,9 +1,11 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Camera, ChevronDown, Upload, X } from "lucide-react";
+import { Label, ListBox, Select } from "@heroui/react";
+import { Camera, Upload, X } from "lucide-react";
 import {
   CameraCapture,
   isCameraAvailable,
 } from "~/components/camera-capture";
+import { DateInput, TextInput } from "~/components/inputs";
 import {
   GENDERS,
   GENDER_LABELS,
@@ -30,8 +32,6 @@ type EditField = {
   inputMode?: "numeric" | "text";
   /** Present for a dropdown; absent for a text input. */
   options?: { value: string; label: string }[];
-  /** Uppercase as they type — for the fields whose API pattern demands it. */
-  uppercase?: boolean;
   format?: (value: string) => string;
   onChange?: (value: string) => void;
 };
@@ -156,7 +156,6 @@ export function CustomerProfile({
             name: "ghanaPostGps",
             value: customer?.ghanaPostGps,
             placeholder: "GA-183-9832",
-            uppercase: true,
             format: formatGhanaPostGps,
           }}
         />
@@ -177,7 +176,7 @@ export function CustomerProfile({
 
       <DetailSection
         title="Identification"
-        hint="Leave blank if you don't have the document to hand — but a type needs its number, and a number needs its type."
+       
       >
         <Detail
           label="ID type"
@@ -246,7 +245,7 @@ export function CustomerProfile({
 
       <DetailSection
         title="Next of kin"
-        hint="The name is what carries the rest — without it, nothing here is recorded."
+       
       >
         <Detail
           label="Full name"
@@ -286,7 +285,6 @@ export function CustomerProfile({
             value={registrarName ?? undefined}
             empty={customer.registeredById ? "Unknown staff" : "—"}
           />
-          <Detail label="Customer ID" value={customer.id} mono />
         </DetailSection>
       )}
     </>
@@ -345,8 +343,80 @@ const DETAIL_LABEL =
   "mb-0.5 block text-xs font-medium uppercase leading-tight tracking-wide text-muted/80";
 
 /** Compact enough for four across, tall enough to tap. */
-const DETAIL_INPUT =
-  "min-h-9 w-full rounded-md border-2 bg-field px-2.5 text-sm text-foreground outline-none transition-colors";
+const DETAIL_FIELD =
+  "min-h-9 w-full rounded-md border-2 bg-field text-sm text-foreground shadow-none outline-none transition-colors";
+
+const DETAIL_INPUT = `${DETAIL_FIELD} px-2.5`;
+
+/** ps/pe, not px: px would clobber the pe-7 HeroUI reserves for the chevron. */
+const DETAIL_TRIGGER = `${DETAIL_FIELD} flex items-center justify-between gap-2 ps-2.5 pe-7`;
+
+/** The one option that isn't a value — react-aria has no empty key. */
+const CLEAR = "__clear";
+
+function borderClass(error?: string) {
+  return error
+    ? "border-red-500! focus:border-red-500!"
+    : "border-border focus:border-success";
+}
+
+/** Controlled so the placeholder row can put the field back to blank. */
+function SelectDetail({
+  label,
+  field,
+  error,
+  describedBy,
+}: {
+  label: string;
+  field: EditField & { options: { value: string; label: string }[] };
+  error?: string;
+  describedBy?: string;
+}) {
+  const [value, setValue] = useState(field.value ?? "");
+
+  return (
+    <>
+      <input type="hidden" name={field.name} value={value} />
+      <Select
+        selectedKey={value || CLEAR}
+        onSelectionChange={(key) => {
+          const next = key === CLEAR ? "" : String(key);
+          setValue(next);
+          field.onChange?.(next);
+        }}
+        isInvalid={Boolean(error)}
+        className="gap-0 text-left"
+      >
+        <Label className={DETAIL_LABEL} isRequired={field.required}>
+          {label}
+        </Label>
+        <Select.Trigger
+          aria-describedby={describedBy}
+          className={`${DETAIL_TRIGGER} ${borderClass(error)}`}
+        >
+          <Select.Value />
+          <Select.Indicator />
+        </Select.Trigger>
+        <Select.Popover className="rounded-md border-2 border-border p-1">
+          <ListBox>
+            {[
+              { value: CLEAR, label: field.placeholder ?? "Select" },
+              ...field.options,
+            ].map((option) => (
+              <ListBox.Item
+                key={option.value}
+                id={option.value}
+                className="cursor-pointer rounded-md px-3 py-1.5 text-sm"
+              >
+                {option.label}
+              </ListBox.Item>
+            ))}
+          </ListBox>
+        </Select.Popover>
+      </Select>
+    </>
+  );
+}
 
 function Detail({
   label,
@@ -368,72 +438,71 @@ function Detail({
   if (edit && field) {
     const error = edit.errors[field.name];
     const id = `field-${field.name}`;
-    const border = error
-      ? "border-red-500 dark:border-red-500"
-      : "border-border focus:border-success";
+    const describedBy = error ? `${id}-error` : undefined;
+    // Every typed field but the email reads back in caps, so cases never mix.
+    const caps = field.type !== "email";
+    const rewrite =
+      field.format ?? (caps ? (value: string) => value.toUpperCase() : undefined);
 
     return (
       <div className="min-w-0">
-        <label htmlFor={id} className={DETAIL_LABEL}>
-          {label}
-          {field.required && (
-            <span className="text-red-600 dark:text-red-400" aria-hidden="true">
-              {" "}
-              *
-            </span>
-          )}
-        </label>
-
         {field.options ? (
-          <div className="relative">
-            <select
-              id={id}
-              name={field.name}
-              defaultValue={field.value ?? ""}
-              key={field.value}
-              onChange={(e) => field.onChange?.(e.currentTarget.value)}
-              aria-invalid={error ? true : undefined}
-              aria-describedby={error ? `${id}-error` : undefined}
-              className={`${DETAIL_INPUT} ${border} appearance-none py-1 pr-8`}
-            >
-              <option value="">{field.placeholder ?? "Select"}</option>
-              {field.options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown
-              size={14}
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-2.5 my-auto text-muted"
-            />
-          </div>
+          <SelectDetail
+            key={field.value}
+            label={label}
+            field={{ ...field, options: field.options }}
+            error={error}
+            describedBy={describedBy}
+          />
+        ) : field.type === "date" ? (
+          <DateInput
+            key={field.value}
+            name={field.name}
+            defaultValue={field.value}
+            isRequired={field.required}
+            isInvalid={Boolean(error)}
+            label={label}
+            labelClassName={DETAIL_LABEL}
+            describedBy={describedBy}
+            className="w-full gap-0"
+            groupProps={{
+              className: `${DETAIL_FIELD} ${borderClass(error)}`,
+            }}
+          />
         ) : (
-          <input
-            id={id}
+          <TextInput
+            key={field.value}
             name={field.name}
             type={field.type ?? "text"}
             defaultValue={field.value ?? ""}
-            key={field.value}
-            placeholder={field.placeholder}
-            inputMode={field.inputMode}
-            autoComplete="off"
-            onInput={
-              field.format
+            isRequired={field.required}
+            isInvalid={Boolean(error)}
+            label={label}
+            labelClassName={DETAIL_LABEL}
+            className="gap-0"
+            inputProps={{
+              id,
+              placeholder: field.placeholder,
+              inputMode: field.inputMode,
+              autoComplete: "off",
+              "aria-describedby": describedBy,
+              onInput: rewrite
                 ? (e) => {
                     const el = e.currentTarget;
-                    const next = field.format!(el.value);
-                    if (next !== el.value) el.value = next;
+                    const before = el.value;
+                    const next = rewrite(before);
+                    if (next === before) return;
+                    // Assigning value drops the caret to the end; put it back.
+                    const caret = el.selectionStart;
+                    el.value = next;
+                    if (caret !== null && next.length === before.length)
+                      el.setSelectionRange(caret, caret);
                   }
-                : undefined
-            }
-            aria-required={field.required || undefined}
-            aria-invalid={error ? true : undefined}
-            aria-describedby={error ? `${id}-error` : undefined}
-            className={`${DETAIL_INPUT} ${border} ${
-              field.uppercase ? "uppercase placeholder:normal-case" : ""
-            }`}
+                : undefined,
+              className: `${DETAIL_INPUT} ${borderClass(error)} ${
+                caps ? "uppercase placeholder:normal-case" : ""
+              }`,
+            }}
           />
         )}
 
@@ -458,7 +527,7 @@ function Detail({
       <Term className={DETAIL_LABEL}>{label}</Term>
       <Desc
         className={`text-sm leading-snug ${value ? "text-foreground" : "text-muted"} ${
-          mono ? "break-all font-mono text-xs" : "truncate"
+          mono ? "break-all font-mono text-xs" : "wrap-break-word"
         }`}
         title={value || undefined}
       >

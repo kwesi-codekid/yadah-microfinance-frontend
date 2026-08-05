@@ -14,12 +14,15 @@
   },
   "dependencies": {
     "@heroui/react": "^3.2.2",
+    "@internationalized/date": "^3.12.3",
     "@react-router/node": "^8",
     "@react-router/serve": "^8",
+    "chart.js": "^4.5.1",
     "framer-motion": "^12.42.2",
     "isbot": "^5.1.36",
     "lucide-react": "^1.26.0",
     "react": "^19.2.7",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.7",
     "react-router": "^8"
   },

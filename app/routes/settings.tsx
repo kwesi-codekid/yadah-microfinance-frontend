@@ -1,4 +1,5 @@
 import { data, Outlet, useLocation } from "react-router";
+import { HandCoins, Package, UserCog } from "lucide-react";
 import type { Route } from "./+types/settings";
 import { TabLink, TabList } from "~/components/tabs";
 import { isOffice, requireUser } from "~/lib/session.server";
@@ -20,11 +21,26 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
   const { pathname } = useLocation();
 
   const tabs = [
-    { to: "/settings", label: "Your account", end: true },
+    {
+      to: "/settings",
+      label: "Your account",
+      end: true,
+      icon: <UserCog size={15} />,
+    },
     ...(canManage
       ? [
-          { to: "/settings/loans", label: "Loans", end: false },
-          { to: "/settings/hire-purchase", label: "Hire purchase", end: false },
+          {
+            to: "/settings/loans",
+            label: "Loans",
+            end: false,
+            icon: <HandCoins size={15} />,
+          },
+          {
+            to: "/settings/hire-purchase",
+            label: "Hire purchase",
+            end: false,
+            icon: <Package size={15} />,
+          },
         ]
       : []),
   ];
@@ -48,6 +64,7 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
             to={tab.to}
             selected={tab.end ? pathname === tab.to : pathname.startsWith(tab.to)}
             controls={PANEL_ID}
+            icon={tab.icon}
           >
             {tab.label}
           </TabLink>

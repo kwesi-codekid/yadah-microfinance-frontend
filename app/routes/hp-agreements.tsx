@@ -9,7 +9,7 @@ import {
   useNavigationType,
   useSearchParams,
 } from "react-router";
-import { Button } from "@heroui/react";
+import { Button, ComboBox, Input, Label, ListBox } from "@heroui/react";
 import {
   Eye,
   FileSignature,
@@ -25,7 +25,7 @@ import {
 import { DataTable, Table } from "~/components/data-table";
 import { FIELD, FieldError, IconLink } from "~/components/form-fields";
 import { HpStatusPill } from "~/components/hp-status";
-import { TextInput } from "~/components/inputs";
+import { inputClass, TextInput } from "~/components/inputs";
 import { SideDrawer } from "~/components/side-drawer";
 import { TabLink, TabList } from "~/components/tabs";
 import { notify } from "~/components/toast";
@@ -600,52 +600,75 @@ function SignDrawer({
             </div>
           )}
 
-          <fieldset className="space-y-1.5">
-            <legend className="text-sm font-medium text-foreground">Item</legend>
+          <div className="space-y-1.5">
             <input type="hidden" name="itemId" value={itemId} />
             {stock.length === 0 ? (
-              <p className="rounded-lg border-2 border-dashed border-border p-4 text-center text-sm text-muted">
-                Nothing is in stock.{" "}
-                <Link
-                  to="/hire-purchase/items"
-                  className="font-medium text-success hover:underline"
-                >
-                  Add an item
-                </Link>
-              </p>
+              <>
+                <p className="text-sm font-medium text-foreground">Item</p>
+                <p className="rounded-lg border-2 border-dashed border-border p-4 text-center text-sm text-muted">
+                  Nothing is in stock.{" "}
+                  <Link
+                    to="/hire-purchase/items"
+                    className="font-medium text-success hover:underline"
+                  >
+                    Add an item
+                  </Link>
+                </p>
+              </>
             ) : (
-              <ul className="max-h-64 space-y-2 overflow-y-auto">
-                {stock.map((candidate) => (
-                  <li key={candidate.id}>
-                    <button
-                      type="button"
-                      aria-pressed={itemId === candidate.id}
-                      onClick={() => setItemId(candidate.id)}
-                      className={`w-full rounded-lg border-2 p-3 text-left transition-colors ${
-                        itemId === candidate.id
-                          ? "border-success"
-                          : "border-border hover:border-success/50"
-                      }`}
-                    >
-                      <span className="flex items-baseline justify-between gap-3">
-                        <span className="truncate font-medium text-foreground">
-                          {candidate.name}
+              <ComboBox
+                // "" is nothing chosen yet; react-aria wants that as null.
+                selectedKey={itemId || null}
+                onSelectionChange={(key) =>
+                  setItemId(key === null ? "" : String(key))
+                }
+                className="flex flex-col gap-1.5 text-left"
+              >
+                <Label className="text-sm font-medium text-foreground">
+                  Item
+                </Label>
+                <ComboBox.InputGroup className="w-full">
+                  <Input
+                    placeholder="Type to search stock…"
+                    className={`${inputClass} min-h-10 w-full rounded-md py-2 text-sm`}
+                  />
+                  <ComboBox.Trigger />
+                </ComboBox.InputGroup>
+                <ComboBox.Popover className="w-(--trigger-width) rounded-md border-2 border-border p-1">
+                  <ListBox
+                    renderEmptyState={() => (
+                      <p className="px-3 py-2 text-xs text-muted">
+                        No item matches that.
+                      </p>
+                    )}
+                  >
+                    {stock.map((candidate) => (
+                      <ListBox.Item
+                        key={candidate.id}
+                        id={candidate.id}
+                        textValue={candidate.name}
+                        className="cursor-pointer rounded-md px-3 py-2 text-sm"
+                      >
+                        <span className="flex items-baseline justify-between gap-3">
+                          <span className="truncate font-medium text-foreground">
+                            {candidate.name}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-foreground">
+                            {formatGhs(candidate.sellingPrice)}
+                          </span>
                         </span>
-                        <span className="shrink-0 tabular-nums text-foreground">
-                          {formatGhs(candidate.sellingPrice)}
+                        <span className="mt-0.5 block text-xs text-muted">
+                          {candidate.quantityInStock} in stock · deposit{" "}
+                          {formatGhs(depositFor(candidate.sellingPrice))}
                         </span>
-                      </span>
-                      <span className="mt-0.5 block text-xs text-muted">
-                        {candidate.quantityInStock} in stock · deposit{" "}
-                        {formatGhs(depositFor(candidate.sellingPrice))}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                      </ListBox.Item>
+                    ))}
+                  </ListBox>
+                </ComboBox.Popover>
+              </ComboBox>
             )}
             <FieldError message={fieldErrors?.itemId} />
-          </fieldset>
+          </div>
 
           <div className="space-y-1.5">
             <TextInput

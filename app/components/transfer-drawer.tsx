@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useFetcher } from "react-router";
-import { Button } from "@heroui/react";
+import { Button, ComboBox, Input, Label, ListBox } from "@heroui/react";
 import {
   Coins,
   HandCoins,
@@ -9,7 +9,7 @@ import {
   PiggyBank,
 } from "lucide-react";
 import { FIELD, FieldError } from "~/components/form-fields";
-import { TextInput } from "~/components/inputs";
+import { inputClass, TextInput } from "~/components/inputs";
 import { ConfirmModal } from "~/components/modals";
 import { SideDrawer } from "~/components/side-drawer";
 import { notify } from "~/components/toast";
@@ -214,66 +214,94 @@ export function TransferDrawer({
           {customerName}.
         </p>
 
-        <fieldset className="space-y-1.5">
-          <legend className="text-sm font-medium text-foreground">
-            Send it to
-          </legend>
+        <div className="space-y-1.5">
+          <ComboBox
+            // "" is nothing chosen yet; react-aria wants that as null.
+            selectedKey={to || null}
+            onSelectionChange={(key) => setTo(key === null ? "" : String(key))}
+            isDisabled={loading || destinations.length === 0}
+            className="flex flex-col gap-1.5 text-left"
+          >
+            <Label className="text-sm font-medium text-foreground">
+              Send it to
+            </Label>
+            <ComboBox.InputGroup className="w-full">
+              <Input
+                placeholder={
+                  loading
+                    ? `Reading what ${customerName} holds…`
+                    : destinations.length === 0
+                      ? "Nothing to send to"
+                      : "Type to search accounts…"
+                }
+                className={`${inputClass} min-h-10 w-full rounded-md py-2 text-sm`}
+              />
+              <ComboBox.Trigger>
+                {loading ? (
+                  <LoaderCircle
+                    size={16}
+                    className="animate-spin text-success"
+                  />
+                ) : undefined}
+              </ComboBox.Trigger>
+            </ComboBox.InputGroup>
+            <ComboBox.Popover className="w-(--trigger-width) rounded-md border-2 border-border p-1">
+              <ListBox
+                renderEmptyState={() => (
+                  <p className="px-3 py-2 text-xs text-muted">
+                    No account matches that.
+                  </p>
+                )}
+              >
+                {destinations.map((entry) => {
+                  const Icon = ICONS[entry.kind];
+                  return (
+                    <ListBox.Item
+                      key={entry.key}
+                      id={entry.key}
+                      textValue={entry.title}
+                      className="cursor-pointer rounded-md px-3 py-2 text-sm"
+                    >
+                      <span className="flex items-start gap-2.5">
+                        <span
+                          aria-hidden="true"
+                          className="mt-0.5 shrink-0 text-muted"
+                        >
+                          <Icon size={14} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline justify-between gap-3">
+                            <span className="truncate font-medium text-foreground">
+                              {entry.title}
+                            </span>
+                            {entry.amount > 0 && (
+                              <span className="shrink-0 tabular-nums text-foreground">
+                                {formatGhs(entry.amount)}
+                              </span>
+                            )}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted">
+                            {entry.detail}
+                          </span>
+                        </span>
+                      </span>
+                    </ListBox.Item>
+                  );
+                })}
+              </ListBox>
+            </ComboBox.Popover>
+          </ComboBox>
 
-          {loading ? (
-            <p className="flex items-center gap-2 rounded-lg border-2 border-dashed border-border p-4 text-xs text-muted">
-              <LoaderCircle size={14} className="animate-spin text-success" />
-              Reading what {customerName} holds…
-            </p>
-          ) : destinations.length === 0 ? (
-            <p className="rounded-lg border-2 border-dashed border-border p-4 text-center text-xs text-muted">
-              Nothing to send to. A loan or agreement has to be open to take a
-              payment, and a susu or savings account has to be running.
+          {!loading && destinations.length === 0 ? (
+            <p className="text-xs text-muted">
+              A loan or agreement has to be open to take a payment, and a susu
+              or savings account has to be running.
             </p>
           ) : (
-            <ul className="space-y-2">
-              {destinations.map((entry) => {
-                const Icon = ICONS[entry.kind];
-                return (
-                  <li key={entry.key}>
-                    <button
-                      type="button"
-                      aria-pressed={to === entry.key}
-                      onClick={() => setTo(entry.key)}
-                      className={`flex w-full items-start gap-2.5 rounded-lg border-2 p-3 text-left transition-colors ${
-                        to === entry.key
-                          ? "border-success"
-                          : "border-border hover:border-success/50"
-                      }`}
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="mt-0.5 shrink-0 text-muted"
-                      >
-                        <Icon size={14} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-baseline justify-between gap-3">
-                          <span className="truncate font-medium text-foreground">
-                            {entry.title}
-                          </span>
-                          {entry.amount > 0 && (
-                            <span className="shrink-0 tabular-nums text-foreground">
-                              {formatGhs(entry.amount)}
-                            </span>
-                          )}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-muted">
-                          {entry.detail}
-                        </span>
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            target && <p className="text-xs text-muted">{target.detail}</p>
           )}
           <FieldError message={result?.fieldErrors?.to} />
-        </fieldset>
+        </div>
 
         {source.partial ? (
           <div className="space-y-1.5">

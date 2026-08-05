@@ -34,6 +34,12 @@ function isRowArray(value: unknown): value is Row[] {
   return Array.isArray(value) && value.every(isRecord);
 }
 
+/** The range the user picked comes back in the payload; the filter already shows it. */
+function isRangeEcho(key: string): boolean {
+  const leaf = key.split(".").pop()!.toLowerCase();
+  return leaf === "from" || leaf === "to";
+}
+
 /** Keys in declaration order across the rows — later rows can add columns. */
 function columnsOf(rows: Row[]): string[] {
   const seen: string[] = [];
@@ -64,13 +70,14 @@ export function readReport(payload: unknown): ReportView {
 
   const figures = Object.entries(payload)
     .filter(([, v]) => !Array.isArray(v) && !isRecord(v) && v !== null)
+    .filter(([key]) => !isRangeEcho(key))
     .map(([key, value]) => ({ key, value }));
 
   // A nested object of scalars (a `totals: {...}`) reads as more figures.
   for (const [key, value] of Object.entries(payload)) {
     if (!isRecord(value)) continue;
     for (const [inner, v] of Object.entries(value)) {
-      if (!Array.isArray(v) && !isRecord(v) && v !== null) {
+      if (!Array.isArray(v) && !isRecord(v) && v !== null && !isRangeEcho(inner)) {
         figures.push({ key: `${key}.${inner}`, value: v });
       }
     }
@@ -105,8 +112,28 @@ const MONEY = /(amount|total|balance|principal|interest|commission|fee|fees|paid
 /** Names that are ids rather than anything to read. */
 const ID = /(^id$|Id$|_id$)/;
 
+/** Counts and spans, which win over MONEY — `daysOverdue` is days, not cedis. */
+const COUNTABLE = /(days?|count|quantity|months?|years?|term|number|rate|percent)/i;
+
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T/;
+
+/** Whether a number under this name is pesewas rather than a count. */
+export function isMoneyKey(key: string): boolean {
+  return MONEY.test(key) && !ID.test(key) && !COUNTABLE.test(key);
+}
+
+/** Whether a name is an id — never worth reading, never worth charting. */
+export function isIdKey(key: string): boolean {
+  return ID.test(key);
+}
+
+export function isDateString(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    (ISO_DATE.test(value) || ISO_DATETIME.test(value))
+  );
+}
 
 export function formatCell(key: string, value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
@@ -114,7 +141,7 @@ export function formatCell(key: string, value: unknown): string {
 
   if (typeof value === "number") {
     // Integer pesewas everywhere in this API; counts and days are not money.
-    if (MONEY.test(key) && !ID.test(key)) return formatGhs(value, { symbol: null });
+    if (isMoneyKey(key)) return formatGhs(value, { symbol: null });
     return String(value);
   }
 

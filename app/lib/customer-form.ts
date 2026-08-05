@@ -18,16 +18,18 @@ export function readCustomerForm(form: FormData): {
 } {
   const fieldErrors: Record<string, string> = {};
   const text = (name: string) => String(form.get(name) ?? "").trim();
+  /** Typed free text, in the caps the form shows — never an email or a key. */
+  const caps = (name: string) => text(name).toUpperCase();
   /** Bounded optional string: skipped when blank, checked when not. */
   const optional = (name: string, label: string, min: number, max: number) => {
-    const v = text(name);
+    const v = caps(name);
     if (!v) return undefined;
     if (v.length < min || v.length > max)
       fieldErrors[name] = `${label} must be ${min}–${max} characters.`;
     return v;
   };
 
-  const fullName = text("fullName");
+  const fullName = caps("fullName");
   if (fullName.length < 2 || fullName.length > 120)
     fieldErrors.fullName = "Full name must be 2–120 characters.";
 
@@ -41,7 +43,7 @@ export function readCustomerForm(form: FormData): {
     if (altError) fieldErrors.altPhone = altError;
   }
 
-  const ghanaPostGps = text("ghanaPostGps").toUpperCase();
+  const ghanaPostGps = caps("ghanaPostGps");
   const gpsError = validateGhanaPostGps(ghanaPostGps);
   if (gpsError) fieldErrors.ghanaPostGps = gpsError;
 
@@ -52,9 +54,7 @@ export function readCustomerForm(form: FormData): {
     fieldErrors.maritalStatus = "Choose a marital status.";
 
   const idType = text("idType");
-  const rawIdNumber = text("idNumber");
-  const idNumber =
-    idType === "ghana-card" ? rawIdNumber.toUpperCase() : rawIdNumber;
+  const idNumber = caps("idNumber");
   if (idType && !isIdType(idType)) fieldErrors.idType = "Choose an ID type.";
   if (idNumber && !idType) fieldErrors.idType = "Choose the ID type as well.";
   if (idType && !idNumber) fieldErrors.idNumber = "Enter the ID number.";
@@ -66,7 +66,7 @@ export function readCustomerForm(form: FormData): {
   }
 
   // Next of kin hangs off the name: no name, no record.
-  const kinName = text("kinFullName");
+  const kinName = caps("kinFullName");
   const kinRelationship = optional("kinRelationship", "Relationship", 2, 60);
   const kinPhone = text("kinPhone");
   const kinAddress = optional("kinAddress", "Address", 2, 300);

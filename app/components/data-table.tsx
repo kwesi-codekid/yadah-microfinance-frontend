@@ -117,7 +117,9 @@ export const DataTable = ({
           >
             <Table.Content
               aria-label={ariaLabel}
-              className="w-full bg-surface [&_td]:border-b [&_td]:border-border [&_td]:px-4 [&_td]:py-3.5 [&_td]:text-xs [&_tr:last-child>td]:border-b-0 dark:bg-canvas"
+              // The `[&_td]` rules outrank a cell's own padding classes, so these
+              // are what every table actually uses — tightened for small screens.
+              className="w-full bg-surface [&_td]:border-b [&_td]:border-border [&_td]:px-3 [&_td]:py-2.5 [&_td]:text-xs sm:[&_td]:px-4 sm:[&_td]:py-3.5 [&_tr:last-child>td]:border-b-0 dark:bg-canvas"
             >
               <Table.Header>
                 {columns.map((column, index) => (
@@ -125,7 +127,7 @@ export const DataTable = ({
                     key={column}
                     id={column}
                     isRowHeader={index === 0}
-                    className={`rounded-none border-b border-r border-border bg-surface-tertiary px-4 py-3 text-left text-[0.75rem] font-bold uppercase tracking-wider text-foreground last:border-r-0 ${
+                    className={`rounded-none border-b border-r border-border bg-surface-tertiary px-3 py-2 text-left text-[0.6875rem] font-bold uppercase tracking-wider text-foreground last:border-r-0 sm:px-4 sm:py-3 sm:text-[0.75rem] ${
                       capped ? "sticky top-0 z-10" : ""
                     }`}
                   >
@@ -152,17 +154,24 @@ export const DataTable = ({
 
         {showFooter ? (
           // Inside the card, under the rows — sticking it to the viewport made it
-          // ride over the table on mobile. Wraps so a narrow screen stacks instead.
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border bg-surface px-3 py-2 dark:bg-canvas">
-            {showSizeSelect ? (
-              <PageSizeSelect value={curSize} options={pageSizeOptions} onChange={handleSize} />
-            ) : null}
-            {summary ? (
-              <span aria-live="polite" className="min-w-0 truncate text-xs text-muted">
-                {summary}
-              </span>
-            ) : null}
-            <TablePagination page={curPage} pageCount={pageCount} onPageChange={handlePage} />
+          // ride over the table on mobile. One flex row: the pager holds the end.
+          <div className="flex items-center justify-between gap-2 border-t border-border bg-surface px-3 py-2 dark:bg-canvas">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+              {showSizeSelect ? (
+                <PageSizeSelect value={curSize} options={pageSizeOptions} onChange={handleSize} />
+              ) : null}
+              {summary ? (
+                <span
+                  aria-live="polite"
+                  className="min-w-0 truncate text-[0.6875rem] text-muted sm:text-xs"
+                >
+                  {summary}
+                </span>
+              ) : null}
+            </div>
+            <div className="shrink-0">
+              <TablePagination page={curPage} pageCount={pageCount} onPageChange={handlePage} />
+            </div>
           </div>
         ) : null}
       </div>
@@ -190,7 +199,7 @@ function PageSizeSelect({
       className="text-left"
     >
       {/* pe-7 keeps the value clear of the absolutely-positioned chevron; w-19 fits three digits. */}
-      <Select.Trigger className="flex min-h-8 w-19 items-center justify-between gap-2 rounded-md border border-field-border bg-field ps-2.5 pe-7 text-sm text-foreground shadow-none transition hover:border-accent/50">
+      <Select.Trigger className="flex min-h-7 w-16 items-center justify-between gap-1 rounded-md border border-field-border bg-field ps-2 pe-6 text-xs text-foreground shadow-none transition hover:border-accent/50 sm:min-h-8 sm:w-19 sm:gap-2 sm:ps-2.5 sm:pe-7 sm:text-sm">
         <Select.Value />
         <Select.Indicator />
       </Select.Trigger>
@@ -224,7 +233,9 @@ function getPages(current: number, total: number): (number | "ellipsis")[] {
   return pages;
 }
 
-const CELL_BASE = "size-8 min-w-8 rounded-full text-sm shadow-none";
+// Smaller on a phone, where these are the largest controls on the screen.
+const CELL_BASE =
+  "size-7 min-w-7 rounded-full text-xs shadow-none sm:size-8 sm:min-w-8 sm:text-sm";
 
 /** A page number, or the ellipsis: unpainted until pointed at. */
 const PAGE_CELL = `${CELL_BASE} border-0 bg-transparent text-foreground hover:bg-surface-tertiary`;
@@ -253,13 +264,20 @@ function TablePagination({
           </Pagination.Previous>
         </Pagination.Item>
 
+        {/* Nine cells don't fit a phone; it gets the count instead. */}
+        <Pagination.Item className="sm:hidden">
+          <span className="flex h-7 items-center px-2 text-xs tabular-nums text-muted">
+            {page} / {pageCount}
+          </span>
+        </Pagination.Item>
+
         {getPages(page, pageCount).map((p, i) =>
           p === "ellipsis" ? (
-            <Pagination.Item key={`ellipsis-${i}`}>
+            <Pagination.Item key={`ellipsis-${i}`} className="hidden sm:block">
               <Pagination.Ellipsis className={PAGE_CELL} />
             </Pagination.Item>
           ) : (
-            <Pagination.Item key={p}>
+            <Pagination.Item key={p} className="hidden sm:block">
               <Pagination.Link
                 isActive={p === page}
                 onPress={() => onPageChange(p)}

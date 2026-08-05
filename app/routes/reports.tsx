@@ -1,12 +1,21 @@
 import { data, Form, useNavigation, useSearchParams } from "react-router";
-import { Download, FileWarning } from "lucide-react";
+import {
+  CalendarClock,
+  Coins,
+  Download,
+  FileWarning,
+  HandCoins,
+  Percent,
+} from "lucide-react";
 import type { Route } from "./+types/reports";
 import { DataTable, Table } from "~/components/data-table";
 import { FIELD } from "~/components/form-fields";
-import { Kpi } from "~/components/kpi";
+import { Kpi, PANEL, PANEL_TITLE } from "~/components/kpi";
+import { SeriesLine, SplitRing } from "~/components/report-charts";
 import { TabLink, TabList } from "~/components/tabs";
 import { toApiFailure, type ApiFailure } from "~/lib/api/client";
 import { getReport } from "~/lib/api/reports";
+import { plotRows, splitFigures, splitRows } from "~/lib/report-chart";
 import { isReportName, REPORTS, type ReportName } from "~/lib/report-client";
 import {
   formatCell,
@@ -22,6 +31,13 @@ export function meta(_: Route.MetaArgs) {
 }
 
 const LIST_ID = "report-body";
+
+const ICONS: Record<ReportName, React.ReactNode> = {
+  collections: <Coins size={15} />,
+  "loans-outstanding": <HandCoins size={15} />,
+  "loans-aging": <CalendarClock size={15} />,
+  commission: <Percent size={15} />,
+};
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -110,6 +126,7 @@ export default function Reports({ loaderData }: Route.ComponentProps) {
               to={reportHref(value)}
               selected={value === name}
               controls={LIST_ID}
+              icon={ICONS[value as ReportName]}
             >
               {meta.label}
             </TabLink>
@@ -148,6 +165,23 @@ export default function Reports({ loaderData }: Route.ComponentProps) {
 }
 
 function ReportBody({ view, loading }: { view: ReportView; loading: boolean }) {
+  const line = plotRows(view.rows, view.columns);
+
+  // The figures make the better ring; a section of buckets is the fallback.
+  const fromFigures = splitFigures(view.figures, "in total");
+  const fromSection = view.sections
+    .map((section) => ({
+      label: labelOf(section.key),
+      split: splitRows(section.rows, section.columns, "in total"),
+    }))
+    .find((entry) => entry.split !== null);
+
+  const ring = fromFigures
+    ? { label: "Across the range", split: fromFigures }
+    : fromSection?.split
+      ? { label: fromSection.label, split: fromSection.split }
+      : null;
+
   return (
     <div id={LIST_ID} className="space-y-6">
       {view.figures.length > 0 && (
@@ -162,6 +196,42 @@ function ReportBody({ view, loading }: { view: ReportView; loading: boolean }) {
         </div>
       )}
 
+      {(line || ring) && (
+        <div
+          className={`grid grid-cols-1 gap-5 ${
+            line && ring ? "xl:grid-cols-[minmax(0,1fr)_22rem]" : ""
+          }`}
+        >
+          {line && (
+            <section className={`${PANEL} p-5`} aria-label={line.valueLabel}>
+              <PanelHead
+                title={line.valueLabel}
+                subtitle={
+                  line.overTime
+                    ? `Over the range, by ${line.labelLabel.toLowerCase()}`
+                    : `By ${line.labelLabel.toLowerCase()}, biggest first`
+                }
+              />
+              <SeriesLine
+                chart={line}
+                caption={
+                  line.hidden > 0
+                    ? `${line.hidden} more in the table below.`
+                    : undefined
+                }
+              />
+            </section>
+          )}
+
+          {ring && (
+            <section className={`${PANEL} p-5`} aria-label="Make-up">
+              <PanelHead title="Make-up" subtitle={ring.label} />
+              <SplitRing chart={ring.split} />
+            </section>
+          )}
+        </div>
+      )}
+
       <RowTable
         columns={view.columns}
         rows={view.rows}
@@ -171,9 +241,7 @@ function ReportBody({ view, loading }: { view: ReportView; loading: boolean }) {
 
       {view.sections.map((section) => (
         <section key={section.key}>
-          <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-muted">
-            {labelOf(section.key)}
-          </h2>
+          <h2 className={`mb-3 ${PANEL_TITLE}`}>{labelOf(section.key)}</h2>
           <RowTable
             columns={section.columns}
             rows={section.rows}
@@ -182,6 +250,17 @@ function ReportBody({ view, loading }: { view: ReportView; loading: boolean }) {
           />
         </section>
       ))}
+    </div>
+  );
+}
+
+function PanelHead({ title, subtitle }: { title: string; subtitle: string }) {
+  return (
+    <div className="mb-5">
+      <h2 className="font-heading text-sm font-semibold text-foreground">
+        {title}
+      </h2>
+      <p className="mt-0.5 text-xs text-muted">{subtitle}</p>
     </div>
   );
 }

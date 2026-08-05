@@ -276,7 +276,7 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
         ariaLabel="Transaction history"
         isLoading={navigation.state === "loading" && !searching}
         paginated
-        pageSizeOptions={[25, 50, 100]}
+        pageSizeOptions={[10, 25, 50]}
         resetKey={`${filters.page}:${filters.search}:${product ?? "all"}`}
         summary={`${visible.length} transaction${visible.length === 1 ? "" : "s"} in this window`}
         emptyContent={{

@@ -102,10 +102,7 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
 
   return (
     <div className="mx-auto w-full px-6 py-8">
-      <PageHeader
-        title="Register Customer"
-        subtitle="Only a name and phone number are required — the rest can follow later."
-      />
+      <PageHeader title="Register Customer" />
 
       {actionData?.formError && (
         <p className="mb-6 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
@@ -124,7 +121,6 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
             <UploadSlot
               field="idDocumentFront"
               title="ID document — front"
-              hint="Optional — stored at higher resolution for legibility."
               error={actionData?.fieldErrors?.idDocumentFront}
               onSelect={(has) =>
                 setSelected((prev) => ({ ...prev, idDocumentFront: has }))
@@ -133,7 +129,6 @@ export default function CustomerNew({ actionData }: Route.ComponentProps) {
             <UploadSlot
               field="idDocumentBack"
               title="ID document — back"
-              hint="Optional — the reverse of the same document."
               error={actionData?.fieldErrors?.idDocumentBack}
               onSelect={(has) =>
                 setSelected((prev) => ({ ...prev, idDocumentBack: has }))
