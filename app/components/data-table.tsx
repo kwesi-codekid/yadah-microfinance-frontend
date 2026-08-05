@@ -252,8 +252,9 @@ function TablePagination({
   onPageChange: (page: number) => void;
 }) {
   return (
-    <Pagination size="sm">
-      <Pagination.Content className="flex items-center">
+    // HeroUI stacks the pager below `sm`; ours is one row of controls at every width.
+    <Pagination size="sm" className="w-auto flex-row items-center gap-0">
+      <Pagination.Content className="flex items-center self-center">
         <Pagination.Item>
           <Pagination.Previous
             isDisabled={page <= 1}
