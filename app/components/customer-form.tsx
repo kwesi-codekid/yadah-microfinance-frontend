@@ -320,17 +320,21 @@ export function CustomerForm({
                   maxLength={200}
                 />
               </Fld>
-            </div>
-          </Section>
 
-          {/* Only when registering. A round moves through the admin-only
-              reassignment route, which writes an audit entry — `PATCH` on the
-              profile ignores the field, so offering it here on an edit would be
-              a control that silently does nothing. */}
-          {!editing && (
-            <Section title="Collection">
-              <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-                <Fld label="Assigned collector" required>
+              {/* Only when registering. A round moves through the admin-only
+                  reassignment route, which writes an audit entry — `PATCH` on the
+                  profile ignores the field, so offering it here on an edit would
+                  be a control that silently does nothing. */}
+              {!editing && (
+                <Fld
+                  label="Assigned collector"
+                  required
+                  hint={
+                    collectors.length > 0
+                      ? "Whose round this customer joins. Changing it later is an admin job and is recorded against the customer."
+                      : undefined
+                  }
+                >
                   {collectors.length > 0 ? (
                     <SelectField name="assignedCollectorId" options={collectorOptions} />
                   ) : (
@@ -341,13 +345,9 @@ export function CustomerForm({
                     </p>
                   )}
                 </Fld>
-                <p className="self-end pb-2 text-xs text-muted-foreground sm:col-span-1 xl:col-span-3">
-                  Whose round this customer joins. Changing it later is an admin
-                  job and is recorded against the customer.
-                </p>
-              </div>
-            </Section>
-          )}
+              )}
+            </div>
+          </Section>
 
           <Section title="Next of kin">
             <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
