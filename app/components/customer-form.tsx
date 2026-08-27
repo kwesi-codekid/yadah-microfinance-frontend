@@ -623,7 +623,7 @@ function DocDrop({
             "flex w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed px-4 py-8 text-center transition-colors",
             slot.status === "error"
               ? "border-destructive/50 bg-destructive/5"
-              : "border-border hover:border-primary/40 hover:bg-accent/50",
+              : "border-border bg-card hover:border-primary/40 hover:bg-accent/50",
           )}
         >
           <UploadIcon className="size-5 text-muted-foreground" />
@@ -692,7 +692,7 @@ function PhotoDrop({ slot, onChange }: { slot: Slot; onChange: (s: Slot) => void
               "flex min-h-28 w-full flex-1 flex-col items-center justify-center gap-1.5 rounded-lg border border-dashed p-3 text-center transition-colors",
               slot.status === "error"
                 ? "border-destructive/50 bg-destructive/5"
-                : "border-border hover:border-primary/40 hover:bg-accent/50",
+                : "border-border bg-card hover:border-primary/40 hover:bg-accent/50",
             )}
           >
             <UploadIcon className="size-5 text-muted-foreground" />

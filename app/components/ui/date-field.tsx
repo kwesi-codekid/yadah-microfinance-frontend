@@ -86,7 +86,7 @@ export function DateField({
             data-empty={!value}
             aria-required={required}
             className={cn(
-              "h-9 w-full justify-start px-2.5 font-normal data-[empty=true]:text-muted-foreground",
+              "h-9 w-full justify-start border-input bg-card px-2.5 font-normal data-[empty=true]:text-muted-foreground",
               className,
             )}
           >

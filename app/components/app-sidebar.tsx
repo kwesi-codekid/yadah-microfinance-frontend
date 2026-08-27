@@ -58,9 +58,11 @@ export function AppSidebar({ user }: { user: AuthUser }) {
                       asChild
                       isActive={active}
                       tooltip={item.label}
-                      // Active is the one loud note on the green rail: a solid
-                      // pale-mint pill with deep-green text. The `data-active:hover`
-                      // pair pins the pill so a hover can't flip it back to green.
+                      // Active is the one loud note on the rail: a solid pill in
+                      // whichever direction the theme runs — ink on the light
+                      // rail, inverted on the dark one. The `data-active:hover`
+                      // pair pins it so hovering the current page can't flip the
+                      // pill back to the hover tint.
                       className="h-9 data-active:bg-sidebar-primary data-active:font-semibold data-active:text-sidebar-primary-foreground data-active:hover:bg-sidebar-primary data-active:hover:text-sidebar-primary-foreground"
                     >
                       <NavLink

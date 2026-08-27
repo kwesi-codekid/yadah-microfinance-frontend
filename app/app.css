@@ -336,14 +336,18 @@
   --chart-4: var(--module-hp);
   --chart-5: var(--module-transfers);
 
-  /* The rail stays paper-white at night — the one constant surface. */
-  --sidebar: #ffffff;
-  --sidebar-foreground: #101114;
-  --sidebar-primary: #101114;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f3f3f3;
-  --sidebar-accent-foreground: #101114;
-  --sidebar-border: #e7e7e5;
+  /* The rail follows the theme, mirroring the light palette's relationships
+     rather than restating its colours: a raised panel on the ground (card, not
+     background), an inverted-ink active pill, and the accent step for hover.
+     The brand mark keeps its own white tile — see `BrandMark` — so the navy in
+     the logo never has to hold contrast against this surface. */
+  --sidebar: #1b1e27;                          /* card — raised off the ground */
+  --sidebar-foreground: #f2f2f0;
+  --sidebar-primary: #f2f2f0;                  /* active pill — ink, inverted */
+  --sidebar-primary-foreground: #14161d;
+  --sidebar-accent: #2a2e3a;                   /* hover — the accent step */
+  --sidebar-accent-foreground: #f2f2f0;
+  --sidebar-border: oklch(1 0 0 / 12%);
   --sidebar-ring: #f0503a;
 
   --tint-1-bg: #243247;
