@@ -36,7 +36,7 @@ import {
   StatusTabs,
   Th,
 } from "~/components/listing";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
@@ -88,6 +88,12 @@ import type { Route } from "./+types/inventory";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Inventory · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Inventory",
+  description: "What is on the shelf, and what a unit of it costs a customer.",
+};
 
 const PAGE_SIZE = 20;
 
@@ -276,19 +282,6 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page className="max-w-none">
-      <PageHeader
-        title="Inventory"
-        description="What is on the shelf, and what a unit of it costs a customer."
-        actions={
-          <Button asChild>
-            <Link to={`/inventory/new${search}`} prefetch="intent" preventScrollReset>
-              <PlusIcon />
-              Add item
-            </Link>
-          </Button>
-        }
-      />
-
       <ListingCard>
         <ListingToolbar
           tabs={
@@ -341,6 +334,12 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
             total={total}
             noun="item"
           />
+          <Button asChild size="sm">
+            <Link to={`/inventory/new${search}`} prefetch="intent" preventScrollReset>
+              <PlusIcon />
+              Add item
+            </Link>
+          </Button>
         </ListingToolbar>
 
         {narrowed && (

@@ -32,7 +32,7 @@ import {
   StatusTabs,
   Th,
 } from "~/components/listing";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import { RedemptionCountdown } from "~/components/redemption";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -75,6 +75,13 @@ import type { Route } from "./+types/hire-purchase";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Hire purchase · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Hire purchase",
+  description:
+    "Half down, the rest financed. The item goes out when the deposit lands.",
+};
 
 const PAGE_SIZE = 20;
 
@@ -265,23 +272,6 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page className="max-w-none">
-      <PageHeader
-        title="Hire purchase"
-        description="Half down, the rest financed. The item goes out when the deposit lands."
-        actions={
-          <Button asChild>
-            <Link
-              to={`/hire-purchase/new${search}`}
-              prefetch="intent"
-              preventScrollReset
-            >
-              <PlusIcon />
-              Sign an agreement
-            </Link>
-          </Button>
-        }
-      />
-
       <ListingCard>
         <ListingToolbar
           tabs={
@@ -333,6 +323,16 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
             total={total}
             noun="agreement"
           />
+          <Button asChild size="sm">
+            <Link
+              to={`/hire-purchase/new${search}`}
+              prefetch="intent"
+              preventScrollReset
+            >
+              <PlusIcon />
+              Sign an agreement
+            </Link>
+          </Button>
         </ListingToolbar>
 
         {narrowed && (

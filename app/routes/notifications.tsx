@@ -20,7 +20,7 @@ import {
   ListingToolbar,
   StatusPill,
 } from "~/components/listing";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import { Button } from "~/components/ui/button";
 import {
   Empty,
@@ -46,6 +46,12 @@ import type { Route } from "./+types/notifications";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Notifications · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Notifications",
+  description: "What happened, and where to look at it properly.",
+};
 
 const PAGE_SIZE = 25;
 
@@ -203,21 +209,6 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page className="max-w-none">
-      <PageHeader
-        title="Notifications"
-        description="What happened, and where to look at it properly."
-        actions={
-          <Button
-            variant="outline"
-            disabled={unread === 0 || busy || fetcher.state !== "idle"}
-            onClick={() => fetcher.submit({ intent: "read-all" }, { method: "post" })}
-          >
-            <CheckCheckIcon />
-            Mark all read
-          </Button>
-        }
-      />
-
       <ListingCard>
         <ListingToolbar
           tabs={
@@ -253,6 +244,15 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
             allLabel="Every kind"
             width="w-56"
           />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={unread === 0 || busy || fetcher.state !== "idle"}
+            onClick={() => fetcher.submit({ intent: "read-all" }, { method: "post" })}
+          >
+            <CheckCheckIcon />
+            Mark all read
+          </Button>
         </ListingToolbar>
 
         {narrowed && (

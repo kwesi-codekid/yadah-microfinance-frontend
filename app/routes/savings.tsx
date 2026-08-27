@@ -29,7 +29,7 @@ import {
 } from "react-router";
 
 import { listAccounts } from "~/api/savings";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AccountTypeTag,
@@ -84,6 +84,13 @@ import type { Route } from "./+types/savings";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Savings · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Savings",
+  description:
+    "An open balance: GH₵ 5 minimum in, one withdrawal a day out, GH₵ 50 stays behind.",
+};
 
 const PAGE_SIZE = 20;
 
@@ -243,21 +250,6 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page className="max-w-none">
-      <PageHeader
-        title="Savings"
-        description="An open balance: GH₵ 5 minimum in, one withdrawal a day out, GH₵ 50 stays behind."
-        actions={
-          canManage && (
-            <Button asChild>
-              <Link to={`/savings/new${search}`} prefetch="intent" preventScrollReset>
-                <PlusIcon />
-                Open account
-              </Link>
-            </Button>
-          )
-        }
-      />
-
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="inline-flex w-fit flex-wrap items-center gap-1 rounded-lg bg-muted/60 p-1">
@@ -297,6 +289,14 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
             <TypeFilter filters={filters} />
             <DateRangeFilter filters={filters} />
             <ExportMenu filters={filters} total={total} />
+            {canManage && (
+              <Button asChild size="sm">
+                <Link to={`/savings/new${search}`} prefetch="intent" preventScrollReset>
+                  <PlusIcon />
+                  Open account
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 

@@ -10,7 +10,7 @@ import { toast } from "sonner";
 
 import { listTrashedCustomers, restoreCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +47,13 @@ import type { Route } from "./+types/trash";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Trash · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Trash",
+  description:
+    "Customers that were removed from the listings. Nothing here is deleted for good — restore one and it reappears everywhere.",
+};
 
 const PAGE_SIZE = 20;
 
@@ -106,11 +113,6 @@ export default function Trash({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page className="max-w-none">
-      <PageHeader
-        title="Trash"
-        description="Customers that were removed from the listings. Nothing here is deleted for good — restore one and it reappears everywhere."
-      />
-
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         {rows.length === 0 ? (
           <Empty className="py-16">

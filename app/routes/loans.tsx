@@ -13,7 +13,8 @@ import type { ReactNode } from "react";
 import { data, Link, Outlet, useLocation, useNavigation, useSubmit } from "react-router";
 
 import { listLoans } from "~/api/loans";
-import { getDashboard, getLoanAging, getOutstandingLoans } from "~/api/reports";
+import { getDashboardSummary } from "~/api/dashboard";
+import { getLoanAging, getOutstandingLoans } from "~/api/reports";
 import {
   DayRangeChip,
   DayRangeFilter,
@@ -140,7 +141,7 @@ const DUE_SOON_DAYS = 7;
  *
  *   Figures        the per-status counts (scoped like the tabs)
  *   Book by status the same counts, drawn
- *   Performance    GET /reports/dashboard — portfolio.loans and today's repayments
+ *   Performance    GET /dashboard/summary — portfolio.loans and today's repayments
  *   Needs attention  derived from the counts, the aging buckets and what falls due
  *   Due soon       GET /reports/loans/outstanding, soonest due first
  *
@@ -171,7 +172,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         limit: PAGE_SIZE,
         status: filters.status === "all" ? undefined : filters.status,
       }),
-      getDashboard(token).catch(() => null),
+      getDashboardSummary(token).catch(() => null),
       getOutstandingLoans(token).catch(() => null),
       getLoanAging(token).catch(() => null),
       ...STATUSES.map((status) =>

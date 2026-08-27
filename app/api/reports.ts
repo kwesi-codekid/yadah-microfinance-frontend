@@ -4,7 +4,6 @@ import type {
   AgingReport,
   CollectionsReport,
   CommissionReport,
-  DashboardMetrics,
   OutstandingReport,
   TransactionFeed,
   TxnModule,
@@ -23,17 +22,12 @@ export type { ExportFormat };
 
 /* --------------------------------------------------------------- dashboard --- */
 
-/**
- * GET /reports/dashboard — today's cash, this month's revenue, and what the
- * branch is currently holding.
- *
- * This endpoint is the source of truth. Socket.io money events to the admin
- * room say *when* to read it again; nothing is ever rendered off a socket
- * payload. JSON only — there is no export.
+/*
+ * `GET /reports/dashboard` used to live here. The API replaced it with
+ * `GET /dashboard/summary` and keeps the old path only as a deprecated alias,
+ * so the call moved to `~/api/dashboard`, alongside the four other reads that
+ * screen needs.
  */
-export function getDashboard(accessToken: string): Promise<DashboardMetrics> {
-  return apiFetch("/reports/dashboard", { accessToken });
-}
 
 /* ------------------------------------------------------------- the ledger --- */
 

@@ -8,13 +8,19 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import { requireOffice } from "~/lib/session.server";
 import type { Route } from "./+types/reports";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Reports · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Reports",
+  description: "The questions that cut across more than one module.",
+};
 
 export async function loader({ request }: Route.LoaderArgs) {
   // The whole `/reports` surface is office-only on the API's side; a collector
@@ -71,11 +77,6 @@ const REPORTS: {
 export default function Reports() {
   return (
     <Page>
-      <PageHeader
-        title="Reports"
-        description="The questions that cut across more than one module."
-      />
-
       <div className="grid gap-3 sm:grid-cols-2">
         {REPORTS.map((report) => (
           <Link

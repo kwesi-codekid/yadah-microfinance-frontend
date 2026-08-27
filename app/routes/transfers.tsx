@@ -28,7 +28,7 @@ import { listAccounts as listSusu } from "~/api/susu";
 import { createTransfer } from "~/api/transfers";
 import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
 import { Figure } from "~/components/listing";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
@@ -50,6 +50,13 @@ import type { Route } from "./+types/transfers";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Transfer · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Transfer",
+  description:
+    "Move money between one customer's own accounts. Both halves happen, or neither does.",
+};
 
 /**
  * One endpoint, and more rules behind it than any other in the API — so it gets
@@ -363,11 +370,6 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page>
-      <PageHeader
-        title="Transfer"
-        description="Move money between one customer's own accounts. Both halves happen, or neither does."
-      />
-
       <Form method="post" className="space-y-4">
         <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
         <input type="hidden" name="fromType" value={source?.kind ?? ""} />

@@ -30,7 +30,7 @@ import {
 import { data } from "react-router";
 
 import { listAccounts } from "~/api/susu";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { DateField } from "~/components/ui/date-field";
@@ -85,6 +85,12 @@ import type { Route } from "./+types/susu";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Susu · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Susu",
+  description: "One account is one cycle: 31 deposits at a fixed daily amount.",
+};
 
 const PAGE_SIZE = 20;
 
@@ -253,35 +259,6 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page className="max-w-none">
-      <PageHeader
-        title="Susu"
-        description="One account is one cycle: 31 deposits at a fixed daily amount."
-        actions={
-          <>
-            <Button asChild variant="outline">
-              <Link to="/susu/summary">
-                <LayersIcon />
-                Day summary
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link to={`/susu/collect${search}`} prefetch="intent">
-                <HandCoinsIcon />
-                Collect all
-              </Link>
-            </Button>
-            {canManage && (
-              <Button asChild>
-                <Link to={`/susu/new${search}`} prefetch="intent">
-                  <PlusIcon />
-                  Open account
-                </Link>
-              </Button>
-            )}
-          </>
-        }
-      />
-
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="inline-flex w-fit flex-wrap items-center gap-1 rounded-lg bg-muted/60 p-1">
@@ -320,6 +297,26 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
             <SearchBox filters={filters} busy={busy} />
             <DateRangeFilter filters={filters} />
             <ExportMenu filters={filters} total={total} />
+            <Button asChild variant="outline" size="sm">
+              <Link to="/susu/summary">
+                <LayersIcon />
+                Day summary
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link to={`/susu/collect${search}`} prefetch="intent">
+                <HandCoinsIcon />
+                Collect all
+              </Link>
+            </Button>
+            {canManage && (
+              <Button asChild size="sm">
+                <Link to={`/susu/new${search}`} prefetch="intent">
+                  <PlusIcon />
+                  Open account
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 

@@ -46,7 +46,7 @@ import {
 } from "~/api/customers";
 import { ApiError } from "~/api/error";
 import { listUsers } from "~/api/users";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
@@ -373,20 +373,6 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page className="max-w-none">
-      <PageHeader
-        title="Customers"
-        actions={
-          canManage ? (
-            <Button asChild>
-              <Link to="/customers/new">
-                <UserPlusIcon />
-                Register customer
-              </Link>
-            </Button>
-          ) : undefined
-        }
-      />
-
       <div className="overflow-hidden rounded-xl border border-border bg-card">
         <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="inline-flex w-fit items-center gap-1 rounded-lg bg-muted/60 p-1">
@@ -425,6 +411,14 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
             <SearchBox filters={filters} busy={busy} />
             <DateRangeFilter filters={filters} />
             <ExportMenu filters={filters} total={total} />
+            {canManage && (
+              <Button asChild size="sm">
+                <Link to="/customers/new">
+                  <UserPlusIcon />
+                  Register customer
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 

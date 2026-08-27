@@ -30,7 +30,7 @@ import {
   StatusTabs,
   Th,
 } from "~/components/listing";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import {
   BreakdownChart,
   VolumeChart,
@@ -86,6 +86,12 @@ import type { Route } from "./+types/reconciliation";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Cash handover · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Cash handover",
+  description: "Declare a day's cash, count it, record the gap.",
+};
 
 const PAGE_SIZE = 8;
 
@@ -343,25 +349,6 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
 
   return (
     <Page className="max-w-none">
-      <PageHeader
-        title="Cash handover"
-        description={
-          office
-            ? "Declare, count, and close every collector's day."
-            : "The days you have closed, and what the office counted."
-        }
-        actions={
-          <>
-            <Button asChild>
-              <Link to={`/reconciliation/declare${search}`} prefetch="intent" preventScrollReset>
-                <HandCoinsIcon />
-                Declare cash
-              </Link>
-            </Button>
-          </>
-        }
-      />
-
       {/* The three figures the office asks for first, in the reference's order:
           what is done, what went wrong, what is still waiting. */}
       <dl className="mb-4 grid gap-4 sm:grid-cols-3">
@@ -455,6 +442,12 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
                     noun="day"
                   />
                 )}
+                <Button asChild size="sm">
+                  <Link to={`/reconciliation/declare${search}`} prefetch="intent" preventScrollReset>
+                    <HandCoinsIcon />
+                    Declare cash
+                  </Link>
+                </Button>
               </>
             }
           >
