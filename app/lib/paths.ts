@@ -12,3 +12,8 @@ export const CHANGE_PASSWORD_PATH = "/change-password";
 
 /** Where a successful sign-in lands, and where a forbidden route sends you. */
 export const DEFAULT_LANDING = "/dashboard";
+
+/* The customer portal: its own login, its own session, its own home. */
+export const PORTAL_HOME = "/portal";
+export const PORTAL_LOGIN_PATH = "/portal/login";
+export const PORTAL_VERIFY_PATH = "/portal/login/verify";

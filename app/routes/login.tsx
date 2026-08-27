@@ -123,6 +123,14 @@ export default function Login({ actionData }: Route.ComponentProps) {
           </p>
           <p className="text-center text-sm">
             <Link
+              to="/portal/login"
+              className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Customer? Sign in to your account instead
+            </Link>
+          </p>
+          <p className="text-center text-sm">
+            <Link
               to="/forgot-password"
               className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
             >

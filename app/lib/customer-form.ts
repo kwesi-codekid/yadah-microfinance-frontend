@@ -49,8 +49,8 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
     fullName: up("fullName") ?? "",
     phone: get("phone") ?? "",
     photoUrl: get("photoUrl") ?? "",
-    idDocumentFrontUrl: get("idDocumentFrontUrl") ?? "",
-    idDocumentBackUrl: get("idDocumentBackUrl") ?? "",
+    idDocumentFrontUrl: get("idDocumentFrontUrl"),
+    idDocumentBackUrl: get("idDocumentBackUrl"),
     assignedCollectorId: get("assignedCollectorId") ?? "",
     dateOfBirth: toIso(get("dateOfBirth")),
     gender: get("gender") as Gender | undefined,
@@ -91,19 +91,16 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
   return input;
 }
 
-/** The five the record cannot be without, whether it is being made or edited. */
+/**
+ * The three the record cannot be without, whether it is being made or edited.
+ * The ID document scans are optional — they can be added later from the edit form.
+ */
 function missingProfile(input: CreateCustomerInput): boolean {
-  return (
-    !input.fullName ||
-    !input.phone ||
-    !input.photoUrl ||
-    !input.idDocumentFrontUrl ||
-    !input.idDocumentBackUrl
-  );
+  return !input.fullName || !input.phone || !input.photoUrl;
 }
 
 /**
- * The six fields `POST /customers` insists on, in the order the form shows
+ * The four fields `POST /customers` insists on, in the order the form shows
  * them. The sixth is the collector: every customer joins somebody's round at
  * registration, and the API refuses the record without one.
  */

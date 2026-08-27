@@ -43,7 +43,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (missingRequiredForEdit(input)) {
     return data(
-      { error: "The full name, phone, photo and both sides of the ID document are required." },
+      { error: "The full name, phone and photo are required." },
       { status: 400 },
     );
   }

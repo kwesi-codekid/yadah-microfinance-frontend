@@ -167,6 +167,13 @@ export default [
     ]),
     route("reconciliation/:id", "routes/reconciliation-detail.tsx"),
 
+    /* Payout requests. Withdrawals the customer asked for from the portal,
+       waiting on the office. The queue is a page; a request is a page too —
+       the decision deserves room, and after approval the page watches the
+       transfer until Paystack answers. */
+    route("payout-requests", "routes/payout-requests.tsx"),
+    route("payout-requests/:id", "routes/payout-request-detail.tsx"),
+
     /* Counter sales, in two halves. The till is the POS: a destination of its
        own rather than an errand over the listing, because a basket, a buyer and
        a total need room and because it is where someone stands for a minute. It
@@ -206,6 +213,23 @@ export default [
     route("notifications", "routes/notifications.tsx"),
     route("trash", "routes/trash.tsx"),
     route("change-password", "routes/change-password.tsx"),
+  ]),
+
+  /* The customer portal. A separate product on the same host: its own OTP
+     login, its own session cookie scoped to /portal, and a lighter frame —
+     tabs under a header, no rail. Nothing under it can be reached with a
+     staff session, and nothing above it with a customer one. */
+  route("portal/login", "routes/portal-login.tsx"),
+  route("portal/login/verify", "routes/portal-login-verify.tsx"),
+  route("portal/logout", "routes/portal-logout.tsx"),
+  layout("routes/portal-layout.tsx", [
+    route("portal", "routes/portal-home.tsx"),
+    route("portal/transactions", "routes/portal-transactions.tsx"),
+    route("portal/statement", "routes/portal-statement.tsx"),
+    route("portal/pay", "routes/portal-pay.tsx"),
+    route("portal/pay/:reference", "routes/portal-charge.tsx"),
+    route("portal/requests", "routes/portal-requests.tsx"),
+    route("portal/requests/new", "routes/portal-request-new.tsx"),
   ]),
 
   /* Outside the layout on purpose: a document, not a screen. Everything on the

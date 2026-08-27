@@ -76,8 +76,8 @@ export function CustomerForm({
   const [back, setBack] = useState<Slot>(() => existing(customer?.idDocumentBackUrl));
   const [photo, setPhoto] = useState<Slot>(() => existing(customer?.photoUrl));
 
-  const readyCount = [front, back, photo].filter((s) => s.status === "done").length;
-  const imagesReady = readyCount === 3;
+  const idCount = [front, back].filter((s) => s.status === "done").length;
+  const imagesReady = photo.status === "done";
 
   // The API checks the ID number against the format for its type. Catching it
   // here saves a round trip and points at the field that is actually wrong.
@@ -100,7 +100,7 @@ export function CustomerForm({
       onSubmit={(e) => {
         if (!imagesReady) {
           e.preventDefault();
-          toast.error("Add the photo and both sides of the ID document first.");
+          toast.error("Add the customer photo first.");
           return;
         }
         if (idIssue) {
@@ -136,8 +136,8 @@ export function CustomerForm({
       <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
         {/* Left rail: the two ID document scans. */}
         <div className="space-y-4">
-          <DocDrop label="ID document — front" required slot={front} onChange={setFront} />
-          <DocDrop label="ID document — back" required slot={back} onChange={setBack} />
+          <DocDrop label="ID document — front" slot={front} onChange={setFront} />
+          <DocDrop label="ID document — back" slot={back} onChange={setBack} />
         </div>
 
         {/* Right: the record. */}
@@ -382,9 +382,11 @@ export function CustomerForm({
       {/* Footer bar. */}
       <div className="mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-border pt-4">
         <p className={cn("text-sm", imagesReady ? "text-success" : "text-muted-foreground")}>
-          {editing && imagesReady
-            ? "Photo and both sides of the ID document are on file."
-            : `${readyCount} of 3 required images added — a photo and both sides of the ID document.`}
+          {!imagesReady
+            ? "A customer photo is required. ID document scans are optional."
+            : idCount === 2
+              ? "Photo and both sides of the ID document are on file."
+              : `Photo added. ${idCount} of 2 ID document scans added (optional).`}
         </p>
         <div className="flex items-center gap-2">
           <Button asChild variant="ghost">

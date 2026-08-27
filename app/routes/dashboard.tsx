@@ -40,6 +40,8 @@ import {
   type SeriesBucket,
   type UnifiedTransaction,
 } from "~/lib/reports";
+import { getCollectorDashboardPage } from "~/api/collectors";
+import { CollectorDashboard } from "~/components/collector-dashboard";
 import { requireUser, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/dashboard";
@@ -93,7 +95,7 @@ type PeriodKey = keyof typeof PERIODS;
 const DEFAULT_PERIOD: PeriodKey = "month";
 
 /** How many ledger rows the activity panel asks for. */
-const RECENT_LIMIT = 8;
+const RECENT_LIMIT = 5;
 
 function periodOf(raw: string | null): PeriodKey {
   return raw && raw in PERIODS ? (raw as PeriodKey) : DEFAULT_PERIOD;
@@ -102,6 +104,15 @@ function periodOf(raw: string | null): PeriodKey {
 export async function loader({ request }: Route.LoaderArgs) {
   // The session is the gate; the header above this page carries the identity.
   const user = await requireUser(request);
+  // `GET /dashboard/summary` and the branch-wide reads refuse a collector, so
+  // a collector gets the same page drawn from their own day and their own
+  // handovers — the reads the API does allow them.
+  if (user.role === "collector") {
+    const { data: page, headers } = await withAuth(request, (token) =>
+      getCollectorDashboardPage(token, user.id),
+    );
+    return data({ user, collector: page }, { headers });
+  }
 
   const period = periodOf(new URL(request.url).searchParams.get("period"));
   const { bucket, span } = PERIODS[period];
@@ -226,6 +237,17 @@ function useAnimatedNumber(target: number): number {
 /* --------------------------------------------------------------------- page --- */
 
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
+  if ("collector" in loaderData) {
+    return <CollectorDashboard data={loaderData.collector} />;
+  }
+  return <OfficeDashboard loaderData={loaderData} />;
+}
+
+function OfficeDashboard({
+  loaderData,
+}: {
+  loaderData: Exclude<Route.ComponentProps["loaderData"], { collector: unknown }>;
+}) {
   const { period, summary, series, efficiency, alerts, recent } = loaderData;
   const [searchParams, setSearchParams] = useSearchParams();
   const navigation = useNavigation();
@@ -237,7 +259,9 @@ export default function Dashboard({ loaderData }: Route.ComponentProps) {
     navigation.state === "loading" &&
     navigation.location?.pathname === "/dashboard";
 
-  const rows = recent?.items ?? [];
+  // Sliced as well as asked for: `limit` is the API's to honour, and the panel
+  // is sized for five rows whatever it sends back.
+  const rows = (recent?.items ?? []).slice(0, RECENT_LIMIT);
   const q = query.trim().toLowerCase();
   const visibleTx = q
     ? rows.filter((tx) => searchText(tx).includes(q))

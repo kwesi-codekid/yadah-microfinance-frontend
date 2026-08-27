@@ -1,5 +1,6 @@
 import {
   ArrowLeftRightIcon,
+  BanknoteArrowUpIcon,
   ChartColumnIcon,
   CoinsIcon,
   ScaleIcon,
@@ -42,6 +43,7 @@ const OFFICE: Role[] = ["admin", "manager"];
  * route's loader — hiding a link is not access control.
  */
 export const NAV: NavItem[] = [
+  // Every role: the office sees the branch, a collector sees their own day.
   {
     to: "/dashboard",
     label: "Dashboard",
@@ -137,6 +139,16 @@ export const NAV: NavItem[] = [
     label: "Cash handover",
     icon: ScaleIcon,
     blurb: "Declare a day's cash, count it, record the gap.",
+  },
+  // Office only: the customer asks from the portal, the office says yes or no,
+  // and Paystack carries the money. A failed transfer here is an account
+  // already debited — the one queue in the app that must not go unwatched.
+  {
+    to: "/payout-requests",
+    label: "Payout requests",
+    icon: BanknoteArrowUpIcon,
+    blurb: "Withdrawals customers asked for, waiting on a decision.",
+    roles: OFFICE,
   },
   // A hub, not a module: each report cuts across several of the books above,
   // which is why none of them lives on a module screen.

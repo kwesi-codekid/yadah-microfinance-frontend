@@ -94,8 +94,9 @@ export interface CreateCustomerInput {
   fullName: string;
   phone: string;
   photoUrl: string;
-  idDocumentFrontUrl: string;
-  idDocumentBackUrl: string;
+  /** Optional: the ID scans can be added later from the edit form. */
+  idDocumentFrontUrl?: string;
+  idDocumentBackUrl?: string;
   /**
    * Required. Every customer joins somebody's round at registration — the API
    * refuses the record without it, because an unassigned customer is one nobody
@@ -219,6 +220,8 @@ export interface UnifiedTransaction {
   amount: number;
   /** Integer pesewas — savings withdrawal / transfer fee. */
   fee: number;
+  /** `completed` for every ledger row; `pending`/`failed` only for unapplied Paystack charges. */
+  status?: "completed" | "pending" | "failed";
   channel?: string | null;
   detail?: string | null;
   customerId: string;

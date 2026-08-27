@@ -372,9 +372,9 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
         />
       </dl>
 
-      <div className={cn("grid gap-4 xl:grid-cols-12", busy && "opacity-70 transition-opacity")}>
+      <div className={cn("grid items-stretch gap-4 xl:grid-cols-12", busy && "opacity-70 transition-opacity")}>
         {/* ------------------------------------------------------ left --- */}
-        <div className="space-y-4 xl:col-span-7">
+        <div className="flex flex-col gap-4 xl:col-span-7">
           <Card
             title="Handover volume"
             subtitle="Closed days each month, over the last year"
@@ -565,7 +565,7 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
         </div>
 
         {/* ----------------------------------------------------- right --- */}
-        <div className="space-y-4 xl:col-span-5">
+        <div className="flex flex-col gap-4 xl:col-span-5">
           <Card
             title="Where the gaps fall"
             subtitle="Shortfall by weekday, over the last year"
@@ -753,7 +753,7 @@ function Card({
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
+    <section className="flex min-h-64 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
       <header className="flex flex-wrap items-start justify-between gap-3 px-5 pt-4 pb-3">
         <div>
           <h3 className="font-heading text-base font-semibold">{title}</h3>
@@ -761,7 +761,7 @@ function Card({
         </div>
         {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </header>
-      <div className={cn(!flush && "px-5 pb-5", flush && "border-t border-border")}>{children}</div>
+      <div className={cn("flex flex-1 flex-col", !flush && "justify-center px-5 pb-5", flush && "border-t border-border")}>{children}</div>
     </section>
   );
 }
