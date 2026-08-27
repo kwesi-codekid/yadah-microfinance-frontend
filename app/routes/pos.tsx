@@ -1,30 +1,31 @@
 import {
+  CameraIcon,
   Loader2Icon,
+  MinusIcon,
+  PackageIcon,
   PlusIcon,
-  ShoppingCartIcon,
-  TriangleAlertIcon,
+  ScanBarcodeIcon,
+  SearchIcon,
+  ShoppingBagIcon,
   Trash2Icon,
+  XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { data, Form, useActionData, useNavigation } from "react-router";
 import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { listItems } from "~/api/hire-purchase";
 import { createSale } from "~/api/sales";
-import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
-import { BackLink, Page } from "~/components/page";
+import { CameraScanner } from "~/components/camera-scanner";
+import {
+  CustomerPicker,
+  type PickedCustomer,
+} from "~/components/customer-picker";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
-import { Label } from "~/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "~/components/ui/select";
-import { formatAmount, formatPesewas, parseCedis, toCedisInput } from "~/lib/format";
+import { formatPesewas, parseCedis, toCedisInput } from "~/lib/format";
+import { useBarcodeWedge, type ScanState } from "~/hooks/use-barcode-wedge";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import {
   CHANNEL_OPTIONS,
@@ -41,11 +42,17 @@ import {
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
-import type { Route } from "./+types/sale-new";
+import type { Route } from "./+types/pos";
 
 export function meta(_: Route.MetaArgs) {
-  return [{ title: "New sale · Yadah Dynamic Enterprise" }];
+  return [{ title: "POS · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "POS",
+  description: "Ring up a counter sale: stock out, money in, receipt printed.",
+};
 
 /** What the picker needs to know about a thing on the shelf. */
 interface Sellable {
@@ -54,6 +61,7 @@ interface Sellable {
   sellingPrice: number;
   available: number;
   condition: string;
+  barcode?: string;
 }
 
 /**
@@ -65,7 +73,7 @@ interface Sellable {
  * beyond that is a different problem than this screen solves, and the note
  * under the picker says so rather than letting the tail vanish silently.
  */
-const SHELF_LIMIT = 200;
+const SHELF_LIMIT = 100;
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireOffice(request);
@@ -81,15 +89,14 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return data(
     {
-      items: result.items.map(
-        (item): Sellable => ({
-          id: item.id,
-          name: item.name,
-          sellingPrice: item.sellingPrice,
-          available: item.quantityInStock,
-          condition: item.condition,
-        }),
-      ),
+      items: result.items.map((item): Sellable => ({
+        id: item.id,
+        name: item.name,
+        sellingPrice: item.sellingPrice,
+        available: item.quantityInStock,
+        condition: item.condition,
+        barcode: item.barcode,
+      })),
       truncated: result.total > result.items.length,
     },
     { headers },
@@ -108,7 +115,9 @@ export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
 
   const customerId = String(form.get("customerId") ?? "").trim();
-  const buyerName = String(form.get("buyerName") ?? "").trim().toUpperCase();
+  const buyerName = String(form.get("buyerName") ?? "")
+    .trim()
+    .toUpperCase();
   const buyerPhone = String(form.get("buyerPhone") ?? "").trim();
   const channel = String(form.get("channel") ?? "cash") as SaleChannel;
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
@@ -117,7 +126,10 @@ export async function action({ request }: Route.ActionArgs) {
   try {
     lines = JSON.parse(String(form.get("lines") ?? "[]"));
   } catch {
-    return data({ error: "The basket did not come through. Try again." }, { status: 400 });
+    return data(
+      { error: "The basket did not come through. Try again." },
+      { status: 400 },
+    );
   }
 
   if (!Array.isArray(lines) || lines.length === 0) {
@@ -168,12 +180,18 @@ export async function action({ request }: Route.ActionArgs) {
   }
 }
 
-export default function SaleNew({ loaderData }: Route.ComponentProps) {
+/* -------------------------------------------------------------------- page --- */
+
+type Shelf = "all" | "new" | "used";
+
+export default function Pos({ loaderData }: Route.ComponentProps) {
   const { items, truncated } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
 
+  const [query, setQuery] = useState("");
+  const [shelf, setShelf] = useState<Shelf>("all");
   const [walkIn, setWalkIn] = useState(true);
   const [customer, setCustomer] = useState<PickedCustomer | null>(null);
   const [buyerName, setBuyerName] = useState("");
@@ -182,28 +200,42 @@ export default function SaleNew({ loaderData }: Route.ComponentProps) {
   const [lines, setLines] = useState<BasketLine[]>([]);
 
   // One basket, one key. A retry after a dropped connection must not sell the
-  // same stock twice.
-  const idempotencyKey = useMemo(() => newIdempotencyKey(), []);
+  // same stock twice. Re-minted after a "Clear order" so a fresh basket is a
+  // fresh sale.
+  const [idempotencyKey, setIdempotencyKey] = useState(() =>
+    newIdempotencyKey(),
+  );
 
   useEffect(() => {
     if (actionData?.error) toast.error(actionData.error);
   }, [actionData]);
 
-  const inBasket = new Set(lines.map((l) => l.itemId));
-  const addable = items.filter((i) => !inBasket.has(i.id) && i.available > 0);
-
-  const add = (item: Sellable) =>
-    setLines((current) => [
-      ...current,
-      {
-        itemId: item.id,
-        name: item.name,
-        listPrice: item.sellingPrice,
-        available: item.available,
-        quantity: 1,
-        unitPrice: null,
-      },
-    ]);
+  /** Add one, or one more, of an item — the same move whether tapped or scanned. */
+  const add = useCallback((item: Sellable) => {
+    let bumped = false;
+    setLines((current) => {
+      const existing = current.find((l) => l.itemId === item.id);
+      if (existing) {
+        if (existing.quantity >= item.available) return current;
+        bumped = true;
+        return current.map((l) =>
+          l.itemId === item.id ? { ...l, quantity: l.quantity + 1 } : l,
+        );
+      }
+      return [
+        ...current,
+        {
+          itemId: item.id,
+          name: item.name,
+          listPrice: item.sellingPrice,
+          available: item.available,
+          quantity: 1,
+          unitPrice: null,
+        },
+      ];
+    });
+    return bumped;
+  }, []);
 
   const patch = (itemId: string, next: Partial<BasketLine>) =>
     setLines((current) =>
@@ -213,9 +245,38 @@ export default function SaleNew({ loaderData }: Route.ComponentProps) {
   const drop = (itemId: string) =>
     setLines((current) => current.filter((l) => l.itemId !== itemId));
 
+  const clear = () => {
+    setLines([]);
+    setIdempotencyKey(newIdempotencyKey());
+  };
+
+  // A scan is matched on the item's barcode first, then its id, then its
+  // exact name — the last two so a label printed from Inventory still works
+  // on a shelf that was never barcoded.
+  const [camera, setCamera] = useState(false);
+  const { state: scan, report } = useBarcodeWedge((code) => {
+    const key = code.trim().toLowerCase();
+    const item =
+      items.find((i) => i.barcode && i.barcode.toLowerCase() === key) ??
+      items.find((i) => i.id.toLowerCase() === key) ??
+      items.find((i) => i.name.toLowerCase() === key);
+    if (!item || item.available === 0) return false;
+    add(item);
+    return true;
+  });
+
+  const term = query.trim().toLowerCase();
+  const shown = items.filter(
+    (i) =>
+      (shelf === "all" || i.condition === shelf) &&
+      (!term || i.name.toLowerCase().includes(term)),
+  );
+  const quantities = new Map(lines.map((l) => [l.itemId, l.quantity]));
+
   const subtotal = basketSubtotal(lines);
   const discount = basketDiscount(lines);
   const total = basketTotal(lines);
+  const units = lines.reduce((n, l) => n + l.quantity, 0);
 
   const basketIssue = checkBasket(lines);
   const buyerIssue = walkIn
@@ -225,79 +286,167 @@ export default function SaleNew({ loaderData }: Route.ComponentProps) {
     : customer
       ? null
       : "Pick a customer.";
-
   const blocked = Boolean(basketIssue || buyerIssue) || submitting;
 
   return (
-    <Page className="max-w-none">
-      <BackLink to="/sales" className="mb-4">
-        All counter sales
-      </BackLink>
+    <div className="flex h-full min-h-0 flex-col lg:flex-row">
+      {/* ------------------------------------------------------ the shelf --- */}
+      <section className="flex min-h-0 flex-1 flex-col">
+        <div className="shrink-0 space-y-3 px-4 pt-4 sm:px-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <ShelfTab active={shelf === "all"} onClick={() => setShelf("all")}>
+              All items
+            </ShelfTab>
+            <ShelfTab active={shelf === "new"} onClick={() => setShelf("new")}>
+              New
+            </ShelfTab>
+            <ShelfTab
+              active={shelf === "used"}
+              onClick={() => setShelf("used")}
+            >
+              Used
+            </ShelfTab>
 
-      <Form method="post" className="space-y-6">
-        <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
-        <input type="hidden" name="lines" value={JSON.stringify(linesForApi(lines))} />
-        <input type="hidden" name="channel" value={channel} />
-
-        {actionData?.error && (
-          <div
-            role="alert"
-            className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-          >
-            <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
-            <p className="font-medium">{actionData.error}</p>
+            <label className="ml-auto flex w-full items-center gap-2 rounded-full bg-card px-3.5 py-2 ring-1 ring-border focus-within:ring-2 focus-within:ring-ring/40 sm:w-64">
+              <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search the shelf"
+                aria-label="Search the shelf"
+                autoComplete="off"
+                className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Clear search"
+                >
+                  <XIcon className="size-3.5" />
+                </button>
+              )}
+            </label>
           </div>
-        )}
+        </div>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-          {/* The basket. */}
-          <section className="space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                Add from the shelf
-              </Label>
-              <ItemPicker items={addable} onPick={add} />
-              <p className="text-xs text-muted-foreground">
-                In-stock items only.
-                {truncated
-                  ? ` Showing the first ${SHELF_LIMIT} — narrow the shelf in Inventory if what you want is missing.`
-                  : ""}
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            <li>
+              <ScannerTile state={scan} onOpenCamera={() => setCamera(true)} />
+            </li>
+            {shown.map((item) => (
+              <li key={item.id}>
+                <ItemTile
+                  item={item}
+                  inBasket={quantities.get(item.id) ?? 0}
+                  onAdd={() => add(item)}
+                />
+              </li>
+            ))}
+          </ul>
+
+          {shown.length === 0 && (
+            <div className="mt-10 text-center">
+              <PackageIcon className="mx-auto size-6 text-muted-foreground" />
+              <p className="mt-2 text-sm text-muted-foreground">
+                {items.length === 0
+                  ? "Nothing on the shelf. Add stock in Inventory."
+                  : "Nothing matches. Try another name, or scan it."}
               </p>
             </div>
+          )}
 
-            {lines.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border px-4 py-12 text-center">
-                <ShoppingCartIcon className="mx-auto size-6 text-muted-foreground" />
-                <p className="mt-2 text-sm text-muted-foreground">
-                  Nothing in the basket yet.
-                </p>
-              </div>
-            ) : (
-              <ul className="space-y-3">
-                {lines.map((line) => (
-                  <BasketRow
-                    key={line.itemId}
-                    line={line}
-                    onPatch={(next) => patch(line.itemId, next)}
-                    onDrop={() => drop(line.itemId)}
-                  />
-                ))}
-              </ul>
-            )}
-          </section>
+          {truncated && (
+            <p className="mt-4 text-xs text-muted-foreground">
+              Showing the first {SHELF_LIMIT} items — search, or scan, for the
+              rest.
+            </p>
+          )}
+        </div>
+      </section>
 
-          {/* The buyer, the money, and the button. */}
-          <aside className="space-y-5 lg:sticky lg:top-6 lg:self-start">
-            <section className="space-y-3 rounded-xl border border-border bg-card p-4">
-              <h3 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+      <CameraScanner
+        open={camera}
+        onOpenChange={setCamera}
+        onScan={report}
+        lastResult={
+          scan.kind === "hit"
+            ? { ok: true, text: "Added to the order." }
+            : scan.kind === "miss"
+              ? { ok: false, text: `No item for “${scan.code}”.` }
+              : null
+        }
+      />
+
+      {/* ------------------------------------------------------ the order --- */}
+      <Form
+        method="post"
+        className="flex min-h-0 shrink-0 flex-col border-t border-border bg-card lg:h-full lg:w-[380px] lg:border-t-0 lg:border-l xl:w-[420px]"
+      >
+        <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
+        <input
+          type="hidden"
+          name="lines"
+          value={JSON.stringify(linesForApi(lines))}
+        />
+        <input type="hidden" name="channel" value={channel} />
+
+        <div className="flex shrink-0 items-center justify-between gap-3 px-5 pt-5">
+          <div>
+            <h2 className="font-heading text-base font-bold tracking-tight">
+              Current order
+            </h2>
+            <p className="tabular text-xs text-muted-foreground">
+              {lines.length === 0
+                ? "Tap an item or scan it to begin."
+                : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${units} ${units === 1 ? "unit" : "units"}`}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={clear}
+            disabled={lines.length === 0}
+            className="rounded-full"
+          >
+            Clear order
+          </Button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {lines.length === 0 ? (
+            <div className="flex h-full min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-border text-center">
+              <ShoppingBagIcon className="size-6 text-muted-foreground" />
+              <p className="mt-2 text-sm text-muted-foreground">
+                The basket is empty.
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {lines.map((line) => (
+                <OrderLine
+                  key={line.itemId}
+                  line={line}
+                  onPatch={(next) => patch(line.itemId, next)}
+                  onDrop={() => drop(line.itemId)}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="shrink-0 space-y-4 border-t border-border px-5 py-4">
+          {/* The buyer. A walk-in is the ordinary case at a counter. */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
                 Buyer
-              </h3>
-
-              {/* A walk-in is the ordinary case at a counter, so it is the
-                  default. Demanding a photo and both sides of an ID to sell a
-                  kettle is the thing this whole module exists to avoid. */}
-              <div className="inline-flex w-full items-center gap-1 rounded-lg bg-muted/60 p-1">
-                <ToggleHalf
+              </span>
+              <div className="inline-flex items-center gap-1 rounded-full bg-muted/70 p-0.5">
+                <Half
                   active={walkIn}
                   onClick={() => {
                     setWalkIn(true);
@@ -305,8 +454,8 @@ export default function SaleNew({ loaderData }: Route.ComponentProps) {
                   }}
                 >
                   Walk-in
-                </ToggleHalf>
-                <ToggleHalf
+                </Half>
+                <Half
                   active={!walkIn}
                   onClick={() => {
                     setWalkIn(false);
@@ -314,186 +463,278 @@ export default function SaleNew({ loaderData }: Route.ComponentProps) {
                   }}
                 >
                   Registered
-                </ToggleHalf>
+                </Half>
               </div>
+            </div>
 
-              {walkIn ? (
-                <div className="space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="buyerName" className="text-xs text-muted-foreground">
-                      Name<span className="ml-0.5 text-destructive">*</span>
-                    </Label>
-                    <Input
-                      id="buyerName"
-                      name="buyerName"
-                      value={buyerName}
-                      onChange={(e) => setBuyerName(e.target.value.toUpperCase())}
-                      placeholder="KOFI MENSAH"
-                      maxLength={120}
-                      autoComplete="off"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="buyerPhone" className="text-xs text-muted-foreground">
-                      Phone
-                    </Label>
-                    <Input
-                      id="buyerPhone"
-                      name="buyerPhone"
-                      value={buyerPhone}
-                      onChange={(e) => setBuyerPhone(e.target.value)}
-                      placeholder="0241234567"
-                      inputMode="tel"
-                      maxLength={20}
-                      autoComplete="off"
-                      className="tabular"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <CustomerPicker value={customer} onChange={setCustomer} />
-              )}
-            </section>
-
-            <section className="space-y-3 rounded-xl border border-border bg-card p-4">
-              <h3 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                Payment
-              </h3>
-              <Select
-                value={channel}
-                onValueChange={(next) => setChannel(next as SaleChannel)}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CHANNEL_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              <dl className="space-y-1.5 border-t border-border pt-3 text-sm">
-                <Money label="Subtotal" value={subtotal} muted />
-                {discount > 0 && (
-                  <Money label="Discount" value={-discount} tone="warning" />
-                )}
-                <div className="flex items-baseline justify-between border-t border-border pt-2">
-                  <dt className="font-medium">Total</dt>
-                  <dd className="tabular text-xl font-bold">
-                    {formatPesewas(total)}
-                  </dd>
-                </div>
-              </dl>
-            </section>
-
-            {(basketIssue || buyerIssue) && lines.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {buyerIssue ?? basketIssue}
-              </p>
+            {walkIn ? (
+              <div className="grid grid-cols-[1fr_130px] gap-2">
+                <Input
+                  name="buyerName"
+                  value={buyerName}
+                  onChange={(e) => setBuyerName(e.target.value.toUpperCase())}
+                  placeholder="BUYER'S NAME"
+                  aria-label="Buyer's name"
+                  maxLength={120}
+                  autoComplete="off"
+                />
+                <Input
+                  name="buyerPhone"
+                  value={buyerPhone}
+                  onChange={(e) => setBuyerPhone(e.target.value)}
+                  placeholder="Phone"
+                  aria-label="Buyer's phone"
+                  inputMode="tel"
+                  maxLength={20}
+                  autoComplete="off"
+                  className="tabular"
+                />
+              </div>
+            ) : (
+              <CustomerPicker value={customer} onChange={setCustomer} />
             )}
+          </div>
 
-            <Button type="submit" size="lg" className="w-full" disabled={blocked}>
-              {submitting ? <Loader2Icon className="animate-spin" /> : <ShoppingCartIcon />}
-              Take payment · {formatPesewas(total)}
-            </Button>
-          </aside>
+          {/* How the money arrives. */}
+          <div className="space-y-2.5">
+            <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Paid by
+            </span>
+            <div className="grid grid-cols-3 gap-2">
+              {CHANNEL_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => setChannel(o.value)}
+                  aria-pressed={channel === o.value}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+                    channel === o.value
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+                  )}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <dl className="space-y-1.5 rounded-xl bg-muted/50 px-4 py-3 text-sm">
+            <Money label="Subtotal" value={subtotal} muted />
+            {discount > 0 && (
+              <Money label="Discount" value={-discount} tone="warning" />
+            )}
+            <div className="flex items-baseline justify-between border-t border-border pt-2">
+              <dt className="font-medium">Total</dt>
+              <dd className="tabular font-heading text-2xl font-bold tracking-tight">
+                {formatPesewas(total)}
+              </dd>
+            </div>
+          </dl>
+
+          {(basketIssue || buyerIssue) && lines.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {buyerIssue ?? basketIssue}
+            </p>
+          )}
+
+          <Button
+            type="submit"
+            size="lg"
+            className="w-full rounded-xl"
+            disabled={blocked}
+          >
+            {submitting ? <Loader2Icon className="animate-spin" /> : null}
+            Take payment
+            {total > 0 && (
+              <span className="tabular opacity-80">
+                · {formatPesewas(total)}
+              </span>
+            )}
+          </Button>
         </div>
       </Form>
-    </Page>
+    </div>
   );
 }
 
 /* ------------------------------------------------------------------- parts --- */
 
 /**
- * Search the shelf and add a line.
- *
- * The whole shelf is already in hand, so this filters in the browser: at a
- * counter with someone waiting, a list that redraws as you type beats one that
- * waits on a round trip. Built from an input and a list rather than the
- * combobox primitive — the same shape `CustomerPicker` uses, so the two search
- * boxes in this app behave the same way.
+ * The first tile on the shelf, and the one that is never tapped: it shows
+ * that the scanner is live, and what the last scan did.
  */
-function ItemPicker({
-  items,
-  onPick,
+function ScannerTile({
+  state,
+  onOpenCamera,
 }: {
-  items: Sellable[];
-  onPick: (item: Sellable) => void;
+  state: ScanState;
+  onOpenCamera: () => void;
 }) {
-  const [query, setQuery] = useState("");
-
-  if (items.length === 0) {
-    return (
-      <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm">
-        Nothing left on the shelf to add.
-      </p>
-    );
-  }
-
-  const term = query.trim().toLowerCase();
-  const matches = term
-    ? items.filter((item) => item.name.toLowerCase().includes(term))
-    : items;
-  // Long enough to choose from, short enough not to push the basket off screen.
-  const shown = matches.slice(0, 8);
+  const hit = state.kind === "hit";
+  const miss = state.kind === "miss";
 
   return (
-    <div className="space-y-2">
-      <Input
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search the shelf"
-        aria-label="Search the shelf"
-        autoComplete="off"
-        maxLength={100}
-      />
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "relative flex h-full min-h-[132px] flex-col justify-between overflow-hidden rounded-xl border-2 p-3 transition-colors",
+        hit && "border-success bg-success-subtle",
+        miss && "border-destructive bg-danger-subtle",
+        !hit && !miss && "border-dashed border-foreground/30 bg-card",
+      )}
+    >
+      <div className="flex items-center justify-between">
+        <ScanBarcodeIcon
+          className={cn(
+            "size-5",
+            hit
+              ? "text-success"
+              : miss
+                ? "text-destructive"
+                : "text-foreground",
+          )}
+        />
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+          <span
+            aria-hidden
+            className={cn(
+              "size-1.5 rounded-full",
+              hit ? "bg-success" : miss ? "bg-destructive" : "bg-brand-coral",
+              !hit && !miss && "motion-safe:animate-pulse",
+            )}
+          />
+          {hit ? "Added" : miss ? "Not found" : "Live"}
+        </span>
+      </div>
 
-      {term && matches.length === 0 ? (
-        <p className="px-1 text-sm text-muted-foreground">Nothing matches.</p>
-      ) : (
-        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-          {shown.map((item) => (
-            <li key={item.id}>
-              <button
-                type="button"
-                onClick={() => {
-                  onPick(item);
-                  // Cleared on pick: the box is for adding the *next* thing,
-                  // not for showing what was just added — the basket does that.
-                  setQuery("");
-                }}
-                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none"
-              >
-                <span className="flex min-w-0 items-center gap-2">
-                  <PlusIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{item.name}</span>
-                  {item.condition === "used" && (
-                    <span className="shrink-0 text-xs text-muted-foreground">Used</span>
-                  )}
-                </span>
-                <span className="tabular shrink-0 text-xs text-muted-foreground">
-                  {formatPesewas(item.sellingPrice)} · {item.available} left
-                </span>
-              </button>
-            </li>
+      {/* The bar the scanner's red line sweeps across. */}
+      <div aria-hidden className="relative my-2 h-9 overflow-hidden">
+        <svg
+          viewBox="0 0 120 36"
+          className="h-full w-full text-foreground/70"
+          preserveAspectRatio="none"
+        >
+          {[
+            0, 5, 8, 14, 17, 23, 28, 31, 37, 42, 45, 51, 56, 59, 65, 70, 73, 79,
+            84, 87, 93, 98, 101, 107, 112, 116,
+          ].map((x, i) => (
+            <rect
+              key={x}
+              x={x}
+              y="0"
+              width={i % 3 === 0 ? 3 : 1.5}
+              height="36"
+              fill="currentColor"
+            />
           ))}
-        </ul>
-      )}
+        </svg>
+        {!hit && !miss && (
+          <span className="pos-scanline absolute inset-x-0 top-0 h-px bg-brand-coral shadow-[0_0_6px_1px_var(--brand-coral)]" />
+        )}
+      </div>
 
-      {matches.length > shown.length && (
-        <p className="px-1 text-xs text-muted-foreground">
-          {matches.length - shown.length} more — keep typing to narrow it.
+      <p className="truncate text-xs font-semibold">
+        {hit
+          ? "Scanned and added"
+          : miss
+            ? `No item for “${state.code}”`
+            : "Scan an item"}
+      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="truncate text-[11px] text-muted-foreground">
+          {miss
+            ? "Check the label, or search by name."
+            : "Ready whenever you are."}
         </p>
-      )}
+        <button
+          type="button"
+          onClick={onOpenCamera}
+          className="flex shrink-0 items-center gap-1 rounded-full bg-foreground px-2 py-1 text-[11px] font-medium text-background transition-colors hover:bg-foreground/85 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+        >
+          <CameraIcon className="size-3" />
+          Camera
+        </button>
+      </div>
+
+      <style>{`
+        @keyframes pos-scan { from { transform: translateY(0) } to { transform: translateY(35px) } }
+        @media (prefers-reduced-motion: no-preference) {
+          .pos-scanline { animation: pos-scan 1.6s ease-in-out infinite alternate; }
+        }
+      `}</style>
     </div>
   );
 }
 
-function BasketRow({
+function ItemTile({
+  item,
+  inBasket,
+  onAdd,
+}: {
+  item: Sellable;
+  inBasket: number;
+  onAdd: () => void;
+}) {
+  const soldOut = inBasket >= item.available;
+  const low = item.available <= 3;
+
+  return (
+    <button
+      type="button"
+      onClick={onAdd}
+      disabled={soldOut}
+      aria-label={`Add ${item.name}, ${formatPesewas(item.sellingPrice)}`}
+      className={cn(
+        "flex h-full min-h-[132px] w-full flex-col justify-between rounded-xl border bg-card p-3 text-left transition-[border-color,box-shadow,transform] focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+        inBasket > 0
+          ? "border-foreground"
+          : "border-border hover:border-foreground/40",
+        soldOut ? "cursor-not-allowed opacity-50" : "active:scale-[0.98]",
+      )}
+    >
+      <div className="flex w-full items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="line-clamp-2 text-sm leading-snug font-semibold">
+            {item.name}
+          </p>
+          {item.condition === "used" && (
+            <span className="mt-1 inline-block rounded-full bg-warning-subtle px-1.5 py-0.5 text-[10px] font-medium text-warning">
+              Used
+            </span>
+          )}
+        </div>
+        {inBasket > 0 && (
+          <span className="tabular flex size-6 shrink-0 items-center justify-center rounded-full bg-foreground text-[11px] font-bold text-background">
+            {inBasket}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-3 flex w-full items-end justify-between gap-2">
+        <p className="tabular text-base font-bold">
+          {formatPesewas(item.sellingPrice)}
+        </p>
+        <p
+          className={cn(
+            "tabular text-[11px]",
+            soldOut
+              ? "text-destructive"
+              : low
+                ? "text-warning"
+                : "text-muted-foreground",
+          )}
+        >
+          {soldOut ? "None left" : `${item.available - inBasket} left`}
+        </p>
+      </div>
+    </button>
+  );
+}
+
+function OrderLine({
   line,
   onPatch,
   onDrop,
@@ -502,92 +743,142 @@ function BasketRow({
   onPatch: (next: Partial<BasketLine>) => void;
   onDrop: () => void;
 }) {
-  // The haggled price is held as the typed string so a half-entered "12." does
-  // not get parsed to something and snap back under the cursor.
+  const [haggling, setHaggling] = useState(line.unitPrice != null);
+  // Held as typed so a half-entered "12." does not snap back under the cursor.
   const [priceText, setPriceText] = useState(
     line.unitPrice == null ? "" : toCedisInput(line.unitPrice),
   );
-
   const issue = checkLine(line);
   const discounted = line.unitPrice != null && line.unitPrice < line.listPrice;
 
   return (
-    <li className="rounded-xl border border-border bg-card p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-medium">{line.name}</p>
+    <li className="py-3">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{line.name}</p>
           <p className="tabular text-xs text-muted-foreground">
-            {formatPesewas(line.listPrice)} each · {line.available} on the shelf
+            {formatPesewas(line.unitPrice ?? line.listPrice)} each
+            {discounted && (
+              <span className="ml-1 line-through">
+                {formatPesewas(line.listPrice)}
+              </span>
+            )}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <p className="tabular font-semibold">{formatPesewas(lineTotal(line))}</p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            onClick={onDrop}
-            className="text-muted-foreground hover:text-destructive"
+
+        <div className="flex items-center gap-1">
+          <Step
+            label={`One less ${line.name}`}
+            onClick={() =>
+              line.quantity <= 1
+                ? onDrop()
+                : onPatch({ quantity: line.quantity - 1 })
+            }
           >
-            <Trash2Icon />
-            <span className="sr-only">Remove {line.name}</span>
-          </Button>
+            <MinusIcon className="size-3.5" />
+          </Step>
+          <span
+            className={cn(
+              "tabular w-7 text-center text-sm font-semibold",
+              issue && "text-destructive",
+            )}
+          >
+            {line.quantity}
+          </span>
+          <Step
+            label={`One more ${line.name}`}
+            onClick={() => onPatch({ quantity: line.quantity + 1 })}
+            disabled={line.quantity >= line.available}
+          >
+            <PlusIcon className="size-3.5" />
+          </Step>
         </div>
+
+        <p className="tabular w-20 shrink-0 text-right text-sm font-bold">
+          {formatPesewas(lineTotal(line))}
+        </p>
+
+        <button
+          type="button"
+          onClick={onDrop}
+          aria-label={`Remove ${line.name}`}
+          className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-danger-subtle hover:text-destructive"
+        >
+          <Trash2Icon className="size-4" />
+        </button>
       </div>
 
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Quantity</Label>
-          <Input
-            value={String(line.quantity)}
-            onChange={(e) => {
-              const n = Number(e.target.value.replace(/[^\d]/g, ""));
-              onPatch({ quantity: Number.isFinite(n) ? n : 0 });
-            }}
-            inputMode="numeric"
-            autoComplete="off"
-            aria-invalid={issue ? true : undefined}
-            className={cn("tabular", issue && "border-destructive")}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">
-            Price charged · GH₵
-          </Label>
-          <Input
-            value={priceText}
-            onChange={(e) => {
-              const text = e.target.value;
-              setPriceText(text);
-              // Empty means "charge the shelf price" — which is not the same as
-              // charging a number that happens to equal it, and the receipt
-              // says so.
-              onPatch({ unitPrice: text.trim() === "" ? null : parseCedis(text) });
-            }}
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder={toCedisInput(line.listPrice)}
-            className="tabular"
-          />
-        </div>
+      <div className="mt-1.5 flex items-center gap-3 text-xs">
+        {haggling ? (
+          <label className="flex items-center gap-2">
+            <span className="text-muted-foreground">Charge GH₵</span>
+            <Input
+              value={priceText}
+              onChange={(e) => {
+                const text = e.target.value;
+                setPriceText(text);
+                onPatch({
+                  unitPrice: text.trim() === "" ? null : parseCedis(text),
+                });
+              }}
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder={toCedisInput(line.listPrice)}
+              className="tabular h-7 w-24 text-xs"
+              autoFocus={line.unitPrice == null}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setHaggling(false);
+                setPriceText("");
+                onPatch({ unitPrice: null });
+              }}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              Shelf price
+            </button>
+          </label>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setHaggling(true)}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            Change price
+          </button>
+        )}
+        {issue && <span className="text-destructive">{issue}</span>}
       </div>
-
-      {issue ? (
-        <p className="mt-2 text-xs text-destructive">{issue}</p>
-      ) : discounted ? (
-        <p className="mt-2 text-xs text-warning">
-          Haggled down from {formatAmount(line.listPrice)} — the receipt shows both.
-        </p>
-      ) : (
-        <p className="mt-2 text-xs text-muted-foreground">
-          Leave the price empty to charge the shelf price.
-        </p>
-      )}
     </li>
   );
 }
 
-function ToggleHalf({
+function Step({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className="flex size-7 items-center justify-center rounded-full bg-muted text-foreground transition-colors hover:bg-foreground hover:text-background disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-muted disabled:hover:text-foreground"
+    >
+      {children}
+    </button>
+  );
+}
+
+function ShelfTab({
   active,
   onClick,
   children,
@@ -602,7 +893,33 @@ function ToggleHalf({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+        "rounded-full px-4 py-2 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
+        active
+          ? "bg-foreground text-background"
+          : "bg-card text-muted-foreground ring-1 ring-border hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Half({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
         active
           ? "bg-card text-foreground shadow-sm"
           : "text-muted-foreground hover:text-foreground",

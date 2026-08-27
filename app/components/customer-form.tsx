@@ -326,15 +326,7 @@ export function CustomerForm({
                   profile ignores the field, so offering it here on an edit would
                   be a control that silently does nothing. */}
               {!editing && (
-                <Fld
-                  label="Assigned collector"
-                  required
-                  hint={
-                    collectors.length > 0
-                      ? "Whose round this customer joins. Changing it later is an admin job and is recorded against the customer."
-                      : undefined
-                  }
-                >
+                <Fld label="Assigned collector" required>
                   {collectors.length > 0 ? (
                     <SelectField name="assignedCollectorId" options={collectorOptions} />
                   ) : (

@@ -28,6 +28,8 @@ export interface HpItem {
   costPrice: number;
   /** What the customer pays. The figure every agreement is built from. */
   sellingPrice: number;
+  /** What the label carries. Optional — not every shelf is labelled. */
+  barcode?: string;
   /** Forfeited repossessions come back onto the shelf as `used`. */
   condition: ItemCondition;
   status: ItemStatus;
@@ -275,8 +277,12 @@ export function redemptionTimeLeft(
  * Only an unpaid pending or rejected agreement may be trashed. Trashing a
  * pending one puts its unit back on the shelf — the item never left the shop.
  */
-export function canTrashAgreement(a: Pick<HpAgreement, "status" | "totalPaid">): boolean {
-  return (a.status === "pending" || a.status === "rejected") && a.totalPaid === 0;
+export function canTrashAgreement(
+  a: Pick<HpAgreement, "status" | "totalPaid">,
+): boolean {
+  return (
+    (a.status === "pending" || a.status === "rejected") && a.totalPaid === 0
+  );
 }
 
 /* ------------------------------------------------------------------- rules --- */
@@ -326,7 +332,10 @@ export function checkPayment(
  * What a stock adjustment would leave on the shelf. The API refuses a negative
  * result with `STOCK_UNDERFLOW`, so the form says so before it submits.
  */
-export function stockAfter(item: Pick<HpItem, "quantityInStock">, delta: number): number {
+export function stockAfter(
+  item: Pick<HpItem, "quantityInStock">,
+  delta: number,
+): number {
   return item.quantityInStock + delta;
 }
 
@@ -335,7 +344,9 @@ export function stockAfter(item: Pick<HpItem, "quantityInStock">, delta: number)
  * from the cost price, so anywhere this is shown, the cost price effectively is
  * too.
  */
-export function marginOf(item: Pick<HpItem, "costPrice" | "sellingPrice">): number {
+export function marginOf(
+  item: Pick<HpItem, "costPrice" | "sellingPrice">,
+): number {
   return item.sellingPrice - item.costPrice;
 }
 
@@ -353,6 +364,8 @@ export function outOfStock(item: Pick<HpItem, "quantityInStock">): boolean {
 }
 
 /** True when the item can back a new agreement today. */
-export function isSellable(item: Pick<HpItem, "status" | "quantityInStock">): boolean {
+export function isSellable(
+  item: Pick<HpItem, "status" | "quantityInStock">,
+): boolean {
   return item.status === "active" && item.quantityInStock > 0;
 }

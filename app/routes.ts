@@ -20,7 +20,17 @@ export default [
      requires a session, and each module re-checks the role it needs. */
   layout("routes/app-layout.tsx", [
     route("dashboard", "routes/dashboard.tsx"),
-    route("customers", "routes/customers.tsx"),
+    // Reassigning from a row is an errand, not a destination: it opens as a
+    // drawer over the rows, so the list — and the filters that found the
+    // customer — are still there when it closes. The same errand over the
+    // customer's own page is nested under `customers/:id` below; two routes
+    // because a route sits under one parent only, and the page underneath a
+    // drawer has to be the page it was opened from. They differ in one more
+    // way that matters: this one carries no loader, so opening it goes nowhere
+    // near the server.
+    route("customers", "routes/customers.tsx", [
+      route(":id/reassign", "routes/customers-reassign.tsx"),
+    ]),
     route("customers/new", "routes/customer-new.tsx"),
     // Resource routes: they proxy a binary body from the API, which the
     // browser cannot fetch itself because it holds no access token.
@@ -152,18 +162,20 @@ export default [
       "reconciliation/variances/export",
       "routes/reconciliation-variances-export.tsx",
     ),
-    route("reconciliation/variances", "routes/reconciliation-variances.tsx"),
     route("reconciliation", "routes/reconciliation.tsx", [
       route("declare", "routes/reconciliation-declare.tsx"),
     ]),
     route("reconciliation/:id", "routes/reconciliation-detail.tsx"),
 
-    /* Counter sales. Ringing one up is a page rather than a drawer — a basket,
-       a buyer and a total need room, and the till is where someone stands for a
-       minute rather than an errand over a listing. The export and the receipt
+    /* Counter sales, in two halves. The till is the POS: a destination of its
+       own rather than an errand over the listing, because a basket, a buyer and
+       a total need room and because it is where someone stands for a minute. It
+       sits outside `/sales` so the rail can light one or the other — a path
+       under the listing would light both. `/sales` is then the day book: every
+       sale rung up, with its receipt and its voids. The export and the receipt
        are resource routes, so they sit outside the listing that links to them. */
+    route("pos", "routes/pos.tsx"),
     route("sales/export", "routes/sales-export.tsx"),
-    route("sales/new", "routes/sale-new.tsx"),
     route("sales/:id/receipt", "routes/sale-receipt.tsx"),
     route("sales/:id", "routes/sale-detail.tsx"),
     route("sales", "routes/sales.tsx"),

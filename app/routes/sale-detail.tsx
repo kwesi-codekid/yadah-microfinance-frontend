@@ -114,7 +114,7 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
   return (
     <Page>
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <BackLink to="/sales">All counter sales</BackLink>
+        <BackLink to="/sales">All sales</BackLink>
 
         <div className="min-w-0 text-right">
           <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">

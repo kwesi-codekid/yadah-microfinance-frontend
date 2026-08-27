@@ -83,16 +83,28 @@ export function RegisterToolbar({
   onSearchChange,
   searchPlaceholder,
   searchLabel,
+  searchSlot,
   actions,
 }: {
   tabs?: TableTab[];
   activeTab?: string;
   onTabChange?: (value: string) => void;
   tabsLabel?: string;
-  search: string;
-  onSearchChange: (value: string) => void;
-  searchPlaceholder: string;
-  searchLabel: string;
+  /** Omit along with `onSearchChange` when passing `searchSlot` instead. */
+  search?: string;
+  onSearchChange?: (value: string) => void;
+  searchPlaceholder?: string;
+  searchLabel?: string;
+  /**
+   * A search box of the caller's own, in place of the built-in one.
+   *
+   * The box above sifts rows already in hand, which is right when the whole
+   * list is loaded. A list the API searches server-side needs the term in the
+   * URL, a debounce, and a form that still works without JavaScript — that is
+   * `SearchBox` in `~/components/listing`, and this is where it goes so that
+   * the strip looks the same either way.
+   */
+  searchSlot?: React.ReactNode;
   /** Sits after the search box — a date range, an export menu. */
   actions?: React.ReactNode;
 }) {
@@ -144,17 +156,20 @@ export function RegisterToolbar({
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-72">
-          <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            value={search}
-            onChange={(event) => onSearchChange(event.target.value)}
-            placeholder={searchPlaceholder}
-            aria-label={searchLabel}
-            className="pl-9"
-          />
-        </div>
+        {searchSlot ??
+          (search !== undefined ? (
+            <div className="relative w-full sm:w-72">
+              <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                value={search}
+                onChange={(event) => onSearchChange?.(event.target.value)}
+                placeholder={searchPlaceholder}
+                aria-label={searchLabel}
+                className="pl-9"
+              />
+            </div>
+          ) : null)}
         {actions}
       </div>
     </div>
@@ -170,6 +185,7 @@ export function DataTable<T>({
   onSearchChange,
   searchPlaceholder,
   searchLabel,
+  searchSlot,
   actions,
   columns,
   rows,
@@ -188,10 +204,13 @@ export function DataTable<T>({
   activeTab?: string;
   onTabChange?: (value: string) => void;
   tabsLabel?: string;
-  search: string;
-  onSearchChange: (value: string) => void;
-  searchPlaceholder: string;
-  searchLabel: string;
+  /** Omit along with `onSearchChange` when passing `searchSlot` instead. */
+  search?: string;
+  onSearchChange?: (value: string) => void;
+  searchPlaceholder?: string;
+  searchLabel?: string;
+  /** A search box of the caller's own — see `RegisterToolbar`. */
+  searchSlot?: React.ReactNode;
   /** Sits after the search box — a date range, an export menu. */
   actions?: React.ReactNode;
   columns: Array<Column<T>>;
@@ -216,7 +235,7 @@ export function DataTable<T>({
 
   // A filter change can leave you past the end of a shorter list. Reset rather
   // than showing an empty page with rows sitting behind it.
-  const filterKey = `${activeTab ?? ""} ${search}`;
+  const filterKey = `${activeTab ?? ""} ${search ?? ""}`;
   const lastFilter = React.useRef(filterKey);
   // The server-paged case is the caller's to reset, since it also has to refetch.
   if (!paging && lastFilter.current !== filterKey) {
@@ -265,7 +284,10 @@ export function DataTable<T>({
 
   return (
     <div className="space-y-3">
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
+      {/* The dashboard's card: a soft-cornered plate of `bg-card` with no rule
+          around it, so a page of these reads as one surface rather than a
+          stack of boxed-off panels. The rules inside still divide it. */}
+      <div className="overflow-hidden rounded-2xl bg-card">
         {/* Inside the card, as a strip: the filters belong to the list they
             narrow, not to the page above it. */}
         <div className="border-b border-border p-3">
@@ -278,6 +300,7 @@ export function DataTable<T>({
             onSearchChange={onSearchChange}
             searchPlaceholder={searchPlaceholder}
             searchLabel={searchLabel}
+            searchSlot={searchSlot}
             actions={actions}
           />
         </div>

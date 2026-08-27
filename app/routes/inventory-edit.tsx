@@ -6,8 +6,13 @@ import { toast } from "sonner";
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
 import { listItems, updateItem } from "~/api/hire-purchase";
+import { BarcodeField } from "~/components/barcode-field";
 import { Figure } from "~/components/listing";
-import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
+import {
+  RouteSheet,
+  SheetActions,
+  SheetCancel,
+} from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
@@ -30,7 +35,9 @@ import { redirectWithToast } from "~/lib/toast.server";
 import type { Route } from "./+types/inventory-edit";
 
 export function meta({ loaderData }: Route.MetaArgs) {
-  return [{ title: `${loaderData?.item.name ?? "Item"} · Yadah Dynamic Enterprise` }];
+  return [
+    { title: `${loaderData?.item.name ?? "Item"} · Yadah Dynamic Enterprise` },
+  ];
 }
 
 /**
@@ -60,9 +67,12 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
+  const barcode = String(form.get("barcode") ?? "").trim();
   const status = String(form.get("status") ?? "active") as ItemStatus;
   const costPrice = parseCedis(String(form.get("costPrice") ?? "").trim());
-  const sellingPrice = parseCedis(String(form.get("sellingPrice") ?? "").trim());
+  const sellingPrice = parseCedis(
+    String(form.get("sellingPrice") ?? "").trim(),
+  );
 
   if (!name) return data({ error: "Give the item a name." }, { status: 400 });
   if (costPrice == null || costPrice < 0) {
@@ -78,6 +88,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       updateItem(token, params.id, {
         name,
         description,
+        barcode,
         costPrice,
         sellingPrice,
         status,
@@ -105,7 +116,8 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
 
   const [selling, setSelling] = useState(toCedisInput(item.sellingPrice));
   const sellingPesewas = parseCedis(selling);
-  const changed = sellingPesewas != null && sellingPesewas !== item.sellingPrice;
+  const changed =
+    sellingPesewas != null && sellingPesewas !== item.sellingPrice;
 
   useEffect(() => {
     if (actionData?.error) toast.error(actionData.error);
@@ -141,6 +153,8 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
             />
           </div>
 
+          <BarcodeField defaultValue={item.barcode ?? ""} />
+
           <div className="space-y-1.5">
             <Label
               htmlFor="description"
@@ -156,7 +170,6 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
               maxLength={500}
             />
           </div>
-
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label
@@ -219,8 +232,9 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
           <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
             <span>
-              Agreements snapshot their prices at signing. Changing these figures
-              affects new agreements only — nothing already signed moves.
+              Agreements snapshot their prices at signing. Changing these
+              figures affects new agreements only — nothing already signed
+              moves.
             </span>
           </div>
 

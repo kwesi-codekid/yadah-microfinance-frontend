@@ -5,8 +5,13 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { createItem } from "~/api/hire-purchase";
+import { BarcodeField } from "~/components/barcode-field";
 import { Figure } from "~/components/listing";
-import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
+import {
+  RouteSheet,
+  SheetActions,
+  SheetCancel,
+} from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
@@ -32,9 +37,12 @@ export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
+  const barcode = String(form.get("barcode") ?? "").trim();
   const quantityInStock = Number(form.get("quantityInStock") ?? 0);
   const costPrice = parseCedis(String(form.get("costPrice") ?? "").trim());
-  const sellingPrice = parseCedis(String(form.get("sellingPrice") ?? "").trim());
+  const sellingPrice = parseCedis(
+    String(form.get("sellingPrice") ?? "").trim(),
+  );
 
   if (!name) return data({ error: "Give the item a name." }, { status: 400 });
   if (!Number.isInteger(quantityInStock) || quantityInStock < 0) {
@@ -53,6 +61,7 @@ export async function action({ request }: Route.ActionArgs) {
       createItem(token, {
         name,
         description: description || undefined,
+        barcode: barcode || undefined,
         quantityInStock,
         costPrice,
         sellingPrice,
@@ -115,8 +124,16 @@ export default function InventoryNew() {
             >
               Name<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            <Input id="name" name="name" autoFocus autoComplete="off" maxLength={120} />
+            <Input
+              id="name"
+              name="name"
+              autoFocus
+              autoComplete="off"
+              maxLength={120}
+            />
           </div>
+
+          <BarcodeField />
 
           <div className="space-y-1.5">
             <Label
@@ -125,7 +142,12 @@ export default function InventoryNew() {
             >
               Description
             </Label>
-            <Textarea id="description" name="description" rows={2} maxLength={500} />
+            <Textarea
+              id="description"
+              name="description"
+              rows={2}
+              maxLength={500}
+            />
             <p className="text-xs text-muted-foreground">
               Model, size, colour — whatever tells two units apart on the shelf.
             </p>
@@ -159,7 +181,8 @@ export default function InventoryNew() {
                 htmlFor="costPrice"
                 className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
               >
-                Cost price · GH₵<span className="ml-0.5 text-destructive">*</span>
+                Cost price · GH₵
+                <span className="ml-0.5 text-destructive">*</span>
               </Label>
               <Input
                 id="costPrice"
@@ -177,7 +200,8 @@ export default function InventoryNew() {
                 htmlFor="sellingPrice"
                 className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
               >
-                Selling price · GH₵<span className="ml-0.5 text-destructive">*</span>
+                Selling price · GH₵
+                <span className="ml-0.5 text-destructive">*</span>
               </Label>
               <Input
                 id="sellingPrice"

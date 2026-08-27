@@ -27,6 +27,7 @@ import { Label } from "~/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import { TableHead } from "~/components/ui/table";
 import { formatCount, formatDayRange } from "~/lib/format";
+import { MODULE_VAR, type TxnModule } from "~/lib/reports";
 import { cn } from "~/lib/utils";
 
 /**
@@ -202,6 +203,30 @@ export function StatusPill({
       <span aria-hidden className={cn("size-1.5 rounded-full", TONE_DOT[tone])} />
       <span className={TONE_TEXT[tone]}>{label}</span>
     </span>
+  );
+}
+
+/**
+ * The dot that stands for one of the five modules, in that module's own colour.
+ *
+ * Both ledgers draw it — the business-wide one and a customer's statement — and
+ * a colour that meant susu on one screen and savings on the other would be
+ * worse than no colour at all, so it is defined once and read off the same
+ * `--module-*` names the charts use.
+ */
+export function ModuleDot({
+  module,
+  className,
+}: {
+  module: TxnModule;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn("size-2 shrink-0 rounded-full", className)}
+      style={{ backgroundColor: MODULE_VAR[module] }}
+    />
   );
 }
 
@@ -482,6 +507,100 @@ export function DayRangeFilter({
             type="button"
             size="sm"
             onClick={() => {
+              const read = (name: string) =>
+                fieldsRef.current?.querySelector<HTMLInputElement>(
+                  `input[name='${name}']`,
+                )?.value ?? "";
+              commit({ from: read("from"), to: read("to") });
+            }}
+          >
+            Apply
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * A reporting period that always names itself.
+ *
+ * The difference from `DayRangeFilter` above is the default. A listing with no
+ * date filter shows everything, so the button can say "Registered" and mean it.
+ * A report has no such state: ask for no range and the API quietly answers with
+ * the last thirty days, and a total with no period beside it is a figure nobody
+ * can check. So the route resolves the default itself, this button prints the
+ * range whether it was chosen or defaulted, and `active` — set only once
+ * somebody picks — is what decides the tint and whether Clear can be pressed.
+ *
+ * Both ledgers use it, the business-wide one and a customer's statement.
+ */
+export function PeriodFilter({
+  from,
+  to,
+  active,
+  title = "Period",
+  apply,
+  align = "end",
+}: {
+  /** The resolved range — never blank, defaulted or not. */
+  from: string;
+  to: string;
+  /** True once somebody has set the range rather than taking the default. */
+  active: boolean;
+  title?: string;
+  /** Clear hands back two empty strings, which is the route's cue to default. */
+  apply: (next: { from: string; to: string }) => void;
+  align?: "start" | "end";
+}) {
+  const [open, setOpen] = useState(false);
+  const fieldsRef = useRef<HTMLDivElement>(null);
+
+  const commit = (next: { from: string; to: string }) => {
+    setOpen(false);
+    apply(next);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(active && "border-primary/50 text-primary")}
+        >
+          <SlidersHorizontalIcon />
+          {formatDayRange(from, to)}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align={align} className="w-72 space-y-3">
+        {/* Keyed on the applied range so reopening after a Clear shows it. */}
+        <div ref={fieldsRef} key={`${from}|${to}`} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="eyebrow text-muted-foreground">{title} from</Label>
+            <DateField name="from" defaultValue={from} endMonth={new Date()} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="eyebrow text-muted-foreground">{title} to</Label>
+            <DateField name="to" defaultValue={to} endMonth={new Date()} />
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!active}
+            onClick={() => commit({ from: "", to: "" })}
+          >
+            Clear
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              // Each DateField keeps its value in a hidden input; read those on
+              // apply rather than mirroring every calendar click into state.
               const read = (name: string) =>
                 fieldsRef.current?.querySelector<HTMLInputElement>(
                   `input[name='${name}']`,

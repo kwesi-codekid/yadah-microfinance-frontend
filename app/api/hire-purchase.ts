@@ -42,7 +42,9 @@ export function listItems(
   accessToken: string,
   params: ItemListParams = {},
 ): Promise<Paginated<HpItem>> {
-  return apiFetch(`/hire-purchase/items${queryOf({ ...params })}`, { accessToken });
+  return apiFetch(`/hire-purchase/items${queryOf({ ...params })}`, {
+    accessToken,
+  });
 }
 
 /** GET /hire-purchase/items?format=csv|xlsx */
@@ -78,6 +80,7 @@ export function createItem(
   input: {
     name: string;
     description?: string;
+    barcode?: string;
     quantityInStock: number;
     costPrice: number;
     sellingPrice: number;
@@ -103,6 +106,7 @@ export function updateItem(
   input: {
     name?: string;
     description?: string;
+    barcode?: string;
     costPrice?: number;
     sellingPrice?: number;
     status?: ItemStatus;
@@ -133,7 +137,10 @@ export function trashItem(
 }
 
 /** POST /hire-purchase/items/{id}/restore — back onto the shelf. */
-export function restoreItem(accessToken: string, id: string): Promise<{ item: HpItem }> {
+export function restoreItem(
+  accessToken: string,
+  id: string,
+): Promise<{ item: HpItem }> {
   return apiFetch(`/hire-purchase/items/${id}/restore`, {
     method: "POST",
     accessToken,
@@ -222,9 +229,12 @@ export function exportAgreements(
   params: Omit<AgreementListParams, "page" | "limit">,
   format: ExportFormat,
 ): Promise<Response> {
-  return apiFetchRaw(`/hire-purchase/agreements${queryOf({ ...params }, format)}`, {
-    accessToken,
-  });
+  return apiFetchRaw(
+    `/hire-purchase/agreements${queryOf({ ...params }, format)}`,
+    {
+      accessToken,
+    },
+  );
 }
 
 /** GET /hire-purchase/agreements/trash — newest-trashed first. */

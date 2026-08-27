@@ -272,15 +272,25 @@ function useFlashToast(toast: Toast | null) {
  * What the header calls this page: the rail item it belongs to, or — for pages
  * with no item of their own — the `handle.title` the route exports.
  */
-function useHeaderTitle(pathname: string): string | undefined {
+function useHeaderTitle(pathname: string): {
+  title: string | undefined;
+  description: string | undefined;
+} {
   const matches = useMatches();
   const named = [...matches]
     .reverse()
     .find(
-      (match): match is typeof match & { handle: { title: string } } =>
+      (match): match is typeof match & { handle: { title: string; description?: string } } =>
         typeof (match.handle as { title?: unknown } | undefined)?.title === "string",
     );
-  return named?.handle.title ?? navItemFor(pathname)?.label;
+  return {
+    title: named?.handle.title ?? navItemFor(pathname)?.label,
+    description:
+      named?.handle.description ??
+      (pathname === "/dashboard"
+        ? "Manage, Monitor, and Optimize Yadah’s Banking Operations!"
+        : undefined),
+  };
 }
 
 /**
@@ -297,7 +307,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
   const { user, sidebarOpen, toast, dateLabel, bell } = loaderData;
   const { pathname } = useLocation();
   const mainRef = useRef<HTMLDivElement>(null);
-  const title = useHeaderTitle(pathname);
+  const { title, description } = useHeaderTitle(pathname);
 
   useFlashToast(toast);
 
@@ -321,9 +331,9 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
               <h1 className="truncate font-heading text-lg font-bold tracking-tight">
                 {title}
               </h1>
-              {pathname === "/dashboard" && (
+              {description && (
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  Manage, Monitor, and Optimize Yadah&rsquo;s Banking Operations!
+                  {description}
                 </p>
               )}
             </div>

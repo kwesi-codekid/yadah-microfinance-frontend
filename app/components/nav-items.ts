@@ -6,6 +6,7 @@ import {
   ShoppingCartIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
+  ReceiptIcon,
   ReceiptTextIcon,
   RepeatIcon,
   Trash2Icon,
@@ -101,13 +102,23 @@ export const NAV: NavItem[] = [
     blurb: "Agreements, instalments and redemption.",
     roles: OFFICE,
   },
-  // The till. Beside hire purchase because they draw down the same shelf, and
+  // The till itself, and the book it writes into — two items, because they are
+  // two jobs. Someone at the counter wants the POS and nothing else; someone
+  // asking what was sold last week wants the listing and never the basket.
+  // Beside hire purchase because all three draw down the same shelf, and
   // separate from it because a sale is over in a minute and has no lifecycle.
   {
-    to: "/sales",
-    label: "Counter sales",
+    to: "/pos",
+    label: "POS",
     icon: ShoppingCartIcon,
-    blurb: "Sold outright: stock out, money in.",
+    blurb: "Ring up a counter sale: stock out, money in.",
+    roles: OFFICE,
+  },
+  {
+    to: "/sales",
+    label: "Sales",
+    icon: ReceiptIcon,
+    blurb: "Every sale rung up, with its receipt.",
     roles: OFFICE,
   },
   // Its own section: the shelf is stocked whether or not anything is signed for.

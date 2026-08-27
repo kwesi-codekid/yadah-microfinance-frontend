@@ -6,18 +6,17 @@ import {
   FileTextIcon,
   PrinterIcon,
   ReceiptTextIcon,
-  SlidersHorizontalIcon,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { data, useSubmit } from "react-router";
 
 import { throwAsRouteError } from "~/api/client";
 import { getCustomerStatement } from "~/api/customers";
+import { ModuleDot, PeriodFilter } from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
 import { TransactionAdvice } from "~/components/transaction-advice";
 import { Button } from "~/components/ui/button";
 import { DataTable, type Column, type TableTab } from "~/components/ui/data-table";
-import { DateField } from "~/components/ui/date-field";
 import {
   Dialog,
   DialogContent,
@@ -34,8 +33,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
-import { Label } from "~/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import {
   channelLabel,
   MODULE_LABELS,
@@ -102,25 +99,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   );
 }
 
-/** The CSS custom property carrying each module's colour. */
-const MODULE_VAR: Record<TxModule, string> = {
-  susu: "--module-susu",
-  savings: "--module-savings",
-  loans: "--module-loans",
-  "hire-purchase": "--module-hp",
-  transfers: "--module-transfers",
-};
-
-function ModuleDot({ module, className }: { module: TxModule; className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={cn("size-2 shrink-0 rounded-full", className)}
-      style={{ backgroundColor: `var(${MODULE_VAR[module]})` }}
-    />
-  );
-}
-
 /** Everything that would identify a row when someone types into the search box. */
 function haystack(tx: UnifiedTransaction): string {
   return [
@@ -157,6 +135,16 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
   // handed, so it is reachable from the row it describes rather than from a
   // screen of its own.
   const [advice, setAdvice] = useState<UnifiedTransaction | null>(null);
+
+  // The period is the only thing in this URL, so an empty pair is a clean slate
+  // and the loader falls back to the API's own last-30-days.
+  const submit = useSubmit();
+  const applyPeriod = (next: { from: string; to: string }) => {
+    const params = new URLSearchParams();
+    if (next.from) params.set("from", next.from);
+    if (next.to) params.set("to", next.to);
+    submit(params, { replace: true, preventScrollReset: true });
+  };
 
   const adviceHref = (tx: UnifiedTransaction) =>
     `/customers/${id}/advice/${tx.id}?from=${period.from}&to=${period.to}`;
@@ -277,7 +265,12 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
       <DataTable
         actions={
           <>
-            <PeriodFilter from={from} to={to} active={explicit} />
+            <PeriodFilter
+              from={from}
+              to={to}
+              active={explicit}
+              apply={applyPeriod}
+            />
             <ExportMenu id={id} period={period} rows={transactions.length} />
           </>
         }
@@ -442,88 +435,6 @@ function Amount({ tx }: { tx: UnifiedTransaction }) {
         </p>
       )}
     </>
-  );
-}
-
-/**
- * The reporting period — the same control, drawn the same way, as the registered
- * date range on the customer list. Applies on Apply so both ends move together;
- * Clear drops back to the API's default of the last 30 days.
- */
-function PeriodFilter({
-  from,
-  to,
-  active,
-}: {
-  from: string;
-  to: string;
-  /** True once someone has set the range, rather than taking the default. */
-  active: boolean;
-}) {
-  const submit = useSubmit();
-  const [open, setOpen] = useState(false);
-  const fieldsRef = useRef<HTMLDivElement>(null);
-
-  const apply = (next: { from: string; to: string }) => {
-    setOpen(false);
-    const params = new URLSearchParams();
-    if (next.from) params.set("from", next.from);
-    if (next.to) params.set("to", next.to);
-    submit(params, { replace: true, preventScrollReset: true });
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(active && "border-primary/50 text-primary")}
-        >
-          <SlidersHorizontalIcon />
-          {formatDayRange(from, to)}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-3">
-        {/* Keyed on the applied range so reopening after a Clear shows it. */}
-        <div ref={fieldsRef} key={`${from}|${to}`} className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="eyebrow text-muted-foreground">Period from</Label>
-            <DateField name="from" defaultValue={from} endMonth={new Date()} />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="eyebrow text-muted-foreground">Period to</Label>
-            <DateField name="to" defaultValue={to} endMonth={new Date()} />
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={!active}
-            onClick={() => apply({ from: "", to: "" })}
-          >
-            Clear
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              // Each DateField keeps its value in a hidden input; read those on
-              // apply rather than mirroring every calendar click into state.
-              const read = (name: string) =>
-                fieldsRef.current?.querySelector<HTMLInputElement>(
-                  `input[name='${name}']`,
-                )?.value ?? "";
-              apply({ from: read("from"), to: read("to") });
-            }}
-          >
-            Apply
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }
 
