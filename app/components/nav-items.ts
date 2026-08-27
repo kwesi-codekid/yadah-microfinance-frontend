@@ -1,0 +1,151 @@
+import {
+  ArrowLeftRightIcon,
+  ChartColumnIcon,
+  CoinsIcon,
+  LandmarkIcon,
+  LayoutDashboardIcon,
+  ReceiptTextIcon,
+  RepeatIcon,
+  Trash2Icon,
+  UserCogIcon,
+  UsersIcon,
+  WalletIcon,
+  WarehouseIcon,
+  type LucideIcon,
+} from "lucide-react";
+
+import type { AuthUser, Role } from "~/lib/auth";
+
+export type NavItem = {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+  /** One line on what the module is for. Used on the dashboard tiles. */
+  blurb: string;
+  /** Match this path exactly, rather than as a section. */
+  end?: boolean;
+  /** Roles that may see this item; omit for everyone. */
+  roles?: Role[];
+};
+
+/** Admin and manager. Collector is field-only. */
+const OFFICE: Role[] = ["admin", "manager"];
+
+/**
+ * The modules, in the order the business works through them: who you serve,
+ * what they pay in, what they take out, and what is left to tidy up.
+ *
+ * `roles` here only decides what is *drawn*. Access is enforced in each
+ * route's loader — hiding a link is not access control.
+ */
+export const NAV: NavItem[] = [
+  {
+    to: "/dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboardIcon,
+    blurb: "Today at a glance.",
+    end: true,
+  },
+  {
+    to: "/customers",
+    label: "Customers",
+    icon: UsersIcon,
+    blurb: "Register, search and open accounts.",
+  },
+  // No `roles`: collectors work susu and record savings deposits too.
+  {
+    to: "/susu",
+    label: "Susu",
+    icon: CoinsIcon,
+    blurb: "Cycles, collections and payouts.",
+  },
+  {
+    to: "/savings",
+    label: "Savings",
+    icon: WalletIcon,
+    blurb: "Deposits, withdrawals and statements.",
+  },
+  // Office only, because the ledger it draws — `GET /reports/transactions` —
+  // is part of the office-only reports surface and has no per-collector scope.
+  // A collector reconciles their own day on the susu summary instead, which is
+  // scoped to them by the API and which they may read.
+  {
+    to: "/transactions",
+    label: "Transactions",
+    icon: ArrowLeftRightIcon,
+    blurb: "Every movement of money, in one ledger.",
+    roles: OFFICE,
+  },
+  // Office only, and atomic: it moves money between a customer's own accounts,
+  // so it never appears in the cash totals the collectors reconcile against.
+  {
+    to: "/transfers",
+    label: "Transfer",
+    icon: RepeatIcon,
+    blurb: "Move money between a customer's own accounts.",
+    roles: OFFICE,
+  },
+  {
+    to: "/loans",
+    label: "Loans",
+    icon: LandmarkIcon,
+    blurb: "Applications, disbursement and repayments.",
+    roles: OFFICE,
+  },
+  {
+    to: "/hire-purchase",
+    label: "Hire purchase",
+    icon: ReceiptTextIcon,
+    blurb: "Agreements, instalments and redemption.",
+    roles: OFFICE,
+  },
+  // Its own section: the shelf is stocked whether or not anything is signed for.
+  {
+    to: "/inventory",
+    label: "Inventory",
+    icon: WarehouseIcon,
+    blurb: "Stock on the shelf and what is reserved.",
+    roles: OFFICE,
+  },
+  // A hub, not a module: each report cuts across several of the books above,
+  // which is why none of them lives on a module screen.
+  {
+    to: "/reports",
+    label: "Reports",
+    icon: ChartColumnIcon,
+    blurb: "Collections, arrears and what the branch kept.",
+    roles: OFFICE,
+  },
+  {
+    to: "/staff",
+    label: "Staff",
+    icon: UserCogIcon,
+    blurb: "Accounts, roles and access.",
+    roles: OFFICE,
+  },
+  // Where the lists send what was switched off, so it can be brought back.
+  {
+    to: "/trash",
+    label: "Trash",
+    icon: Trash2Icon,
+    blurb: "Switched-off records, kept until restored.",
+    roles: OFFICE,
+  },
+];
+
+export function visibleNavItems(user: AuthUser | null): NavItem[] {
+  return NAV.filter(
+    (item) => !item.roles || (user != null && item.roles.includes(user.role)),
+  );
+}
+
+/** Whether a path is inside an item, matching `NavLink`'s `end` semantics. */
+export function isNavItemActive(pathname: string, item: NavItem): boolean {
+  if (item.end) return pathname === item.to;
+  return pathname === item.to || pathname.startsWith(`${item.to}/`);
+}
+
+/** The item a pathname belongs to — used for the header title. */
+export function navItemFor(pathname: string): NavItem | undefined {
+  return NAV.find((item) => isNavItemActive(pathname, item));
+}

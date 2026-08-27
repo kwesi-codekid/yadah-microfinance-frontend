@@ -1,0 +1,510 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
+
+@custom-variant dark (&:is(.dark *));
+
+/* =============================================================================
+   YADAH DYNAMIC ENTERPRISE — GLOBAL THEME
+   =============================================================================
+   The UI palette is the dashboard's, sampled pixel-by-pixel from the design
+   reference and carried across the whole app:
+
+     ink     #101114   text, primary actions, the active rail pill
+     coral   #F0503A   the accent — emphasis, alerts, money leaving
+     navy    #272F43   the dark data series
+     sky     #74A5D7   the light data series — info, money arriving
+     canvas  #F3F3F3   the page ground; cards are pure white
+     hairline #E7E7E5  borders and gridlines
+
+   Three jobs, three colours:
+
+     ink    the action — buttons, links-as-pills, the current rail item. Black
+            means "press this", exactly as the dashboard's Take Action pills.
+     coral  emphasis and heat — focus rings, alerts, deltas, cash going out.
+     sky    calm information — cash coming in, info states, completed work.
+
+   The raw logo colours below are kept for the mark itself (splash, login,
+   printed documents) — they are the company's, not the UI's.
+
+   Every foreground/background pair below was contrast-checked. Notable:
+   sky at full value is 2.5:1 on white and MUST NOT be used for text — use
+   its text step #3E6EA5 (5.0:1), which --info and --cash-in carry. Sky is
+   a fill. The same split applies to coral: fills use #F0503A, text uses
+   the deeper #C03A24 (5.3:1).
+   ========================================================================== */
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: 'Inter Variable', sans-serif;
+
+  /* shadcn contract */
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+
+  /* Raw brand colours — for logo lockups, illustrations, marketing surfaces.
+     Prefer the semantic tokens below for UI. */
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-green: var(--brand-green);
+  --color-brand-gold: var(--brand-gold);
+  --color-brand-red: var(--brand-red);
+  --color-brand-teal: var(--brand-teal);
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-steel: var(--brand-steel);
+  /* The dashboard reference's two accents, for surfaces that sit on the raw
+     brand navy (splash, login panel) where the UI tokens don't apply. */
+  --color-brand-coral: var(--brand-coral);
+  --color-brand-sky: var(--brand-sky);
+
+  /* Money direction — from the company's cash perspective.
+     Mirrors UnifiedTransaction.direction: in | out | internal. */
+  --color-cash-in: var(--cash-in);
+  --color-cash-in-foreground: var(--cash-in-foreground);
+  --color-cash-in-subtle: var(--cash-in-subtle);
+  --color-cash-out: var(--cash-out);
+  --color-cash-out-foreground: var(--cash-out-foreground);
+  --color-cash-out-subtle: var(--cash-out-subtle);
+  --color-internal: var(--internal);
+  --color-internal-foreground: var(--internal-foreground);
+  --color-internal-subtle: var(--internal-subtle);
+  --color-revenue: var(--revenue);
+  --color-revenue-foreground: var(--revenue-foreground);
+  --color-revenue-subtle: var(--revenue-subtle);
+
+  /* Status — for the many record-state enums (susu, savings, loans, HP). */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-subtle: var(--info-subtle);
+  --color-neutral: var(--neutral);
+  --color-neutral-foreground: var(--neutral-foreground);
+  --color-neutral-subtle: var(--neutral-subtle);
+
+  /* Module identity — the five modules in GET /reports/transactions.
+     Same values as chart-1..5 so a legend and a chart never disagree. */
+  --color-module-susu: var(--module-susu);
+  --color-module-savings: var(--module-savings);
+  --color-module-loans: var(--module-loans);
+  --color-module-hp: var(--module-hp);
+  --color-module-transfers: var(--module-transfers);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ---------------------------------------------------------------- LIGHT --- */
+:root {
+  --radius: 0.625rem;
+
+  /* Raw brand — exact logo values, plus the dashboard's two accents. */
+  --brand-navy: oklch(0.362 0.0995 250);
+  --brand-green: oklch(0.475 0.1117 145);
+  --brand-gold: oklch(0.762 0.1569 81);
+  --brand-red: oklch(0.495 0.1792 24);
+  --brand-teal: oklch(0.490 0.0844 210);
+  --brand-orange: oklch(0.678 0.1684 54);
+  --brand-steel: oklch(0.639 0.0341 248);
+  --brand-coral: #f0503a;
+  --brand-sky: #74a5d7;
+
+  /* Surfaces — the dashboard's paper: a warm light-grey ground with pure
+     white cards floating on it, hairline borders between. */
+  --background: #f3f3f3;
+  --foreground: #101114;
+  --card: #ffffff;
+  --card-foreground: #101114;
+  --popover: #ffffff;
+  --popover-foreground: #101114;
+
+  --primary: #101114;                          /* ink — the black action pill */
+  --primary-foreground: #ffffff;
+  --secondary: #f0f1f2;
+  --secondary-foreground: #101114;
+  --muted: #ededeb;
+  --muted-foreground: #767b84;                 /* 4.5:1 on canvas */
+  --accent: #f3f3f3;
+  --accent-foreground: #101114;
+
+  --destructive: #c03a24;                      /* coral's text step — 5.3:1 */
+  --destructive-foreground: #ffffff;
+
+  --border: #e7e7e5;
+  --input: #e0e0de;
+  --ring: #f0503a;                             /* coral focus ring */
+
+  /* Money direction — sky arrives, coral leaves, grey is internal. */
+  --cash-in: #3e6ea5;                          /* sky's text step — 5.0:1 */
+  --cash-in-foreground: #ffffff;
+  --cash-in-subtle: #eaf1fa;
+  --cash-out: #c03a24;                         /* coral's text step */
+  --cash-out-foreground: #ffffff;
+  --cash-out-subtle: #fdedea;
+  /* Transfer legs are direction=internal and are EXCLUDED from cash totals.
+     Deliberately desaturated so they visibly recede from real cash rows. */
+  --internal: #767b84;
+  --internal-foreground: #ffffff;
+  --internal-subtle: #f0f1f2;
+  --revenue: #272f43;                          /* navy — what the branch keeps */
+  --revenue-foreground: #272f43;               /* 13.9:1 — usable as text */
+  --revenue-subtle: #e9edf4;
+
+  /* Status — danger and info are coral and sky; success and warning keep
+     their functional hues, re-tuned to sit quietly in this palette. */
+  --success: #2f7a4d;
+  --success-foreground: #ffffff;
+  --success-subtle: #e9f3ec;
+  --warning: #a26e12;
+  --warning-foreground: #ffffff;
+  --warning-subtle: #f7efdc;
+  --danger: #c03a24;
+  --danger-foreground: #ffffff;
+  --danger-subtle: #fdedea;
+  --info: #3e6ea5;
+  --info-foreground: #ffffff;
+  --info-subtle: #eaf1fa;
+  --neutral: #767b84;
+  --neutral-foreground: #ffffff;
+  --neutral-subtle: #f0f1f2;
+
+  /* Modules / charts — the dashboard's series colours, in its own order:
+     coral, navy, sky, grey, with a slate step between navy and sky for the
+     fifth slot. Sky is a fill; series text stays in ink beside a dot. */
+  --module-susu: #e0482f;
+  --module-savings: #272f43;
+  --module-loans: #74a5d7;
+  --module-hp: #565b66;
+  --module-transfers: #a9b8d4;
+
+  --chart-1: var(--module-susu);
+  --chart-2: var(--module-savings);
+  --chart-3: var(--module-loans);
+  --chart-4: var(--module-hp);
+  --chart-5: var(--module-transfers);
+
+  /* Paper rail in BOTH themes — white ground, ink text, a black pill for the
+     active module, exactly as the dashboard draws it. */
+  --sidebar: #ffffff;
+  --sidebar-foreground: #101114;
+  --sidebar-primary: #101114;                  /* active pill — ink */
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f3f3f3;                   /* hover — the canvas grey */
+  --sidebar-accent-foreground: #101114;
+  --sidebar-border: #e7e7e5;
+  --sidebar-ring: #f0503a;
+
+  /* Six avatar/initials tints — the dashboard's tinted-square families. */
+  --tint-1-bg: #eaf1fa;
+  --tint-1-fg: #38618f;
+  --tint-2-bg: #fdedea;
+  --tint-2-fg: #c03a24;
+  --tint-3-bg: #e9edf4;
+  --tint-3-fg: #272f43;
+  --tint-4-bg: #f0f1f2;
+  --tint-4-fg: #4a4f58;
+  --tint-5-bg: #eaeef6;
+  --tint-5-fg: #4c5a7a;
+  --tint-6-bg: #f7efdc;
+  --tint-6-fg: #8a6414;
+}
+
+/* ----------------------------------------------------------------- DARK --- */
+/* The dashboard palette at night: ink-navy near-black ground, the same
+   coral / navy / sky series lifted to stay legible, and the paper rail kept
+   white so the nav reads the same in both themes. */
+.dark {
+  --brand-navy: oklch(0.362 0.0995 250);
+  --brand-green: oklch(0.475 0.1117 145);
+  --brand-gold: oklch(0.762 0.1569 81);
+  --brand-red: oklch(0.495 0.1792 24);
+  --brand-teal: oklch(0.490 0.0844 210);
+  --brand-orange: oklch(0.678 0.1684 54);
+  --brand-steel: oklch(0.639 0.0341 248);
+  --brand-coral: #f0503a;
+  --brand-sky: #74a5d7;
+
+  --background: #14161d;
+  --foreground: #f2f2f0;
+  --card: #1b1e27;
+  --card-foreground: #f2f2f0;
+  --popover: #1e212b;
+  --popover-foreground: #f2f2f0;
+
+  /* Coral lifted to stay legible on near-black, dark text on top (7.1:1). */
+  --primary: #f47b66;
+  --primary-foreground: #1a0e0b;
+  --secondary: #262a35;
+  --secondary-foreground: #f2f2f0;
+  --muted: #232630;
+  --muted-foreground: #a3a8b0;
+  --accent: #2a2e3a;
+  --accent-foreground: #f2f2f0;
+
+  /* Light coral needs DARK text, not white. */
+  --destructive: #f47b66;
+  --destructive-foreground: #1a0e0b;
+
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: #f0503a;
+
+  --cash-in: #74a5d7;                          /* sky — 6.9:1 on the ground */
+  --cash-in-foreground: #0e1520;
+  --cash-in-subtle: #223349;
+  --cash-out: #f47b66;
+  --cash-out-foreground: #1a0e0b;
+  --cash-out-subtle: #3a211b;
+  --internal: #9aa0aa;
+  --internal-foreground: #14161d;
+  --internal-subtle: #262a32;
+  --revenue: #a8c2e6;                          /* navy's night step — text-safe */
+  --revenue-foreground: #a8c2e6;
+  --revenue-subtle: #24304a;
+
+  --success: #66b98a;
+  --success-foreground: #0f1f16;
+  --success-subtle: #1f3428;
+  --warning: #d9a94e;
+  --warning-foreground: #241b08;
+  --warning-subtle: #383021;
+  --danger: #f47b66;
+  --danger-foreground: #1a0e0b;
+  --danger-subtle: #3a211b;
+  --info: #74a5d7;
+  --info-foreground: #0e1520;
+  --info-subtle: #223349;
+  --neutral: #9aa0aa;
+  --neutral-foreground: #14161d;
+  --neutral-subtle: #262a32;
+
+  /* The same series identities, lifted for a dark canvas: navy cannot hold
+     its own on near-black, so savings takes a periwinkle step of the same
+     family. The spread in lightness is what keeps adjacent marks legible —
+     do not "harmonise" them to a single level. */
+  --module-susu: #f0705c;
+  --module-savings: #6e7fa8;
+  --module-loans: #8fb8e4;
+  --module-hp: #5c616b;
+  --module-transfers: #c3cede;
+
+  --chart-1: var(--module-susu);
+  --chart-2: var(--module-savings);
+  --chart-3: var(--module-loans);
+  --chart-4: var(--module-hp);
+  --chart-5: var(--module-transfers);
+
+  /* The rail stays paper-white at night — the one constant surface. */
+  --sidebar: #ffffff;
+  --sidebar-foreground: #101114;
+  --sidebar-primary: #101114;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f3f3f3;
+  --sidebar-accent-foreground: #101114;
+  --sidebar-border: #e7e7e5;
+  --sidebar-ring: #f0503a;
+
+  --tint-1-bg: #243247;
+  --tint-1-fg: #a9c6e8;
+  --tint-2-bg: #3a211b;
+  --tint-2-fg: #f2a392;
+  --tint-3-bg: #262c3c;
+  --tint-3-fg: #b9c3da;
+  --tint-4-bg: #272b33;
+  --tint-4-fg: #c6cad2;
+  --tint-5-bg: #242e44;
+  --tint-5-fg: #abb7d2;
+  --tint-6-bg: #383021;
+  --tint-6-fg: #dcc08c;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+  /* Money must never wrap mid-figure or shift width as digits change.
+     `count` and `figures` are the same thing under the names `DataTable` uses
+     for a row tally and for a filing code. */
+  .tabular,
+  .count,
+  .figures {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* The small caps label that sits above a column or a figure. Defined once so
+     every table header and stat caption in the app is set the same way. */
+  .eyebrow {
+    @apply text-xs font-medium tracking-wider uppercase;
+  }
+}
+
+/* =============================================================================
+   SPLASH — the one animated moment in the app.
+   The gold ring closes exactly once around the mark, the way a susu cycle
+   closes: a round of contributions completing. It doubles as the progress
+   indicator, so nothing else on the screen has to move.
+   ========================================================================== */
+
+@keyframes yadah-ring-close {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes yadah-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes yadah-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.splash-ring {
+  /* The circle carries pathLength="1", so one unit is the whole circumference. */
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: yadah-ring-close var(--splash-duration) cubic-bezier(0.65, 0, 0.35, 1)
+    forwards;
+}
+
+.splash-mark {
+  animation: yadah-settle 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.splash-word {
+  animation: yadah-rise 600ms ease-out 220ms both;
+}
+
+.splash-tagline {
+  animation: yadah-rise 600ms ease-out 400ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-ring {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .splash-mark,
+  .splash-word,
+  .splash-tagline {
+    animation: none;
+  }
+}
+
+/* =============================================================================
+   PRINT — documents opened to be handed over or saved as a PDF: the
+   transaction advice, and anything else that follows it.
+
+   Two things browsers get wrong by default on a document like this. They drop
+   background fills, which would take the gold rules and leave an unreadable
+   grid of white on white; and they honour the app's dark theme, which would
+   print a black page. Both are corrected here rather than in the component, so
+   a document only has to mark what is screen furniture and what is the sheet.
+   ========================================================================== */
+
+@page {
+  margin: 16mm;
+}
+
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Screen furniture: toolbars, buttons, the back link. */
+  .no-print {
+    display: none !important;
+  }
+
+  /* The sheet itself fills the page — its on-screen padding and max width
+     belong to the browser window, not to A4. */
+  .print-sheet {
+    margin: 0 !important;
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  /* A dark-themed app must still print a light document. Only the tokens the
+     sheet actually paints with are reset — the rest never reach the paper. */
+  .dark {
+    --background: #ffffff;
+    --foreground: #101114;
+    --card: #ffffff;
+    --card-foreground: #101114;
+    --muted: #ededeb;
+    --muted-foreground: #767b84;
+    --border: #e7e7e5;
+    --revenue-subtle: #e9edf4;
+    --revenue-foreground: #272f43;
+    --cash-in: #3e6ea5;
+    --cash-out: #c03a24;
+    --internal: #767b84;
+  }
+}

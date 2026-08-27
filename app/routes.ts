@@ -1,0 +1,158 @@
+import {
+  index,
+  layout,
+  route,
+  type RouteConfig,
+} from "@react-router/dev/routes";
+
+export default [
+  // The splash decides where you belong and sends you there.
+  index("routes/splash.tsx"),
+
+  /* Signed out. */
+  route("login", "routes/login.tsx"),
+  route("login/verify", "routes/login-verify.tsx"),
+  route("forgot-password", "routes/forgot-password.tsx"),
+  route("reset-password", "routes/reset-password.tsx"),
+  route("logout", "routes/logout.tsx"),
+
+  /* Signed in. The layout loader is the gate: everything nested behind it
+     requires a session, and each module re-checks the role it needs. */
+  layout("routes/app-layout.tsx", [
+    route("dashboard", "routes/dashboard.tsx"),
+    route("customers", "routes/customers.tsx"),
+    route("customers/new", "routes/customer-new.tsx"),
+    // Resource routes: they proxy a binary body from the API, which the
+    // browser cannot fetch itself because it holds no access token.
+    route("customers/export", "routes/customers-export.tsx"),
+    route("customers/:id", "routes/customer-detail.tsx"),
+    route("customers/:id/edit", "routes/customer-edit.tsx"),
+    route("customers/:id/statement", "routes/customer-statement.tsx"),
+    route("customers/:id/statement/export", "routes/customer-statement-export.tsx"),
+    route("customers/:id/registration-form", "routes/customer-print.tsx"),
+    route("uploads", "routes/uploads.tsx"),
+    // JSON resource route behind the session, so a picker in the browser can
+    // look customers up without holding an access token of its own.
+    route("customers/search", "routes/customer-search.tsx"),
+
+    /* Susu. The book is a page; opening an account and taking a collection are
+       errands, so they are children of it and render as drawers over the rows.
+       The account itself is a page — a cycle, its figures and its statement do
+       not fit a drawer — with the deposit drawer nested in turn. */
+    route("susu/export", "routes/susu-export.tsx"),
+    route("susu/summary", "routes/susu-summary.tsx"),
+    route("susu", "routes/susu.tsx", [
+      route("new", "routes/susu-new.tsx"),
+      route("collect", "routes/susu-collect.tsx"),
+    ]),
+    route("susu/:id/deposits/export", "routes/susu-deposits-export.tsx"),
+    route("susu/:id", "routes/susu-detail.tsx", [
+      route("deposit", "routes/susu-deposit.tsx"),
+      route("withdraw", "routes/susu-withdraw.tsx"),
+      route("charge", "routes/susu-charge.tsx"),
+    ]),
+    /* Savings. Same shape as susu: the book is a page, opening an account is an
+       errand and renders as a drawer over the rows. The account itself is a
+       page — a balance, what may leave it today and an open-ended statement do
+       not fit a drawer — with the deposit and withdrawal drawers nested in it. */
+    route("savings/export", "routes/savings-export.tsx"),
+    route("savings", "routes/savings.tsx", [
+      route("new", "routes/savings-new.tsx"),
+    ]),
+    route(
+      "savings/:id/transactions/export",
+      "routes/savings-transactions-export.tsx",
+    ),
+    route("savings/:id", "routes/savings-detail.tsx", [
+      route("deposit", "routes/savings-deposit.tsx"),
+      route("withdraw", "routes/savings-withdraw.tsx"),
+      route("charge", "routes/savings-charge.tsx"),
+    ]),
+    /* The ledger. Its export is a sibling rather than a child: nesting would
+       run the ledger's own query to answer a download. */
+    route("transactions/export", "routes/transactions-export.tsx"),
+    route("transactions", "routes/transactions.tsx"),
+
+    /* Transfers. One endpoint, so there is no book to list — a transfer shows
+       up in the ledger above as its per-module legs. What it needs instead is
+       room to explain itself before it is sent, so it is a page of its own. */
+    route("transfers", "routes/transfers.tsx"),
+
+    /* A mobile-money charge, followed until it settles. There is no listing:
+       the API addresses a charge only by its reference, so this is reached from
+       the drawer that opened it and from the toast that drawer leaves behind. */
+    route("payments/charges/:reference", "routes/payment-charge.tsx"),
+
+    /* Reports. The questions that cut across more than one module, so none of
+       them belongs on a module's own screen. Each export is a sibling of its
+       report rather than a child — nesting would run the report's queries just
+       to answer a download. */
+    route("reports", "routes/reports.tsx"),
+    route("reports/collections/export", "routes/report-collections-export.tsx"),
+    route("reports/collections", "routes/report-collections.tsx"),
+    route("reports/loans/aging/export", "routes/report-aging-export.tsx"),
+    route("reports/loans/export", "routes/report-loans-export.tsx"),
+    route("reports/loans", "routes/report-loans.tsx"),
+    route("reports/commission/export", "routes/report-commission-export.tsx"),
+    route("reports/commission", "routes/report-commission.tsx"),
+
+    /* Loans. The book is a page; applying is an errand and renders as a drawer
+       over the rows. A loan itself is a page — an eligibility summary, a
+       schedule and a repayment history do not fit a drawer — with the
+       repayment drawers nested in it. */
+    route("loans/export", "routes/loans-export.tsx"),
+    // JSON resource route behind the session, so the application form can read
+    // a customer's history as soon as they are picked, without a token of its
+    // own and without navigating away from the half-filled form.
+    route("loans/eligibility/:customerId", "routes/loan-eligibility.tsx"),
+    route("loans", "routes/loans.tsx", [route("new", "routes/loan-new.tsx")]),
+    route("loans/:id", "routes/loan-detail.tsx", [
+      route("repay", "routes/loan-repay.tsx"),
+      route("repay/susu", "routes/loan-repay-susu.tsx"),
+      route("charge", "routes/loan-charge.tsx"),
+    ]),
+
+    /* Hire purchase, in two halves. The shelf and the contracts written against
+       it are separate books with separate rows, so they are separate pages. */
+    route("hire-purchase/export", "routes/hire-purchase-export.tsx"),
+    // JSON resource route behind the session, so the signing form can check the
+    // conditions the moment a customer is picked.
+    route("hire-purchase/eligibility/:customerId", "routes/hp-eligibility.tsx"),
+    route("hire-purchase", "routes/hire-purchase.tsx", [
+      route("new", "routes/hp-new.tsx"),
+    ]),
+    route("hire-purchase/:id", "routes/hp-detail.tsx", [
+      route("pay", "routes/hp-pay.tsx"),
+      route("charge", "routes/hp-charge.tsx"),
+    ]),
+
+    route("inventory/export", "routes/inventory-export.tsx"),
+    route("inventory", "routes/inventory.tsx", [
+      route("new", "routes/inventory-new.tsx"),
+      route(":id/edit", "routes/inventory-edit.tsx"),
+      route(":id/stock", "routes/inventory-stock.tsx"),
+    ]),
+    // Resource route: it proxies a binary body from the API, which the browser
+    // cannot fetch itself because it holds no access token. A sibling of the
+    // listing rather than a child of it — nesting would run the listing's three
+    // queries to answer a download.
+    route("staff/export", "routes/staff-export.tsx"),
+    // Adding, editing and reading a staff account are children of the listing:
+    // each renders into a drawer over it, so the rows and the filters stay put
+    // underneath. They remain real routes — addressable, and gated by their own
+    // loaders — rather than state held in the listing.
+    route("staff", "routes/staff.tsx", [
+      route("new", "routes/staff-new.tsx"),
+      route(":id", "routes/staff-detail.tsx"),
+      route(":id/edit", "routes/staff-edit.tsx"),
+    ]),
+    route("trash", "routes/trash.tsx"),
+    route("change-password", "routes/change-password.tsx"),
+  ]),
+
+  /* Outside the layout on purpose: a document, not a screen. Everything on the
+     page is meant to end up on the paper, so it carries no sidebar or rail.
+     Its own loader is the gate — being outside the layout is not being outside
+     the session. */
+  route("customers/:id/advice/:txId", "routes/transaction-advice.tsx"),
+] satisfies RouteConfig;
