@@ -214,6 +214,8 @@ interface Row {
   depositsCount: number;
   cycleTarget: number;
   totalDeposited: number;
+  withdrawnAmount: number;
+  balance: number;
   payoutRemaining: number;
   status: SusuStatus;
   opened: string;
@@ -229,6 +231,8 @@ function toRow(a: SusuAccount, now: Date): Row {
     depositsCount: a.depositsCount,
     cycleTarget: a.cycleTarget || CYCLE_TARGET,
     totalDeposited: a.totalDeposited,
+    withdrawnAmount: a.withdrawnAmount,
+    balance: a.balance,
     payoutRemaining: a.payoutRemaining,
     status: a.status,
     opened: relativeDayLabel(a.openedAt, now),
@@ -423,6 +427,11 @@ function AccountRow({
         <p className="tabular font-medium whitespace-nowrap">
           {formatPesewas(row.totalDeposited)}
         </p>
+        {row.withdrawnAmount > 0 && (
+          <p className="tabular text-xs whitespace-nowrap text-muted-foreground">
+            {formatPesewas(row.balance)} held
+          </p>
+        )}
         {owed && (
           <p className="tabular text-xs whitespace-nowrap text-warning">
             {formatPesewas(row.payoutRemaining)} owed

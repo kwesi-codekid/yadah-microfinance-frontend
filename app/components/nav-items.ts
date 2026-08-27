@@ -2,6 +2,8 @@ import {
   ArrowLeftRightIcon,
   ChartColumnIcon,
   CoinsIcon,
+  ScaleIcon,
+  ShoppingCartIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
   ReceiptTextIcon,
@@ -99,6 +101,15 @@ export const NAV: NavItem[] = [
     blurb: "Agreements, instalments and redemption.",
     roles: OFFICE,
   },
+  // The till. Beside hire purchase because they draw down the same shelf, and
+  // separate from it because a sale is over in a minute and has no lifecycle.
+  {
+    to: "/sales",
+    label: "Counter sales",
+    icon: ShoppingCartIcon,
+    blurb: "Sold outright: stock out, money in.",
+    roles: OFFICE,
+  },
   // Its own section: the shelf is stocked whether or not anything is signed for.
   {
     to: "/inventory",
@@ -106,6 +117,15 @@ export const NAV: NavItem[] = [
     icon: WarehouseIcon,
     blurb: "Stock on the shelf and what is reserved.",
     roles: OFFICE,
+  },
+  // No `roles`: this is the one place a collector and the office each hold
+  // half. The collector declares their day, the office counts it, and the API
+  // scopes each side to what it may see.
+  {
+    to: "/reconciliation",
+    label: "Cash handover",
+    icon: ScaleIcon,
+    blurb: "Declare a day's cash, count it, record the gap.",
   },
   // A hub, not a module: each report cuts across several of the books above,
   // which is why none of them lives on a module screen.

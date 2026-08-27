@@ -5,6 +5,7 @@ import { toast as sonner } from "sonner";
 
 import * as authApi from "~/api/auth";
 import { ApiError } from "~/api/error";
+import { listNotifications } from "~/api/notifications";
 import { AppSidebar } from "~/components/app-sidebar";
 import { navItemFor } from "~/components/nav-items";
 import { ProfileMenu } from "~/components/profile-menu";
@@ -13,6 +14,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
 import {
@@ -22,8 +25,11 @@ import {
 } from "~/components/ui/sidebar";
 import { TooltipProvider } from "~/components/ui/tooltip";
 import type { AuthUser } from "~/lib/auth";
+import { formatCount } from "~/lib/format";
+import { badgeCount, isUnread, linkFor } from "~/lib/notifications";
 import { requireUser, signOutForRoleChange, withAuth } from "~/lib/session.server";
 import { clearToastCookie, readToast, type Toast } from "~/lib/toast.server";
+import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app-layout";
 
 /**
@@ -89,18 +95,161 @@ export async function loader({ request }: Route.LoaderArgs) {
       sidebarOpen: readSidebarPreference(request),
       toast,
       dateLabel: `${weekday}, ${dayMonth}`,
+      bell: await readBell(request, out),
     },
     { headers: out },
   );
 }
 
-/** SAMPLE — the notifications feed is not built yet; these rows link to the
- *  screens the real ones will. */
-const NOTIFICATIONS = [
-  { title: "9 credit accounts in arrears — review the aging report", to: "/reports/loans" },
-  { title: "14 susu payouts awaiting approval", to: "/susu/summary" },
-  { title: "Yesterday's collections report is ready", to: "/reports/collections" },
-];
+/**
+ * The few most recent notifications, for the header bell.
+ *
+ * Deliberately soft: the bell is furniture on every signed-in page, and a feed
+ * that is slow or briefly unavailable must not take the whole app down with it.
+ * A failure comes back as an empty bell, which is what an empty bell already
+ * means to look at.
+ *
+ * Its `Set-Cookie` is appended to the same headers the role check wrote to, so
+ * a token rotated by this call is not dropped.
+ */
+async function readBell(
+  request: Request,
+  out: Headers,
+): Promise<{ unread: number; items: BellItem[] }> {
+  try {
+    const { data: feed, headers } = await withAuth(request, (token) =>
+      listNotifications(token, { limit: BELL_LIMIT }),
+    );
+    if (headers?.["Set-Cookie"]) out.append("Set-Cookie", headers["Set-Cookie"]);
+
+    return {
+      unread: feed.unread,
+      items: feed.items.map((n) => ({
+        id: n.id,
+        title: n.title,
+        body: n.body,
+        unread: isUnread(n),
+        to: linkFor(n),
+        createdAt: n.createdAt,
+      })),
+    };
+  } catch (error) {
+    // A 401 is `withAuth`'s business — it renews and retries — so it is not
+    // swallowed here. Everything else is the network, not the account.
+    if (error instanceof ApiError && error.status === 401) throw error;
+    return { unread: 0, items: [] };
+  }
+}
+
+/** How many rows the bell holds. The rest are a click away on /notifications. */
+const BELL_LIMIT = 6;
+
+interface BellItem {
+  id: string;
+  title: string;
+  body: string;
+  unread: boolean;
+  to: string | null;
+  createdAt: string;
+}
+
+/**
+ * The header bell: the unread count, the last few rows, and the way to the
+ * rest.
+ *
+ * A notification is never a source of truth about money — the record it links
+ * to is — so every row here is a way *to* a page rather than a figure to act
+ * on. Rows the API could not give a destination stay unlinked instead of
+ * pointing somewhere plausible.
+ */
+function NotificationBell({
+  bell,
+  dateLabel,
+}: {
+  bell: { unread: number; items: BellItem[] };
+  dateLabel: string;
+}) {
+  const badge = badgeCount(bell.unread);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="flex items-center gap-2 rounded-full bg-secondary px-3.5 py-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        aria-label={
+          bell.unread > 0
+            ? `Notifications, ${formatCount(bell.unread)} unread`
+            : "Notifications, none unread"
+        }
+      >
+        <BellIcon className="size-3.5" />
+        <span className="hidden sm:inline">{dateLabel}</span>
+        {badge && <span className="text-brand-coral">({badge})</span>}
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="end" className="w-80">
+        <DropdownMenuLabel className="flex items-center justify-between gap-2 font-normal text-muted-foreground">
+          <span>Notifications</span>
+          {bell.unread > 0 && (
+            <span className="text-brand-coral">
+              {formatCount(bell.unread)} unread
+            </span>
+          )}
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+
+        {bell.items.length === 0 ? (
+          <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+            Nothing yet.
+          </p>
+        ) : (
+          bell.items.map((item) => {
+            const row = (
+              <>
+                <span
+                  aria-hidden
+                  className={cn(
+                    "mt-1.5 size-1.5 shrink-0 rounded-full",
+                    item.unread ? "bg-brand-coral" : "bg-transparent",
+                  )}
+                />
+                <span className="min-w-0">
+                  <span
+                    className={cn(
+                      "block truncate text-sm",
+                      item.unread ? "font-medium" : "text-muted-foreground",
+                    )}
+                  >
+                    {item.title}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {item.body}
+                  </span>
+                </span>
+              </>
+            );
+
+            return (
+              <DropdownMenuItem
+                key={item.id}
+                asChild={Boolean(item.to)}
+                className="items-start gap-2"
+              >
+                {item.to ? <Link to={item.to}>{row}</Link> : <div>{row}</div>}
+              </DropdownMenuItem>
+            );
+          })
+        )}
+
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link to="/notifications" className="justify-center text-sm font-medium">
+            See all
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 /**
  * Fire the flash exactly once. Keyed on the message rather than on mount:
@@ -145,7 +294,7 @@ function readSidebarPreference(request: Request): boolean {
 }
 
 export default function AppLayout({ loaderData }: Route.ComponentProps) {
-  const { user, sidebarOpen, toast, dateLabel } = loaderData;
+  const { user, sidebarOpen, toast, dateLabel, bell } = loaderData;
   const { pathname } = useLocation();
   const mainRef = useRef<HTMLDivElement>(null);
   const title = useHeaderTitle(pathname);
@@ -196,26 +345,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
                 />
               </Form>
 
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  className="flex items-center gap-2 rounded-full bg-secondary px-3.5 py-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                  aria-label={`Notifications, ${NOTIFICATIONS.length} unread`}
-                >
-                  <BellIcon className="size-3.5" />
-                  <span className="hidden sm:inline">{dateLabel}</span>
-                  <span className="text-brand-coral">({NOTIFICATIONS.length})</span>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-72">
-                  {NOTIFICATIONS.map((item) => (
-                    <DropdownMenuItem key={item.title} asChild>
-                      <Link to={item.to}>
-                        <span className="size-1.5 shrink-0 rounded-full bg-brand-coral" />
-                        {item.title}
-                      </Link>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+<NotificationBell bell={bell} dateLabel={dateLabel} />
 
               <ThemeToggle className="size-9 rounded-full bg-secondary text-foreground hover:bg-secondary/70" />
               <ProfileMenu user={user} compact />

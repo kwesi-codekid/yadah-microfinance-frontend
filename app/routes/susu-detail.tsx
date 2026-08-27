@@ -745,9 +745,18 @@ function AccountActions({
                 </>
               ) : confirm === "terminate" ? (
                 <>
-                  Everything paid in — GH₵ {formatAmount(account.totalDeposited)} —
-                  is refunded and no commission is taken. Use this only when the
-                  deposits cannot cover one day.
+                  What the account still holds — GH₵{" "}
+                  {formatAmount(account.balance)} — is refunded and no commission
+                  is taken.
+                  {account.withdrawnAmount > 0 && (
+                    <>
+                      {" "}
+                      GH₵ {formatAmount(account.withdrawnAmount)} of the GH₵{" "}
+                      {formatAmount(account.totalDeposited)} paid in has already
+                      been withdrawn.
+                    </>
+                  )}{" "}
+                  Use this only when the deposits cannot cover one day.
                 </>
               ) : (
                 <>

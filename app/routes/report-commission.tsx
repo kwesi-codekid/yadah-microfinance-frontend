@@ -54,14 +54,23 @@ export async function loader({ request }: Route.LoaderArgs) {
     count: report.savingsFees?.count ?? 0,
     amount: report.savingsFees?.amount ?? 0,
   };
+  // The third stream, added API-side in August 2026: margin on outright counter
+  // sales. Trading profit rather than a fee, but earned in the period, so the
+  // API counts it toward `totalRevenue` — and a breakdown that left it out
+  // would no longer add up to the total beside it.
+  const sales = {
+    count: report.outrightSalesProfit?.count ?? 0,
+    amount: report.outrightSalesProfit?.amount ?? 0,
+  };
 
   return data(
     {
       susu,
       savings,
+      sales,
       // Trust the API's own total when it gives one — it knows about any source
       // of revenue this screen has not been taught to name.
-      total: report.totalRevenue ?? susu.amount + savings.amount,
+      total: report.totalRevenue ?? susu.amount + savings.amount + sales.amount,
       range: { from: report.from ?? from, to: report.to ?? to },
       filters: { from, to },
     },
@@ -70,7 +79,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function ReportCommission({ loaderData }: Route.ComponentProps) {
-  const { susu, savings, total, range, filters } = loaderData;
+  const { susu, savings, sales, total, range, filters } = loaderData;
   const submit = useSubmit();
   const navigation = useNavigation();
   const busy = navigation.state === "loading";
@@ -86,7 +95,7 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
   if (filters.from) query.set("from", filters.from);
   if (filters.to) query.set("to", filters.to);
 
-  const events = susu.count + savings.count;
+  const events = susu.count + savings.count + sales.count;
   // What the branch keeps out of each event it earned on — the figure that says
   // whether a quiet month was quiet in volume or only in value.
   const average = events > 0 ? Math.round(total / events) : 0;
@@ -131,7 +140,7 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
             busy ? "p-4 opacity-60 transition-opacity sm:p-5" : "p-4 sm:p-5"
           }
         >
-          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Figure
               label="Revenue"
               value={formatPesewas(total)}
@@ -149,6 +158,11 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
               hint={`${formatCount(savings.count)} withdrawal${savings.count === 1 ? "" : "s"} and closure${savings.count === 1 ? "" : "s"}`}
             />
             <Figure
+              label="Sale margin"
+              value={formatPesewas(sales.amount)}
+              hint={`${formatCount(sales.count)} counter sale${sales.count === 1 ? "" : "s"}`}
+            />
+            <Figure
               label="Average"
               value={formatPesewas(average)}
               hint="per earning"
@@ -158,9 +172,11 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
 
           <p className="mt-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             Susu commission is one day&rsquo;s deposit, taken when a cycle stops.
-            Savings fees are the flat charge on a withdrawal or a closure.
-            Nothing else on the dashboard is revenue — deposits, disbursements
-            and transfers are money moving, not money kept.
+            Savings fees are the flat charge on a withdrawal or a closure. Sale
+            margin is what an outright counter sale made over cost, with voided
+            sales left out — trading profit rather than a fee, but money the
+            branch kept. Nothing else is revenue: deposits, disbursements and
+            transfers are money moving, not money kept.
           </p>
         </div>
       </ListingCard>

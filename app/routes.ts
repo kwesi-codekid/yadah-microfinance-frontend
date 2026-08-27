@@ -25,7 +25,11 @@ export default [
     // Resource routes: they proxy a binary body from the API, which the
     // browser cannot fetch itself because it holds no access token.
     route("customers/export", "routes/customers-export.tsx"),
-    route("customers/:id", "routes/customer-detail.tsx"),
+    route("customers/:id", "routes/customer-detail.tsx", [
+      // Admin-only, and the only way `assignedCollectorId` ever changes — a
+      // profile update ignores the field.
+      route("collector", "routes/customer-collector.tsx"),
+    ]),
     route("customers/:id/edit", "routes/customer-edit.tsx"),
     route("customers/:id/statement", "routes/customer-statement.tsx"),
     route("customers/:id/statement/export", "routes/customer-statement-export.tsx"),
@@ -46,6 +50,16 @@ export default [
       route("collect", "routes/susu-collect.tsx"),
     ]),
     route("susu/:id/deposits/export", "routes/susu-deposits-export.tsx"),
+    // Resource routes: they proxy a PDF from the API, which the browser cannot
+    // fetch itself because it holds no access token.
+    route(
+      "susu/:id/deposits/:depositId/receipt",
+      "routes/susu-deposit-receipt.tsx",
+    ),
+    route(
+      "susu/:id/withdrawals/:payoutId/receipt",
+      "routes/susu-withdrawal-receipt.tsx",
+    ),
     route("susu/:id", "routes/susu-detail.tsx", [
       route("deposit", "routes/susu-deposit.tsx"),
       route("withdraw", "routes/susu-withdraw.tsx"),
@@ -63,6 +77,7 @@ export default [
       "savings/:id/transactions/export",
       "routes/savings-transactions-export.tsx",
     ),
+    route("savings/:id/txns/:txnId/receipt", "routes/savings-txn-receipt.tsx"),
     route("savings/:id", "routes/savings-detail.tsx", [
       route("deposit", "routes/savings-deposit.tsx"),
       route("withdraw", "routes/savings-withdraw.tsx"),
@@ -126,6 +141,33 @@ export default [
       route("charge", "routes/hp-charge.tsx"),
     ]),
 
+    /* Cash handover. The one module both halves of the business touch: a
+       collector declares, the office counts, and the gap is recorded rather
+       than argued about. Declaring is an errand over the book and renders as a
+       drawer; a day itself is a page, because the three figures and the count
+       form do not fit one. The exports are siblings — nesting would run the
+       book's queries to answer a download. */
+    route("reconciliation/export", "routes/reconciliation-export.tsx"),
+    route(
+      "reconciliation/variances/export",
+      "routes/reconciliation-variances-export.tsx",
+    ),
+    route("reconciliation/variances", "routes/reconciliation-variances.tsx"),
+    route("reconciliation", "routes/reconciliation.tsx", [
+      route("declare", "routes/reconciliation-declare.tsx"),
+    ]),
+    route("reconciliation/:id", "routes/reconciliation-detail.tsx"),
+
+    /* Counter sales. Ringing one up is a page rather than a drawer — a basket,
+       a buyer and a total need room, and the till is where someone stands for a
+       minute rather than an errand over a listing. The export and the receipt
+       are resource routes, so they sit outside the listing that links to them. */
+    route("sales/export", "routes/sales-export.tsx"),
+    route("sales/new", "routes/sale-new.tsx"),
+    route("sales/:id/receipt", "routes/sale-receipt.tsx"),
+    route("sales/:id", "routes/sale-detail.tsx"),
+    route("sales", "routes/sales.tsx"),
+
     route("inventory/export", "routes/inventory-export.tsx"),
     route("inventory", "routes/inventory.tsx", [
       route("new", "routes/inventory-new.tsx"),
@@ -145,7 +187,11 @@ export default [
       route("new", "routes/staff-new.tsx"),
       route(":id", "routes/staff-detail.tsx"),
       route(":id/edit", "routes/staff-edit.tsx"),
+      route(":id/round", "routes/staff-round.tsx"),
     ]),
+    /* Every role, and strictly the reader's own: the API has no way to ask for
+       somebody else's, so there is no scoping to do here. */
+    route("notifications", "routes/notifications.tsx"),
     route("trash", "routes/trash.tsx"),
     route("change-password", "routes/change-password.tsx"),
   ]),

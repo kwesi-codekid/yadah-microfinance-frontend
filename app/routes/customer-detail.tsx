@@ -1,6 +1,7 @@
 import {
   BanIcon,
   CircleCheckIcon,
+  UserRoundCogIcon,
   ExternalLinkIcon,
   FileTextIcon,
   MoreHorizontalIcon,
@@ -9,7 +10,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { data, Link, useFetcher } from "react-router";
+import { data, Link, Outlet, useFetcher } from "react-router";
 import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
@@ -49,6 +50,8 @@ import {
 } from "~/lib/customers";
 import { formatAccraDate, relativeDayLabel } from "~/lib/format";
 import { requireOffice, requireUser, withAuth } from "~/lib/session.server";
+import { getUser } from "~/api/users";
+import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/customer-detail";
@@ -75,11 +78,45 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const registeredBy =
     result.customer.registeredById === user.id ? user.name : null;
 
+  // The collector, by name. The customer record names a round with an id, and
+  // an id on screen tells nobody whose round it is — so the one lookup that
+  // turns it into a name is worth the request.
+  const collectorId = result.customer.assignedCollectorId;
+  const { data: collectorName, headers: staffHeaders } = collectorId
+    ? await withAuth(request, async (token) => {
+        try {
+          const { user: collector } = await getUser(token, collectorId);
+          return collector.name;
+        } catch {
+          // A collector who has since been removed is not a reason to fail the
+          // whole page; the field falls back to the raw id.
+          return null;
+        }
+      })
+    : { data: null, headers: undefined };
+
+  const out = new Headers();
+  if (headers?.["Set-Cookie"]) out.append("Set-Cookie", headers["Set-Cookie"]);
+  if (staffHeaders?.["Set-Cookie"]) {
+    out.append("Set-Cookie", staffHeaders["Set-Cookie"]);
+  }
+
   return data(
-    { customer: result.customer, canEdit: isOffice(user), registeredBy },
-    { headers },
+    {
+      customer: result.customer,
+      canEdit: isOffice(user),
+      // Moving a round is admin-only: a manager may edit a customer but must
+      // not silently change who collects from them.
+      canReassign: user.role === "admin",
+      registeredBy,
+      collectorName,
+    },
+    { headers: out },
   );
 }
+
+/** Opening the reassign drawer does not re-read the record underneath it. */
+export const shouldRevalidate = drawerParentShouldRevalidate;
 
 interface ActionResult {
   ok: boolean;
@@ -161,7 +198,8 @@ const HOLDING_LABELS: Record<string, string> = {
  * here is that each input is replaced by the value it would hold.
  */
 export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
-  const { customer, canEdit, registeredBy } = loaderData;
+  const { customer, canEdit, canReassign, registeredBy, collectorName } =
+    loaderData;
   const registered = `${relativeDayLabel(customer.createdAt)} · ${formatAccraDate(customer.createdAt)}`;
   const kin = customer.nextOfKin;
   const id = customer.identification;
@@ -186,7 +224,9 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
             {registered}
           </p>
         </div>
-        {canEdit && <HeaderActions customer={customer} />}
+        {canEdit && (
+          <HeaderActions customer={customer} canReassign={canReassign} />
+        )}
       </div>
 
       {customer.status === "inactive" && (
@@ -277,16 +317,34 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
                 value={registeredBy ?? undefined}
                 fallback={`Staff #${shortId(customer.registeredById)}`}
               />
+              <Fld
+                label="Collector"
+                value={collectorName ?? undefined}
+                fallback={
+                  customer.assignedCollectorId
+                    ? `Staff #${shortId(customer.assignedCollectorId)}`
+                    : "Nobody"
+                }
+              />
             </div>
           </Section>
         </div>
       </div>
+
+      {/* The reassign drawer opens over the record. */}
+      <Outlet />
     </Page>
   );
 }
 
 /** Statement · Print · Edit, plus the state changes behind an ellipsis. */
-function HeaderActions({ customer }: { customer: Customer }) {
+function HeaderActions({
+  customer,
+  canReassign,
+}: {
+  customer: Customer;
+  canReassign: boolean;
+}) {
   const fetcher = useFetcher<ActionResult>();
   const [confirm, setConfirm] = useState<"deactivate" | "trash" | null>(null);
   const [reason, setReason] = useState("");
@@ -363,6 +421,15 @@ function HeaderActions({ customer }: { customer: Customer }) {
               Activate
             </DropdownMenuItem>
           )}
+          {/* Drawn for everyone who can reach this menu and disabled for a
+              manager, rather than hidden — the same way every other row menu in
+              this app says "not yours to do". */}
+          <DropdownMenuItem asChild disabled={!canReassign}>
+            <Link to={`/customers/${customer.id}/collector`} prefetch="intent">
+              <UserRoundCogIcon />
+              Reassign collector
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"

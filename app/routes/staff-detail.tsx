@@ -3,6 +3,7 @@ import {
   CircleCheckIcon,
   KeyRoundIcon,
   PencilIcon,
+  UsersIcon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { data, Link, useFetcher, useLocation } from "react-router";
@@ -269,6 +270,16 @@ function StaffActions({
           <KeyRoundIcon />
           Reset password
         </Button>
+        {/* Only a collector has a round, so only a collector is offered the
+            handover. Admin-only, like every other write on this drawer. */}
+        {staff.role === "collector" && (
+          <Button asChild variant="outline" size="sm">
+            <Link to={`/staff/${staff.id}/round${search}`} prefetch="intent">
+              <UsersIcon />
+              Hand over round
+            </Link>
+          </Button>
+        )}
         <Button asChild size="sm">
           <Link to={`/staff/${staff.id}/edit${search}`} prefetch="intent">
             <PencilIcon />
