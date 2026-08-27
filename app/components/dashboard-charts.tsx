@@ -40,8 +40,50 @@ import {
   formatCount,
   formatPesewas,
 } from "~/lib/format";
-import type { AgingBucket, DayPoint, RevenueMonth } from "~/lib/demo-dashboard";
 import { cn } from "~/lib/utils";
+
+/* ------------------------------------------------------------ chart input --- */
+
+/*
+ * What these charts take. They used to be declared alongside the dummy
+ * dashboard generator; that file is gone, so they live with the components
+ * that read them. Money is integer pesewas, as everywhere else.
+ */
+
+export interface DayPoint {
+  /** `YYYY-MM-DD`, Accra. */
+  day: string;
+  /** Short label for an axis tick — `Mon 18`. */
+  label: string;
+  cashIn: number;
+  cashOut: number;
+  /** Cash in less cash out. Transfer legs are not in either figure. */
+  net: number;
+  movements: number;
+}
+
+export interface RevenueMonth {
+  /** `YYYY-MM`. */
+  month: string;
+  /** Short label for an axis tick — `Aug`. */
+  label: string;
+  susuCommission: number;
+  savingsFees: number;
+  /** Margin on outright counter sales. Trading profit, but revenue all the same. */
+  outrightSalesProfit: number;
+  total: number;
+  /** True for the month still running: its bar is an incomplete figure. */
+  partial: boolean;
+}
+
+export type AgingKey = "1-30" | "31-60" | "61-90" | "90+";
+
+export interface AgingBucket {
+  key: AgingKey;
+  label: string;
+  count: number;
+  amount: number;
+}
 
 /* ---------------------------------------------------------------- legend --- */
 
