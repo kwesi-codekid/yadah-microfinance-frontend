@@ -12,11 +12,12 @@ import { data, useSubmit } from "react-router";
 
 import { throwAsRouteError } from "~/api/client";
 import { getCustomerStatement } from "~/api/customers";
+import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
 import { ModuleDot, PeriodFilter } from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
 import { TransactionAdvice } from "~/components/transaction-advice";
 import { Button } from "~/components/ui/button";
-import { DataTable, type Column, type TableTab } from "~/components/ui/data-table";
+import { DataTable, type Column } from "~/components/ui/data-table";
 import {
   Dialog,
   DialogContent,
@@ -122,7 +123,7 @@ function haystack(tx: UnifiedTransaction): string {
  * Susu, savings, loans, hire purchase and transfers share a row shape, so they
  * share a table — reading a statement means following the money in date order,
  * and splitting it per product hides the day a payout became a repayment. The
- * module tabs narrow it when that is what you want. Both the tabs and the
+ * module rail narrows it when that is what you want. Both the rail and the
  * search are local: the rows are already loaded, so neither should cost a
  * round trip.
  */
@@ -155,12 +156,17 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
     return acc;
   }, {});
 
-  const tabs: TableTab[] = [
-    { value: "all", label: "All entries", count: transactions.length },
+  const items: RailItem[] = [
+    {
+      key: "all",
+      label: "All entries",
+      count: transactions.length,
+      onSelect: () => setModule("all"),
+    },
     ...(Object.keys(MODULE_LABELS) as TxModule[])
       .filter((m) => counts[m])
       .map((m) => ({
-        value: m,
+        key: m,
         label: (
           <span className="inline-flex items-center gap-1.5">
             <ModuleDot module={m} />
@@ -168,6 +174,7 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
           </span>
         ),
         count: counts[m],
+        onSelect: () => setModule(m),
       })),
   ];
 
@@ -248,6 +255,16 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
   }
 
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter entries by module"
+          sections={[{ label: "Module", items }]}
+          active={module}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
       {/* Back on the left, who this statement is for on the right. The period
           is not repeated here — the filter in the toolbar already states it. */}
@@ -275,10 +292,10 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
             <ExportMenu id={id} period={period} rows={transactions.length} />
           </>
         }
-        tabs={tabs}
+        // No strip is drawn for this — the rail beside the page owns the choice.
+        // It is still passed because the table is paged locally and resets to
+        // page one when it changes.
         activeTab={module}
-        onTabChange={setModule}
-        tabsLabel="Filter entries by module"
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search entry, account or staff"
@@ -387,6 +404,7 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
         </DialogContent>
       </Dialog>
     </Page>
+    </RailFrame>
   );
 }
 

@@ -1,4 +1,5 @@
 import {
+  ActivityIcon,
   ArrowDownToLineIcon,
   ArrowUpFromLineIcon,
   BanknoteIcon,
@@ -11,20 +12,27 @@ import {
   HandCoinsIcon,
   IdCardIcon,
   LandmarkIcon,
+  LayoutDashboardIcon,
   PackageIcon,
   PercentIcon,
+  PiggyBankIcon,
   ReceiptIcon,
   ScaleIcon,
   ShoppingBagIcon,
+  ShoppingCartIcon,
+  TrendingUpIcon,
   UploadIcon,
   UserMinusIcon,
   UserPlusIcon,
+  UserRoundIcon,
   UsersIcon,
   WalletIcon,
   type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { data, Link, useNavigation, useSearchParams } from "react-router";
+
+import { FilterRail, RailFrame } from "~/components/filter-rail";
 
 import {
   AreaLine,
@@ -68,6 +76,7 @@ import {
   type ReportsData,
 } from "~/lib/reports-dummy";
 import { requireOffice } from "~/lib/session.server";
+import { useCurrentUser } from "~/lib/use-current-user";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/reports";
 
@@ -107,16 +116,16 @@ export async function loader({ request }: Route.LoaderArgs) {
 /* -------------------------------------------------------------------- tabs --- */
 
 const TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "susu", label: "Susu" },
-  { id: "savings", label: "Savings" },
-  { id: "loans", label: "Loans" },
-  { id: "hire-purchase", label: "Hire purchase" },
-  { id: "sales", label: "Counter sales" },
-  { id: "staff", label: "Collections by staff" },
-  { id: "handover", label: "Cash handover" },
-  { id: "customers", label: "Customers" },
-  { id: "revenue", label: "Revenue" },
+  { id: "overview", label: "Overview", icon: LayoutDashboardIcon },
+  { id: "susu", label: "Susu", icon: HandCoinsIcon },
+  { id: "savings", label: "Savings", icon: PiggyBankIcon },
+  { id: "loans", label: "Loans", icon: LandmarkIcon },
+  { id: "hire-purchase", label: "Hire purchase", icon: PackageIcon },
+  { id: "sales", label: "Counter sales", icon: ShoppingCartIcon },
+  { id: "staff", label: "Collections by staff", icon: UsersIcon },
+  { id: "handover", label: "Cash handover", icon: WalletIcon },
+  { id: "customers", label: "Customers", icon: UserRoundIcon },
+  { id: "revenue", label: "Revenue", icon: TrendingUpIcon },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -181,33 +190,50 @@ export default function Reports({ loaderData }: Route.ComponentProps) {
 
   const periodLabel = REPORT_PERIODS[r.period].label;
 
+  // The tab is a choice, not a place: the rail's buttons swap the panel here
+  // without a round trip, and the URL is kept in step by `pickTab`.
+  const railItems = TABS.map((t) => ({
+    key: t.id,
+    label: t.label,
+    icon: t.icon,
+    onSelect: () => pickTab(t.id),
+  }));
+  // A place rather than a choice: the worker heartbeats are a page of their
+  // own, and admin-only, so the door only shows for an admin.
+  const user = useCurrentUser();
+  const sections = [
+    { label: "Reports", items: railItems },
+    ...(user?.role === "admin"
+      ? [
+          {
+            label: "System",
+            items: [
+              {
+                key: "workers",
+                label: "Background workers",
+                icon: ActivityIcon,
+                to: "/reports/workers",
+              },
+            ],
+          },
+        ]
+      : []),
+  ];
+
   return (
-    <div className="min-h-full min-w-0 bg-background px-5 pt-1 pb-5 text-foreground sm:px-8">
-      {/* ------------------------------------------------------ controls --- */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div
-          role="tablist"
-          aria-label="Reports"
-          className="-mx-1 flex max-w-full gap-1 overflow-x-auto px-1 py-0.5"
-        >
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.id}
-              onClick={() => pickTab(t.id)}
-              className={cn(
-                "shrink-0 rounded-full px-3.5 py-1.5 text-[11px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none",
-                tab === t.id
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-card hover:text-foreground",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Reports"
+          sections={sections}
+          active={tab}
+          horizontal={horizontal}
+        />
+      )}
+    >
+      <div className="min-h-full min-w-0 bg-background px-5 pt-1 pb-5 text-foreground sm:px-8">
+        {/* ---------------------------------------------------- controls --- */}
+        <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-1.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
@@ -259,7 +285,6 @@ export default function Reports({ loaderData }: Route.ComponentProps) {
 
       <div
         key={tab}
-        role="tabpanel"
         className={cn(
           "animate-in fade-in duration-200 motion-reduce:animate-none",
           "transition-opacity",
@@ -285,6 +310,7 @@ export default function Reports({ loaderData }: Route.ComponentProps) {
         amount is held as pesewas.
       </p>
     </div>
+    </RailFrame>
   );
 }
 

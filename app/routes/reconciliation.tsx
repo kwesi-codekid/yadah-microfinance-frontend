@@ -27,9 +27,9 @@ import {
   FilterChip,
   ListingFooter,
   StatusPill,
-  StatusTabs,
   Th,
 } from "~/components/listing";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import {
   BreakdownChart,
@@ -347,7 +347,24 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
   const collectorName = collectors.find((c) => c.value === filters.collectorId)?.label;
   const busy = navigation.state === "loading";
 
+  const railItems = TABS.map((t) => ({
+    key: t.key,
+    label: t.label,
+    count: counts[t.key],
+    to: hrefFor({ ...filters, status: t.key as Tab }),
+  }));
+
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter handover days by status"
+          sections={[{ label: "Status", items: railItems }]}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
       {/* The three figures the office asks for first, in the reference's order:
           what is done, what went wrong, what is still waiting. */}
@@ -451,14 +468,6 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
               </>
             }
           >
-            <div className="border-b border-border px-4 py-2">
-              <StatusTabs
-                tabs={TABS.map((t) => ({ ...t, count: counts[t.key] }))}
-                active={filters.status}
-                hrefFor={(key) => hrefFor({ ...filters, status: key as Tab })}
-              />
-            </div>
-
             {narrowed && (
               <FilterBar total={total} noun="day" plural="days">
                 {filters.collectorId && (
@@ -700,6 +709,7 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
       {/* The declare drawer opens over the book. */}
       <Outlet />
     </Page>
+    </RailFrame>
   );
 }
 

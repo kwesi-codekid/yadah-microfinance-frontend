@@ -13,6 +13,7 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { listSales, voidSale } from "~/api/sales";
+import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
 import {
   DayRangeFilter,
   ExportMenu,
@@ -30,11 +31,7 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
-import {
-  DataTable,
-  type Column,
-  type TableTab,
-} from "~/components/ui/data-table";
+import { DataTable, type Column } from "~/components/ui/data-table";
 import {
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -122,7 +119,7 @@ function paramsFor(f: Filters) {
 /**
  * `GET /hire-purchase/sales` — the day book. Office only.
  *
- * The tab counts are fetched the way every other listing here does it: one
+ * The rail counts are fetched the way every other listing here does it: one
  * one-row request per status, scoped by the same filters as the rows, so a
  * count never contradicts the list under it.
  */
@@ -260,7 +257,7 @@ function toRow(sale: Sale): Row {
  * The day book, drawn as the ledger and the customer's statement are drawn.
  *
  * A sale is a money event like any other, so it gets the same table: the same
- * toolbar strip, the same KPI cards over it, the same ⋯ menu on every row and
+ * status rail beside it, the same KPI cards over it, the same ⋯ menu on every row and
  * the same ten-row footer. What is particular to a sale is the basket — units
  * against lines — and the void, which is the one thing here that changes a
  * record and so is the one thing behind a confirmation.
@@ -299,10 +296,11 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
   const goToPage = (next: number) =>
     submit(queryFor(filters, next), { replace: true, preventScrollReset: true });
 
-  const tabs: TableTab[] = TABS.map((t) => ({
-    value: t.key,
+  const items: RailItem[] = TABS.map((t) => ({
+    key: t.key,
     label: t.label,
     count: counts[t.key],
+    onSelect: () => apply({ status: t.key }),
   }));
 
   const narrowed = Boolean(
@@ -399,6 +397,16 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
   ];
 
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter sales by status"
+          sections={[{ label: "Status", items }]}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
       <TotalsBand totals={totals} voided={counts.voided} />
 
@@ -435,10 +443,6 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
             </Button>
           </>
         }
-        tabs={tabs}
-        activeTab={filters.status}
-        onTabChange={(value) => apply({ status: value as Tab })}
-        tabsLabel="Filter sales by status"
         // This endpoint searches server-side, so the term goes through the URL
         // rather than sifting the ten rows in hand. `SearchBox` owns the
         // debounce and keeps working as a plain GET without JavaScript, which
@@ -557,6 +561,7 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
         </AlertDialogContent>
       </AlertDialog>
     </Page>
+    </RailFrame>
   );
 }
 

@@ -6,6 +6,7 @@ import {
   EyeIcon,
   LandmarkIcon,
   PlusIcon,
+  SettingsIcon,
   TrendingUpIcon,
   UserIcon,
 } from "lucide-react";
@@ -24,8 +25,8 @@ import {
   ListingFooter,
   ListingToolbar,
   SearchBox,
-  StatusTabs,
 } from "~/components/listing";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -139,15 +140,15 @@ const DUE_SOON_DAYS = 7;
  * The book itself is the table at the bottom; everything above it is the same
  * book read three more ways, from the API's own reporting surface:
  *
- *   Figures        the per-status counts (scoped like the tabs)
+ *   Figures        the per-status counts (scoped like the rail)
  *   Book by status the same counts, drawn
  *   Performance    GET /dashboard/summary — portfolio.loans and today's repayments
  *   Needs attention  derived from the counts, the aging buckets and what falls due
  *   Due soon       GET /reports/loans/outstanding, soonest due first
  *
  * There is no automatic decision anywhere in this module: every pending row is
- * waiting on a person. That is why `Pending` is the second tab and carries a
- * count — it is a queue, not a status. The reports are read best-effort: one of
+ * waiting on a person. That is why `Pending` is second on the rail and carries
+ * a count — it is a queue, not a status. The reports are read best-effort: one of
  * them failing must not take the book down with it.
  */
 export async function loader({ request }: Route.LoaderArgs) {
@@ -158,7 +159,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
-    // The tab counts have to survive the search and the date range, otherwise
+    // The rail counts have to survive the search and the date range, otherwise
     // "Pending 3" contradicts a filtered list showing one row.
     const scope = {
       search: filters.search || undefined,
@@ -405,7 +406,25 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
 
   const narrowed = Boolean(filters.search || filters.from || filters.to);
 
+  // The status views down the rail, each with its count under the same scope.
+  const railItems = TABS.map((t) => ({
+    key: t.key,
+    label: t.label,
+    count: counts[t.key],
+    to: hrefFor({ ...filters, status: t.key as Tab }),
+  }));
+
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter loans by status"
+          sections={[{ label: "Status", items: railItems }]}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none px-5 pt-1 pb-5 sm:px-8">
       <div className="space-y-4">
         {/* The two reading columns. The book below is not one of them — it
@@ -478,6 +497,14 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
                 total={total}
                 noun="loan"
               />
+              {/* The rates and limits new lending runs on. A drawer, so the
+                  book stays underneath while they are changed. */}
+              <Button asChild variant="outline" size="sm">
+                <Link to={`/loans/config${search}`} prefetch="intent" preventScrollReset>
+                  <SettingsIcon />
+                  Settings
+                </Link>
+              </Button>
               <Button asChild size="sm">
                 <Link to={`/loans/new${search}`} prefetch="intent" preventScrollReset>
                   <PlusIcon />
@@ -487,15 +514,7 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
             </div>
           </div>
 
-          <ListingToolbar
-            tabs={
-              <StatusTabs
-                tabs={TABS.map((t) => ({ ...t, count: counts[t.key] }))}
-                active={filters.status}
-                hrefFor={(key) => hrefFor({ ...filters, status: key as Tab })}
-              />
-            }
-          >
+          <ListingToolbar>
             <SearchBox
               value={filters.search}
               apply={(next) => apply({ search: next })}
@@ -584,6 +603,7 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
       {/* The application drawer renders here, over the book. */}
       <Outlet />
     </Page>
+    </RailFrame>
   );
 }
 

@@ -122,6 +122,9 @@ export default [
     route("reports/loans", "routes/report-loans.tsx"),
     route("reports/commission/export", "routes/report-commission-export.tsx"),
     route("reports/commission", "routes/report-commission.tsx"),
+    // Not a report on the business but on the machine running it: whether the
+    // background workers are alive. Admin only.
+    route("reports/workers", "routes/report-workers.tsx"),
 
     /* Accounting — the company's own books, as opposed to its customers'.
        The cash position is the front page, with the accounts it is read off
@@ -167,7 +170,11 @@ export default [
     // a customer's history as soon as they are picked, without a token of its
     // own and without navigating away from the half-filled form.
     route("loans/eligibility/:customerId", "routes/loan-eligibility.tsx"),
-    route("loans", "routes/loans.tsx", [route("new", "routes/loan-new.tsx")]),
+    route("loans", "routes/loans.tsx", [
+      route("new", "routes/loan-new.tsx"),
+      // The parameters new lending runs on. A drawer over the book, office only.
+      route("config", "routes/loan-config.tsx"),
+    ]),
     // Resource routes: they proxy a PDF from the API, which the browser cannot
     // fetch itself because it holds no access token.
     route("loans/:id/disbursement/receipt", "routes/loan-disbursement-receipt.tsx"),
@@ -189,6 +196,8 @@ export default [
     route("hire-purchase/eligibility/:customerId", "routes/hp-eligibility.tsx"),
     route("hire-purchase", "routes/hire-purchase.tsx", [
       route("new", "routes/hp-new.tsx"),
+      // The interest rate new agreements snapshot. A drawer over the book, admin only.
+      route("config", "routes/hp-config.tsx"),
     ]),
     route(
       "hire-purchase/:id/payments/:paymentId/receipt",
@@ -259,7 +268,17 @@ export default [
     /* Every role, and strictly the reader's own: the API has no way to ask for
        somebody else's, so there is no scoping to do here. */
     route("notifications", "routes/notifications.tsx"),
-    route("trash", "routes/trash.tsx"),
+    /* The trash, one book per list that trashes into it, behind the same rail
+       the accounting module draws its books in. Each book is its own route
+       with its own query; the layout only supplies the rail. */
+    layout("routes/trash-layout.tsx", [
+      route("trash", "routes/trash.tsx"),
+      route("trash/susu", "routes/trash-susu.tsx"),
+      route("trash/savings", "routes/trash-savings.tsx"),
+      route("trash/loans", "routes/trash-loans.tsx"),
+      route("trash/inventory", "routes/trash-inventory.tsx"),
+      route("trash/agreements", "routes/trash-agreements.tsx"),
+    ]),
     route("change-password", "routes/change-password.tsx"),
   ]),
 

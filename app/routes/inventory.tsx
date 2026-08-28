@@ -33,9 +33,9 @@ import {
   ListingToolbar,
   SearchBox,
   StatusPill,
-  StatusTabs,
   Th,
 } from "~/components/listing";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -280,18 +280,27 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
 
   const narrowed = Boolean(filters.search || filters.inStockOnly);
 
+  const railItems = TABS.map((t) => ({
+    key: t.key,
+    label: t.label,
+    count: counts[t.key],
+    to: hrefFor({ ...filters, status: t.key as Tab }),
+  }));
+
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter items by status"
+          sections={[{ label: "Status", items: railItems }]}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
       <ListingCard>
-        <ListingToolbar
-          tabs={
-            <StatusTabs
-              tabs={TABS.map((t) => ({ ...t, count: counts[t.key] }))}
-              active={filters.status}
-              hrefFor={(key) => hrefFor({ ...filters, status: key as Tab })}
-            />
-          }
-        >
+        <ListingToolbar>
           <SearchBox
             value={filters.search}
             apply={(next) => apply({ search: next })}
@@ -408,6 +417,7 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
       {/* Add, edit and adjust-stock render here, over the shelf. */}
       <Outlet />
     </Page>
+    </RailFrame>
   );
 }
 

@@ -14,6 +14,7 @@ import { data, Link, useNavigation, useSubmit } from "react-router";
 
 import { getCustomer } from "~/api/customers";
 import { listTransactions } from "~/api/reports";
+import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
 import {
   ExportMenu,
   FilterChip,
@@ -22,11 +23,7 @@ import {
 } from "~/components/listing";
 import { Page } from "~/components/page";
 import { Button } from "~/components/ui/button";
-import {
-  DataTable,
-  type Column,
-  type TableTab,
-} from "~/components/ui/data-table";
+import { DataTable, type Column } from "~/components/ui/data-table";
 import { DropdownMenuItem } from "~/components/ui/dropdown-menu";
 import { channelLabel } from "~/lib/customers";
 import {
@@ -244,7 +241,7 @@ function haystack(row: Row): string {
  *
  * The two screens answer the same question at two scales — what moved, in what
  * order, through which product — so they share one table rather than each
- * inventing its own. Module tabs narrow it, the search box picks through what
+ * inventing its own. The module rail narrows it, the search box picks through what
  * is on screen, and every row carries the same ⋯ menu.
  *
  * Paging is the API's here, not the table's: the ledger is unbounded, so a page
@@ -272,12 +269,17 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
   const goToPage = (next: number) =>
     submit(queryFor(filters, next), { replace: true, preventScrollReset: true });
 
-  // Only the open tab's total is ever known — the API counts what it was asked
-  // for. A closed tab carries no count rather than a misleading zero.
-  const tabs: TableTab[] = [
-    { value: "all", label: "All modules", count: filters.module ? 0 : total },
+  // Only the open view's total is ever known — the API counts what it was asked
+  // for. A closed view carries no count rather than a misleading zero.
+  const items: RailItem[] = [
+    {
+      key: "all",
+      label: "All modules",
+      count: filters.module ? 0 : total,
+      onSelect: () => apply({ module: "" }),
+    },
     ...MODULES.map((m) => ({
-      value: m,
+      key: m,
       label: (
         <span className="inline-flex items-center gap-1.5">
           <ModuleDot module={m} />
@@ -285,6 +287,7 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
         </span>
       ),
       count: filters.module === m ? total : 0,
+      onSelect: () => apply({ module: m }),
     })),
   ];
 
@@ -376,6 +379,16 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
   );
 
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter transactions by module"
+          sections={[{ label: "Module", items }]}
+          active={filters.module || "all"}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
       <TotalsBand totals={totals} range={range} />
 
@@ -429,12 +442,6 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
             />
           </>
         }
-        tabs={tabs}
-        activeTab={filters.module || "all"}
-        onTabChange={(value) =>
-          apply({ module: value === "all" ? "" : (value as TxnModule) })
-        }
-        tabsLabel="Filter transactions by module"
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search this page"
@@ -534,6 +541,7 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
         )}
       </dl>
     </Page>
+    </RailFrame>
   );
 }
 

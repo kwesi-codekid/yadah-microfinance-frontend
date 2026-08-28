@@ -18,6 +18,7 @@ import {
   rejectPayoutRequest,
   verifyPayoutTransfer,
 } from "~/api/payout-requests";
+import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
 import { StatusPill } from "~/components/listing";
 import { Page } from "~/components/page";
 import {
@@ -30,7 +31,7 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
-import { DataTable, type Column, type TableTab } from "~/components/ui/data-table";
+import { DataTable, type Column } from "~/components/ui/data-table";
 import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/dropdown-menu";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
@@ -109,7 +110,7 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
 /**
  * `GET /payout-requests` — the queue. Office only.
  *
- * The tab counts are fetched the way every other listing here does it: one
+ * The rail counts are fetched the way every other listing here does it: one
  * one-row request per status. This endpoint answers `{ items }` without a
  * total, so a count is the page-1 length capped at the page size — exact up to
  * a hundred, and "100+" is all anyone needs to know past that.
@@ -276,7 +277,12 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
   const goToPage = (next: number) =>
     submit(queryFor(filters, next), { replace: true, preventScrollReset: true });
 
-  const tabs: TableTab[] = TABS.map((t) => ({ value: t.key, label: t.label, count: counts[t.key] }));
+  const items: RailItem[] = TABS.map((t) => ({
+    key: t.key,
+    label: t.label,
+    count: counts[t.key],
+    onSelect: () => apply({ status: t.key }),
+  }));
 
   const columns: Column<Row>[] = [
     {
@@ -357,14 +363,20 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
   ];
 
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter requests by status"
+          sections={[{ label: "Status", items }]}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
       <TotalsBand counts={counts} stranded={stranded} />
 
       <DataTable
-        tabs={tabs}
-        activeTab={filters.status}
-        onTabChange={(value) => apply({ status: value as Tab })}
-        tabsLabel="Filter requests by status"
         columns={columns}
         rows={rows}
         rowKey={(row) => row.id}
@@ -505,6 +517,7 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
         </AlertDialogContent>
       </AlertDialog>
     </Page>
+    </RailFrame>
   );
 }
 

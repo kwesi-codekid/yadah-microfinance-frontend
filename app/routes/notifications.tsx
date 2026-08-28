@@ -10,9 +10,17 @@ import {
 import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
-import { listNotifications, markAllRead, markRead } from "~/api/notifications";
 import {
-  ChoiceFilter,
+  getPushConfig,
+  listNotifications,
+  markAllRead,
+  markRead,
+  subscribePush,
+  unsubscribePush,
+} from "~/api/notifications";
+import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
+import { PushToggle } from "~/components/push-toggle";
+import {
   FilterBar,
   FilterChip,
   ListingCard,
@@ -94,14 +102,21 @@ export async function loader({ request }: Route.LoaderArgs) {
   const filters = readFilters(url);
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
 
-  const { data: feed, headers } = await withAuth(request, (token) =>
-    listNotifications(token, {
-      page,
-      limit: PAGE_SIZE,
-      unreadOnly: filters.unreadOnly ? "true" : undefined,
-      type: filters.type || undefined,
-    }),
-  );
+  const { data: result, headers } = await withAuth(request, async (token) => {
+    const [feed, push] = await Promise.all([
+      listNotifications(token, {
+        page,
+        limit: PAGE_SIZE,
+        unreadOnly: filters.unreadOnly ? "true" : undefined,
+        type: filters.type || undefined,
+      }),
+      // Best-effort: a server without VAPID keys, or a failed read, simply
+      // means push is not offered. The feed must never fail because of it.
+      getPushConfig(token).catch(() => null),
+    ]);
+    return { feed, push };
+  });
+  const { feed, push } = result;
 
   return data(
     {
@@ -111,6 +126,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       // The full unread count, not the unread rows on this page.
       unread: feed.unread,
       rows: feed.items.map(toRow),
+      pushKey: push?.enabled && push.publicKey ? push.publicKey : null,
     },
     { headers },
   );
@@ -150,6 +166,37 @@ export async function action({ request }: Route.ActionArgs) {
       return data<ActionResult>({ ok: true, message: "Marked read." }, { headers });
     }
 
+    // Browser push. The subscription is made in the browser — see PushToggle —
+    // and only relayed here, because the access token never leaves the server.
+    if (intent === "push-subscribe") {
+      const endpoint = String(form.get("endpoint") ?? "");
+      const p256dh = String(form.get("p256dh") ?? "");
+      const auth = String(form.get("auth") ?? "");
+      if (!endpoint || !p256dh || !auth) {
+        return data<ActionResult>(
+          { ok: false, message: "The browser gave no subscription." },
+          { status: 400 },
+        );
+      }
+      const { headers } = await withAuth(request, (token) =>
+        subscribePush(token, {
+          endpoint,
+          keys: { p256dh, auth },
+          userAgent: request.headers.get("user-agent") ?? undefined,
+        }),
+      );
+      return data<ActionResult>({ ok: true, message: "Push turned on for this device." }, { headers });
+    }
+
+    if (intent === "push-unsubscribe") {
+      const endpoint = String(form.get("endpoint") ?? "");
+      if (!endpoint) {
+        return data<ActionResult>({ ok: false, message: "Nothing to turn off." }, { status: 400 });
+      }
+      const { headers } = await withAuth(request, (token) => unsubscribePush(token, endpoint));
+      return data<ActionResult>({ ok: true, message: "Push turned off for this device." }, { headers });
+    }
+
     return data<ActionResult>({ ok: false, message: "Nothing to do." }, { status: 400 });
   } catch (error) {
     if (error instanceof ApiError) {
@@ -187,7 +234,7 @@ function toRow(n: AppNotification): Row {
 }
 
 export default function Notifications({ loaderData }: Route.ComponentProps) {
-  const { filters, page, total, unread, rows } = loaderData;
+  const { filters, page, total, unread, rows, pushKey } = loaderData;
   const submit = useSubmit();
   const navigation = useNavigation();
   const fetcher = useFetcher<ActionResult>();
@@ -207,8 +254,56 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
   const narrowed = Boolean(filters.unreadOnly || filters.type);
   const busy = navigation.state !== "idle";
 
+  // Two rails, not one: "Show" and "Kind" are independent filters, so each
+  // needs its own lit item. `total` is only right for the view you are in.
+  const showItems: RailItem[] = [
+    {
+      key: "all",
+      label: "Everything",
+      count: filters.unreadOnly ? undefined : total,
+      onSelect: () => apply({ unreadOnly: false }),
+    },
+    {
+      key: "unread",
+      label: "Unread",
+      count: unread,
+      onSelect: () => apply({ unreadOnly: true }),
+    },
+  ];
+  const kindItems: RailItem[] = [
+    { key: "", label: "Every kind", onSelect: () => apply({ type: "" }) },
+    ...TYPE_OPTIONS.map((o) => ({
+      key: o.value,
+      label: o.label,
+      onSelect: () => apply({ type: o.value }),
+    })),
+  ];
+
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <div className={horizontal ? "flex flex-wrap gap-x-4 gap-y-2" : "space-y-3"}>
+          <FilterRail
+            label="Show"
+            sections={[{ label: "Show", items: showItems }]}
+            active={filters.unreadOnly ? "unread" : "all"}
+            horizontal={horizontal}
+          />
+          <FilterRail
+            label="Kind"
+            sections={[{ label: "Kind", items: kindItems }]}
+            active={filters.type}
+            horizontal={horizontal}
+          />
+        </div>
+      )}
+    >
     <Page className="max-w-none">
+      {pushKey && (
+        <div className="mb-4">
+          <PushToggle publicKey={pushKey} />
+        </div>
+      )}
       <ListingCard>
         <ListingToolbar
           tabs={
@@ -226,24 +321,6 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
             </p>
           }
         >
-          <Button
-            variant="outline"
-            size="sm"
-            aria-pressed={filters.unreadOnly}
-            onClick={() => apply({ unreadOnly: !filters.unreadOnly })}
-            className={cn(filters.unreadOnly && "border-primary/50 text-primary")}
-          >
-            <BellIcon />
-            Unread only
-          </Button>
-          <ChoiceFilter
-            value={filters.type}
-            options={TYPE_OPTIONS}
-            apply={(next) => apply({ type: next })}
-            title="Kind"
-            allLabel="Every kind"
-            width="w-56"
-          />
           <Button
             variant="outline"
             size="sm"
@@ -364,5 +441,6 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
         />
       </ListingCard>
     </Page>
+    </RailFrame>
   );
 }
