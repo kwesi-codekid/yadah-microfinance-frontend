@@ -5,6 +5,7 @@ import {
   DownloadIcon,
   FileTextIcon,
   Loader2Icon,
+  PrinterIcon,
   SearchIcon,
   SlidersHorizontalIcon,
   XIcon,
@@ -616,6 +617,86 @@ export function PeriodFilter({
   );
 }
 
+/**
+ * One day rather than a range, for the books that are read *as at* a date —
+ * the asset register, the balance sheet, the cash position. The question they
+ * answer is "what was everything worth on that day", not "what happened
+ * between two days", so a range would be the wrong shape. Empty means today.
+ */
+export function AsOfFilter({
+  value,
+  apply,
+  title,
+  align = "end",
+}: {
+  /** `YYYY-MM-DD`, or empty for today. */
+  value: string;
+  apply: (next: string) => void;
+  title: string;
+  align?: "start" | "end";
+}) {
+  const [open, setOpen] = useState(false);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const active = Boolean(value);
+
+  const commit = (next: string) => {
+    setOpen(false);
+    apply(next);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(active && "border-primary/50 text-primary")}
+        >
+          <CalendarIcon />
+          {active ? `As at ${formatDayRange(value, value)}` : "As at today"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align={align} className="w-72 space-y-3">
+        {/* Keyed on the applied day so reopening after a reset shows it. */}
+        <div ref={fieldRef} key={value} className="space-y-1.5">
+          <Label className="eyebrow text-muted-foreground">{title}</Label>
+          <DateField
+            name="asOf"
+            defaultValue={value || undefined}
+            placeholder="Today"
+            endMonth={new Date()}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!active}
+            onClick={() => commit("")}
+          >
+            Today
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              // The DateField keeps its value in a hidden input; read it on
+              // apply rather than mirroring every calendar click into state.
+              const input = fieldRef.current?.querySelector<HTMLInputElement>(
+                "input[name='asOf']",
+              );
+              commit(input?.value ?? "");
+            }}
+          >
+            Apply
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /** A one-of dropdown filter — a status, a type, a module. */
 export function ChoiceFilter<T extends string>({
   value,
@@ -746,11 +827,23 @@ export function ExportMenu({
   query,
   total,
   noun = "row",
+  pdf = false,
+  label,
 }: {
   path: string;
   query: string;
   total: number;
   noun?: string;
+  /**
+   * Offer the laid-out A4 statement as well. Only the balance sheet and the
+   * profit and loss print — every list is a spreadsheet and nothing more.
+   */
+  pdf?: boolean;
+  /**
+   * What the menu says it is exporting, when a row count would be wrong — a
+   * statement is one document, not a list of matches.
+   */
+  label?: string;
 }) {
   const suffix = query ? `&${query}` : "";
   const capped = Math.min(total, 10_000);
@@ -765,10 +858,18 @@ export function ExportMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="font-normal text-muted-foreground">
-          {formatCount(capped)} {noun}
-          {capped === 1 ? "" : "s"}, matching the filters above
+          {label ??
+            `${formatCount(capped)} ${noun}${capped === 1 ? "" : "s"}, matching the filters above`}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {pdf && (
+          <DropdownMenuItem asChild>
+            <a href={`${path}?format=pdf${suffix}`} target="_blank" rel="noreferrer">
+              <PrinterIcon />
+              Print (PDF)
+            </a>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem asChild>
           <a href={`${path}?format=csv${suffix}`}>
             <FileTextIcon />

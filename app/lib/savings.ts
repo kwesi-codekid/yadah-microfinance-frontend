@@ -135,7 +135,7 @@ export function isOpen(account: Pick<SavingsAccount, "status">): boolean {
 }
 
 /**
- * The API's floor is GHS 10 and it applies to every deposit, not just the
+ * The API's floor is GHS 5 and it applies to every deposit, not just the
  * first. Returns the fault, or null.
  */
 export function checkDepositAmount(pesewas: number | null): string | null {

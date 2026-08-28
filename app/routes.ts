@@ -102,6 +102,8 @@ export default [
        up in the ledger above as its per-module legs. What it needs instead is
        room to explain itself before it is sent, so it is a page of its own. */
     route("transfers", "routes/transfers.tsx"),
+    // Proof of the move: both legs named on one sheet.
+    route("transfers/:id/receipt", "routes/transfer-receipt.tsx"),
 
     /* A mobile-money charge, followed until it settles. There is no listing:
        the API addresses a charge only by its reference, so this is reached from
@@ -121,6 +123,41 @@ export default [
     route("reports/commission/export", "routes/report-commission-export.tsx"),
     route("reports/commission", "routes/report-commission.tsx"),
 
+    /* Accounting — the company's own books, as opposed to its customers'.
+       The cash position is the front page, with the accounts it is read off
+       and the door into each book. Expenses, the asset register and capital
+       are listings, and recording into one is an errand that opens as a drawer
+       over it. The two statements are pages of their own: a balance sheet does
+       not fit a card. The pages share a layout with the books down the left;
+       every export stays outside it, a sibling of what it exports — nesting
+       would run the page's own queries just to answer a download. */
+    route("accounting/expenses/export", "routes/accounting-expenses-export.tsx"),
+    route("accounting/assets/export", "routes/accounting-assets-export.tsx"),
+    route(
+      "accounting/balance-sheet/export",
+      "routes/accounting-balance-sheet-export.tsx",
+    ),
+    route(
+      "accounting/profit-loss/export",
+      "routes/accounting-profit-loss-export.tsx",
+    ),
+    layout("routes/accounting-layout.tsx", [
+      route("accounting", "routes/accounting.tsx", [
+        route("accounts/new", "routes/accounting-account-new.tsx"),
+      ]),
+      route("accounting/expenses", "routes/accounting-expenses.tsx", [
+        route("new", "routes/accounting-expense-new.tsx"),
+      ]),
+      route("accounting/assets", "routes/accounting-assets.tsx", [
+        route("new", "routes/accounting-asset-new.tsx"),
+      ]),
+      route("accounting/capital", "routes/accounting-capital.tsx", [
+        route("new", "routes/accounting-capital-new.tsx"),
+      ]),
+      route("accounting/balance-sheet", "routes/accounting-balance-sheet.tsx"),
+      route("accounting/profit-loss", "routes/accounting-profit-loss.tsx"),
+    ]),
+
     /* Loans. The book is a page; applying is an errand and renders as a drawer
        over the rows. A loan itself is a page — an eligibility summary, a
        schedule and a repayment history do not fit a drawer — with the
@@ -131,6 +168,13 @@ export default [
     // own and without navigating away from the half-filled form.
     route("loans/eligibility/:customerId", "routes/loan-eligibility.tsx"),
     route("loans", "routes/loans.tsx", [route("new", "routes/loan-new.tsx")]),
+    // Resource routes: they proxy a PDF from the API, which the browser cannot
+    // fetch itself because it holds no access token.
+    route("loans/:id/disbursement/receipt", "routes/loan-disbursement-receipt.tsx"),
+    route(
+      "loans/:id/repayments/:repaymentId/receipt",
+      "routes/loan-repayment-receipt.tsx",
+    ),
     route("loans/:id", "routes/loan-detail.tsx", [
       route("repay", "routes/loan-repay.tsx"),
       route("repay/susu", "routes/loan-repay-susu.tsx"),
@@ -146,6 +190,10 @@ export default [
     route("hire-purchase", "routes/hire-purchase.tsx", [
       route("new", "routes/hp-new.tsx"),
     ]),
+    route(
+      "hire-purchase/:id/payments/:paymentId/receipt",
+      "routes/hp-payment-receipt.tsx",
+    ),
     route("hire-purchase/:id", "routes/hp-detail.tsx", [
       route("pay", "routes/hp-pay.tsx"),
       route("charge", "routes/hp-charge.tsx"),

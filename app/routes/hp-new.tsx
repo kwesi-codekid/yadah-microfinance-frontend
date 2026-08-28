@@ -102,7 +102,13 @@ export async function action({ request }: Route.ActionArgs) {
     ));
   } catch (error) {
     if (error instanceof ApiError) {
-      return data({ error: error.message, code: error.code }, { status: error.status });
+      return data(
+        // `NOT_ELIGIBLE` carries the conditions that failed in `details.reasons`.
+        // Handing them back lets the form list them rather than leave someone
+        // guessing which of the four it was.
+        { error: error.message, code: error.code, details: error.details },
+        { status: error.status },
+      );
     }
     throw error;
   }
@@ -158,6 +164,8 @@ export default function HpNew({ loaderData }: Route.ComponentProps) {
     if (actionData?.error) toast.error(actionData.error);
   }, [actionData]);
 
+  const refusalReasons = actionData ? refusalReasonsOf(actionData) : [];
+
   return (
     <RouteSheet
       backTo="/hire-purchase"
@@ -172,7 +180,19 @@ export default function HpNew({ loaderData }: Route.ComponentProps) {
               className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
             >
               <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
-              <p className="font-medium">{actionData.error}</p>
+              <div className="space-y-1.5">
+                <p className="font-medium">{actionData.error}</p>
+                {refusalReasons.length > 0 && (
+                  <ul className="space-y-1">
+                    {refusalReasons.map((reason) => (
+                      <li key={reason} className="flex items-start gap-2">
+                        <MinusIcon className="mt-0.5 size-4 shrink-0" />
+                        <span>{reason}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           )}
 
@@ -308,6 +328,24 @@ export default function HpNew({ loaderData }: Route.ComponentProps) {
       </Form>
     </RouteSheet>
   );
+}
+
+/**
+ * The conditions a `NOT_ELIGIBLE` refusal names in `details.reasons`. Empty
+ * for any other code, and for a refusal that arrived without the list.
+ */
+function refusalReasonsOf(result: {
+  error: string;
+  code?: string;
+  details?: unknown;
+}): string[] {
+  if (result.code !== "NOT_ELIGIBLE") return [];
+  const details = result.details;
+  if (!details || typeof details !== "object" || !("reasons" in details)) return [];
+  const reasons = (details as { reasons: unknown }).reasons;
+  return Array.isArray(reasons)
+    ? reasons.filter((r): r is string => typeof r === "string")
+    : [];
 }
 
 /**

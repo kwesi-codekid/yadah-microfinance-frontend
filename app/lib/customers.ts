@@ -4,14 +4,23 @@
  * into the client. The fetch functions live in `~/api/customers`.
  */
 
+import type {
+  Direction,
+  TransactionTotals,
+  TxnModule,
+  TxnType,
+  UnifiedTransaction,
+} from "~/lib/reports";
+
 export type Gender = "male" | "female";
 export type MaritalStatus = "single" | "married" | "other";
 export type CustomerStatus = "active" | "inactive";
 export type IdType = "ghana-card" | "passport" | "drivers-license" | "voter-id";
 
+/** The block is optional on a customer; once present, the type and number are not. */
 export interface Identification {
-  idType?: IdType;
-  idNumber?: string;
+  idType: IdType;
+  idNumber: string;
   idExpiryDate?: string;
   idPlaceOfIssue?: string;
 }
@@ -94,9 +103,13 @@ export interface CreateCustomerInput {
   fullName: string;
   phone: string;
   photoUrl: string;
-  /** Optional: the ID scans can be added later from the edit form. */
-  idDocumentFrontUrl?: string;
-  idDocumentBackUrl?: string;
+  /**
+   * Required at registration: the API refuses the record without both sides
+   * of the ID. Only an edit may leave them alone, and then only because it is
+   * not resending them.
+   */
+  idDocumentFrontUrl: string;
+  idDocumentBackUrl: string;
   /**
    * Required. Every customer joins somebody's round at registration — the API
    * refuses the record without it, because an unassigned customer is one nobody
@@ -133,14 +146,21 @@ export interface CreateCustomerInput {
 /**
  * The body of PATCH /customers/{id} — every field optional, none required.
  *
+ * A field that is optional on the record takes `null` to clear it — the only
+ * way to blank a value once set, since omitting it means "leave alone". The
+ * five the record cannot be without (name, phone, photo, both ID scans) take
+ * a replacement or nothing.
+ *
  * `assignedCollectorId` is deliberately not among them. The API ignores it here
  * and moves a round only through `PATCH /customers/{id}/collector`, which is
  * admin-only and writes an audit entry; leaving it in the type would let a form
  * post a change that silently does nothing.
  */
-export type UpdateCustomerInput = Partial<
-  Omit<CreateCustomerInput, "assignedCollectorId">
->;
+export type UpdateCustomerInput = {
+  [K in keyof Omit<CreateCustomerInput, "assignedCollectorId">]?: undefined extends CreateCustomerInput[K]
+    ? CreateCustomerInput[K] | null
+    : CreateCustomerInput[K];
+};
 
 /**
  * A customer in the trash. Soft-deleted: gone from the listings and from
@@ -192,60 +212,16 @@ export function checkIdNumber(idType: IdType, idNumber: string): string | null {
 
 /* ------------------------------------------------------ statement of account --- */
 
-export type TxModule = "susu" | "savings" | "loans" | "hire-purchase" | "transfers";
-export type TxDirection = "in" | "out" | "internal";
-export type TxType =
-  | "susu-deposit"
-  | "susu-payout"
-  | "susu-withdrawal"
-  | "savings-deposit"
-  | "savings-withdrawal"
-  | "savings-closure"
-  | "loan-disbursement"
-  | "loan-repayment"
-  | "hp-deposit"
-  | "hp-installment"
-  | "hp-redemption"
-  | "hp-sale"
-  | "transfer";
-
-/** One row of the unified ledger, as the statement and the transactions list use it. */
-export interface UnifiedTransaction {
-  id: string;
-  module: TxModule;
-  type: TxType;
-  /** From the company's cash view. `internal` legs are excluded from totals. */
-  direction: TxDirection;
-  /** Integer pesewas. */
-  amount: number;
-  /** Integer pesewas — savings withdrawal / transfer fee. */
-  fee: number;
-  /** `completed` for every ledger row; `pending`/`failed` only for unapplied Paystack charges. */
-  status?: "completed" | "pending" | "failed";
-  channel?: string | null;
-  detail?: string | null;
-  customerId: string;
-  customerName: string;
-  ref: {
-    kind: "susu-account" | "savings-account" | "loan" | "hp-agreement" | "transfer";
-    id: string;
-    accountNumber?: string;
-  };
-  /** Savings rows only: the running balance after this row. */
-  balanceAfter?: number;
-  recordedById?: string | null;
-  /** `System` for automated debt-recovery moves. */
-  recordedByName?: string | null;
-  createdAt: string;
-}
-
-export interface TransactionTotals {
-  in: { count: number; amount: number };
-  out: { count: number; amount: number };
-  internal: { count: number; amount: number };
-  /** Savings withdrawal and closure fees taken in the range. */
-  feesCollected: number;
-}
+/**
+ * The statement's rows are the unified ledger's rows — the same shape
+ * `/reports/transactions` returns — so the one definition in `~/lib/reports`
+ * is re-exported here rather than copied and left to drift. The shorter names
+ * are what this module's callers have always used.
+ */
+export type { TransactionTotals, UnifiedTransaction };
+export type TxModule = TxnModule;
+export type TxType = TxnType;
+export type TxDirection = Direction;
 
 export interface SusuHolding {
   accountId: string;

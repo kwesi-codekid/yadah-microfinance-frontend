@@ -439,3 +439,25 @@ export function restoreAgreement(
     accessToken,
   });
 }
+
+/* --------------------------------------------------------------- receipts --- */
+
+/**
+ * GET /hire-purchase/agreements/{id}/payments/{paymentId}/receipt — the
+ * printable PDF for a deposit, an instalment or a redemption payment. One
+ * endpoint for all three: the same document under a different title. Balances
+ * are rebuilt as at that payment, so a reprint does not rewrite history.
+ *
+ * Raw response: the browser holds no access token, so a resource route proxies
+ * the body through with the session's.
+ */
+export function paymentReceiptPdf(
+  accessToken: string,
+  id: string,
+  paymentId: string,
+): Promise<Response> {
+  return apiFetchRaw(
+    `/hire-purchase/agreements/${id}/payments/${paymentId}/receipt`,
+    { accessToken },
+  );
+}

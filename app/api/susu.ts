@@ -27,7 +27,7 @@ export interface AccountListParams {
   limit?: number;
   customerId?: string;
   status?: SusuStatus;
-  /** Exactly six digits. */
+  /** The full `SU` number, or the bare six digits: `^(SU\d{8}|\d{6})$`. */
   accountNumber?: string;
   /** Fuzzy and typo-tolerant: customer name, phone, or account-number prefix. */
   search?: string;
@@ -182,7 +182,7 @@ export function correctDeposit(
   id: string,
   depositId: string,
   amount: number,
-): Promise<{ deposit: SusuDeposit; account: SusuAccount }> {
+): Promise<{ deposit: SusuDeposit; account: SusuAccount; replayed?: boolean }> {
   return apiFetch(`/susu/accounts/${id}/deposits/${depositId}`, {
     method: "PATCH",
     json: { amount },
@@ -287,13 +287,15 @@ export function terminateAccount(
  * is `balance − dailyAmount`, so the closing commission is still collectible.
  *
  * Idempotent on the key, and the customer gets an SMS saying the account is
- * still open — the part they would otherwise ring the branch about.
+ * still open — the part they would otherwise ring the branch about. A replay
+ * comes back as `200 {}` — an empty body, not the original figures — so the
+ * absence of `account` is what says nothing new was paid.
  */
 export function withdraw(
   accessToken: string,
   id: string,
   input: { amount: number; idempotencyKey: string },
-): Promise<{ account: SusuAccount; amount: number; replayed: boolean }> {
+): Promise<{ account?: SusuAccount; amount?: number; replayed?: boolean }> {
   return apiFetch(`/susu/accounts/${id}/withdraw`, {
     method: "POST",
     json: input,

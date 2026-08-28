@@ -207,7 +207,7 @@ export interface RepaymentResult {
  * POST /loans/{id}/repayments — record cash against the loan.
  *
  * Allocated oldest-instalment-first. An overpayment is refused with
- * `EXCEEDS_REMAINING`, whose details carry the exact balance — pre-fill the box
+ * `EXCEEDS_BALANCE`, whose details carry the exact balance — pre-fill the box
  * from that rather than making someone guess again. Settling to the penny flips
  * the loan to `repaid` and stamps `repaidOnTime`, which is what unlocks the big
  * tier later.
@@ -250,6 +250,39 @@ export function repayBySusuClosure(
   return apiFetch(`/loans/${id}/repayments/susu-closure`, {
     method: "POST",
     json: input,
+    accessToken,
+  });
+}
+
+/* --------------------------------------------------------------- receipts --- */
+
+/**
+ * GET /loans/{id}/disbursement/receipt — the printable PDF proving the
+ * customer received the money. The boxed headline is the principal handed
+ * over, with what is owed back stated underneath. Refused with
+ * `NOT_DISBURSED` (422) while the loan is still waiting to be paid out.
+ *
+ * Raw response: the browser holds no access token, so a resource route proxies
+ * the body through with the session's.
+ */
+export function disbursementReceiptPdf(
+  accessToken: string,
+  id: string,
+): Promise<Response> {
+  return apiFetchRaw(`/loans/${id}/disbursement/receipt`, { accessToken });
+}
+
+/**
+ * GET /loans/{id}/repayments/{repaymentId}/receipt — the printable PDF for one
+ * repayment. Balances are rebuilt as at that repayment, so a reprint shows the
+ * position when it was issued rather than the position today.
+ */
+export function repaymentReceiptPdf(
+  accessToken: string,
+  id: string,
+  repaymentId: string,
+): Promise<Response> {
+  return apiFetchRaw(`/loans/${id}/repayments/${repaymentId}/receipt`, {
     accessToken,
   });
 }

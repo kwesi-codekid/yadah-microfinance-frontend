@@ -3,6 +3,7 @@ import {
   ArrowLeftRightIcon,
   ArrowRightLeftIcon,
   ArrowUpRightIcon,
+  HourglassIcon,
   PrinterIcon,
   ScaleIcon,
   UserIcon,
@@ -20,6 +21,7 @@ import {
   PeriodFilter,
 } from "~/components/listing";
 import { Page } from "~/components/page";
+import { Button } from "~/components/ui/button";
 import {
   DataTable,
   type Column,
@@ -42,6 +44,7 @@ import {
   MODULE_LABELS,
   TXN_TYPE_LABELS,
   netCash,
+  receiptPathFor,
   refPath,
   type Direction,
   type TransactionTotals,
@@ -72,6 +75,8 @@ interface Filters {
   customerId: string;
   from: string;
   to: string;
+  /** Also show Paystack charges still in flight — never counted in the totals. */
+  pending: boolean;
 }
 
 function readFilters(url: URL): Filters {
@@ -85,6 +90,7 @@ function readFilters(url: URL): Filters {
     customerId: url.searchParams.get("customerId")?.trim() ?? "",
     from: day("from"),
     to: day("to"),
+    pending: url.searchParams.get("pending") === "1",
   };
 }
 
@@ -94,6 +100,7 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
   if (f.customerId) p.set("customerId", f.customerId);
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
+  if (f.pending) p.set("pending", "1");
   if (page > 1) p.set("page", String(page));
   return p;
 }
@@ -131,6 +138,8 @@ export async function loader({ request }: Route.LoaderArgs) {
         customerId: filters.customerId || undefined,
         from: range.from,
         to: range.to,
+        // Off by default on the API's side, so it is only ever sent as "true".
+        includePending: filters.pending ? "true" : undefined,
       }),
       // Only to name the chip. A filter that reads `customerId=8f3c…` tells
       // nobody whose ledger they are looking at.
@@ -184,6 +193,8 @@ interface Row {
   time: string;
   /** The Accra day this landed on — what the advice link searches. */
   day: string;
+  /** The printable receipt, or null for a charge that has not landed. */
+  receiptPath: string | null;
 }
 
 function toRow(t: UnifiedTransaction): Row {
@@ -207,6 +218,7 @@ function toRow(t: UnifiedTransaction): Row {
     // own line above, so only the clock time is kept here.
     time: formatAccraDateTime(t.createdAt).split(", ")[1] ?? "",
     day: accraDay(new Date(t.createdAt)),
+    receiptPath: receiptPathFor(t),
   };
 }
 
@@ -359,7 +371,9 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
     },
   ];
 
-  const narrowed = Boolean(filters.module || filters.customerId);
+  const narrowed = Boolean(
+    filters.module || filters.customerId || filters.pending,
+  );
 
   return (
     <Page className="max-w-none">
@@ -385,6 +399,19 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
       <DataTable
         actions={
           <>
+            {/* Mobile-money charges Paystack has not settled yet. They are rows
+                of money that has not moved, so the API leaves them out unless
+                asked, and the totals leave them out either way. */}
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={filters.pending}
+              onClick={() => apply({ pending: !filters.pending })}
+              className={cn(filters.pending && "border-primary/50 text-primary")}
+            >
+              <HourglassIcon />
+              Include pending
+            </Button>
             <PeriodFilter
               from={range.from}
               to={range.to}
@@ -458,6 +485,22 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
                 Print advice
               </a>
             </DropdownMenuItem>
+            {/* A resource route answering with bytes — a plain anchor, so the
+                router does not try to navigate to it. Disabled rather than
+                absent on a charge that has not landed, for the reason above. */}
+            {row.receiptPath ? (
+              <DropdownMenuItem asChild>
+                <a href={row.receiptPath} target="_blank" rel="noreferrer">
+                  <PrinterIcon />
+                  Print receipt
+                </a>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem disabled>
+                <PrinterIcon />
+                No receipt yet
+              </DropdownMenuItem>
+            )}
           </>
         )}
         noun={{ one: "transaction", many: "transactions" }}

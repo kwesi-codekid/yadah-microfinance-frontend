@@ -32,8 +32,9 @@ export function toDay(iso?: string): string | undefined {
 
 /**
  * Every field the form submits, as one object. Blank fields become `undefined`
- * so they are omitted from the body — the API rejects empty strings against its
- * `minLength` rules, and there is no documented way to clear an optional field.
+ * so they are omitted from a `POST` body — the API rejects empty strings
+ * against its `minLength` rules. Clearing a field is an edit's concern, and
+ * `diffCustomer` turns "was set, now blank" into the `null` a `PATCH` wants.
  *
  * Free-text branch data is recorded in capitals, matching how the entry form
  * shows it and how v1 stored it. Email and phone numbers keep their case.
@@ -49,8 +50,8 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
     fullName: up("fullName") ?? "",
     phone: get("phone") ?? "",
     photoUrl: get("photoUrl") ?? "",
-    idDocumentFrontUrl: get("idDocumentFrontUrl"),
-    idDocumentBackUrl: get("idDocumentBackUrl"),
+    idDocumentFrontUrl: get("idDocumentFrontUrl") ?? "",
+    idDocumentBackUrl: get("idDocumentBackUrl") ?? "",
     assignedCollectorId: get("assignedCollectorId") ?? "",
     dateOfBirth: toIso(get("dateOfBirth")),
     gender: get("gender") as Gender | undefined,
@@ -93,19 +94,24 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
 
 /**
  * The three the record cannot be without, whether it is being made or edited.
- * The ID document scans are optional — they can be added later from the edit form.
  */
 function missingProfile(input: CreateCustomerInput): boolean {
   return !input.fullName || !input.phone || !input.photoUrl;
 }
 
 /**
- * The four fields `POST /customers` insists on, in the order the form shows
- * them. The sixth is the collector: every customer joins somebody's round at
- * registration, and the API refuses the record without one.
+ * The six fields `POST /customers` insists on, in the order the form shows
+ * them: the three above, both sides of the ID document, and the collector —
+ * every customer joins somebody's round at registration, and the API refuses
+ * the record without one.
  */
 export function missingRequired(input: CreateCustomerInput): boolean {
-  return missingProfile(input) || !input.assignedCollectorId;
+  return (
+    missingProfile(input) ||
+    !input.idDocumentFrontUrl ||
+    !input.idDocumentBackUrl ||
+    !input.assignedCollectorId
+  );
 }
 
 /**
@@ -113,7 +119,8 @@ export function missingRequired(input: CreateCustomerInput): boolean {
  *
  * `PATCH` has no collector field — a round moves only through the admin-only
  * `PATCH /customers/{id}/collector` — so the edit form does not post one, and
- * holding it to the registration check would refuse every save.
+ * holding it to the registration check would refuse every save. The ID scans
+ * are not held to it either: an edit that leaves them blank leaves them alone.
  */
 export function missingRequiredForEdit(input: CreateCustomerInput): boolean {
   return missingProfile(input);
@@ -140,9 +147,35 @@ const SCALARS = [
   "idDocumentBackUrl",
 ] as const satisfies readonly (keyof CreateCustomerInput)[];
 
+/**
+ * The ones a `PATCH` may blank with `null`. The rest — name, phone, photo,
+ * the ID scans — the record cannot be without, so a blank there is "leave it
+ * alone", never "clear it".
+ */
+const CLEARABLE = new Set<(typeof SCALARS)[number]>([
+  "dateOfBirth",
+  "gender",
+  "nationality",
+  "maritalStatus",
+  "mothersMaidenName",
+  "residentialAddress",
+  "ghanaPostGps",
+  "postalAddress",
+  "altPhone",
+  "email",
+  "occupation",
+  "employerOrBusiness",
+  "purposeOfAccount",
+]);
+
 /** Dates come back with a time on them; compare the day, not the timestamp. */
 function sameDate(a?: string, b?: string): boolean {
   return toDay(a) === toDay(b);
+}
+
+/** Set on the record, in the sense the API means it: present and not blank. */
+function held(value: unknown): boolean {
+  return value != null && value !== "";
 }
 
 /**
@@ -150,6 +183,11 @@ function sameDate(a?: string, b?: string): boolean {
  * unchanged phone or ID number would have the API check it for uniqueness
  * against every *other* record and, worse, makes the audit trail claim an edit
  * that never happened. Returns an empty object when nothing was touched.
+ *
+ * A field that was set and is now blank goes as `null`, which is how the API
+ * clears it — omitting it would leave the old value standing, and a form that
+ * cannot remove a wrong email is a form people work around. A field blank on
+ * both sides is left out of the body altogether.
  */
 export function diffCustomer(
   current: Customer,
@@ -159,8 +197,11 @@ export function diffCustomer(
 
   for (const key of SCALARS) {
     const value = next[key];
-    if (value === undefined) continue;
     const was = current[key];
+    if (value === undefined || value === "") {
+      if (CLEARABLE.has(key) && held(was)) patch[key] = null;
+      continue;
+    }
     const changed =
       key === "dateOfBirth"
         ? !sameDate(value as string, was as string)
@@ -179,6 +220,8 @@ export function diffCustomer(
     // The API returns the whole block, so every field of it can be compared.
     // It is still sent whole: it has no partial update of its own.
     if (changed) patch.identification = next.identification;
+  } else if (current.identification) {
+    patch.identification = null;
   }
 
   if (next.nextOfKin) {
@@ -190,6 +233,8 @@ export function diffCustomer(
       was.phone !== next.nextOfKin.phone ||
       was.address !== next.nextOfKin.address;
     if (changed) patch.nextOfKin = next.nextOfKin;
+  } else if (current.nextOfKin) {
+    patch.nextOfKin = null;
   }
 
   return patch as UpdateCustomerInput;

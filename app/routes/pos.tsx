@@ -34,9 +34,11 @@ import {
   basketTotal,
   checkBasket,
   checkLine,
+  lineErrorsFromRefusal,
   lineTotal,
   linesForApi,
   type BasketLine,
+  type LineErrors,
   type SaleChannel,
 } from "~/lib/sales";
 import { requireOffice, withAuth } from "~/lib/session.server";
@@ -156,16 +158,25 @@ export async function action({ request }: Route.ActionArgs) {
       }),
     );
 
+    // A replay is an empty `200 {}` — no sale, no receipt number to send
+    // anyone to — so the day book is the nearest place that has it.
+    if (result.replayed || !result.sale) {
+      return redirectWithToast(
+        "/sales",
+        {
+          tone: "success",
+          message: "That sale was already rung up.",
+          description: "Nothing was sold twice.",
+        },
+        headers,
+      );
+    }
     await redirectWithToast(
       `/sales/${result.sale.id}`,
       {
         tone: "success",
-        message: result.replayed
-          ? `Already rung up — receipt ${result.sale.receiptNo}.`
-          : `Receipt ${result.sale.receiptNo} · ${formatPesewas(result.sale.total)}.`,
-        description: result.replayed
-          ? "Nothing was sold twice."
-          : "Print the receipt from here.",
+        message: `Receipt ${result.sale.receiptNo} · ${formatPesewas(result.sale.total)}.`,
+        description: "Print the receipt from here.",
       },
       headers,
     );
@@ -206,9 +217,24 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
     newIdempotencyKey(),
   );
 
+  // What the API refused by line, laid over the till's own checks. Cleared
+  // line by line as each is changed, since a change is a fresh attempt.
+  const [serverLineErrors, setServerLineErrors] = useState<LineErrors>({});
+
   useEffect(() => {
-    if (actionData?.error) toast.error(actionData.error);
+    if (!actionData?.error) return;
+    toast.error(actionData.error);
+    // Widened: a form-side refusal carries no code, an API one does.
+    const refusal: { error: string; code?: string; details?: unknown } = actionData;
+    setServerLineErrors(lineErrorsFromRefusal(refusal.code, refusal.details));
   }, [actionData]);
+
+  const forgive = (itemId: string) =>
+    setServerLineErrors((current) => {
+      if (!(itemId in current)) return current;
+      const { [itemId]: _dropped, ...rest } = current;
+      return rest;
+    });
 
   /** Add one, or one more, of an item — the same move whether tapped or scanned. */
   const add = useCallback((item: Sellable) => {
@@ -237,16 +263,21 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
     return bumped;
   }, []);
 
-  const patch = (itemId: string, next: Partial<BasketLine>) =>
+  const patch = (itemId: string, next: Partial<BasketLine>) => {
+    forgive(itemId);
     setLines((current) =>
       current.map((l) => (l.itemId === itemId ? { ...l, ...next } : l)),
     );
+  };
 
-  const drop = (itemId: string) =>
+  const drop = (itemId: string) => {
+    forgive(itemId);
     setLines((current) => current.filter((l) => l.itemId !== itemId));
+  };
 
   const clear = () => {
     setLines([]);
+    setServerLineErrors({});
     setIdempotencyKey(newIdempotencyKey());
   };
 
@@ -430,6 +461,7 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
                 <OrderLine
                   key={line.itemId}
                   line={line}
+                  serverIssue={serverLineErrors[line.itemId] ?? null}
                   onPatch={(next) => patch(line.itemId, next)}
                   onDrop={() => drop(line.itemId)}
                 />
@@ -736,10 +768,13 @@ function ItemTile({
 
 function OrderLine({
   line,
+  serverIssue,
   onPatch,
   onDrop,
 }: {
   line: BasketLine;
+  /** What the API refused this line for, until the line is changed. */
+  serverIssue: string | null;
   onPatch: (next: Partial<BasketLine>) => void;
   onDrop: () => void;
 }) {
@@ -748,7 +783,8 @@ function OrderLine({
   const [priceText, setPriceText] = useState(
     line.unitPrice == null ? "" : toCedisInput(line.unitPrice),
   );
-  const issue = checkLine(line);
+  // The till's own check first; the API's word only when the till saw nothing.
+  const issue = checkLine(line) ?? serverIssue;
   const discounted = line.unitPrice != null && line.unitPrice < line.listPrice;
 
   return (

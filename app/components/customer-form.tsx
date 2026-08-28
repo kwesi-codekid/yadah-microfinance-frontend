@@ -2,7 +2,6 @@ import {
   CameraIcon,
   CheckCircle2Icon,
   Loader2Icon,
-  TriangleAlertIcon,
   UploadIcon,
   XIcon,
 } from "lucide-react";
@@ -90,9 +89,22 @@ export function CustomerForm({
 
   const collectorOptions = collectors.map((c) => ({ value: c.id, label: c.name }));
 
+  // A rejected submission is a toast carrying the API's issues, each named by
+  // its field: "expected string" says nothing without the field it was about.
   useEffect(() => {
-    if (error) toast.error(error);
-  }, [error]);
+    if (!error) return;
+    const issues = describeIssues(details);
+    toast.error(error, {
+      description: issues.length ? (
+        <ul className="mt-1 space-y-0.5">
+          {issues.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      ) : undefined,
+      duration: issues.length ? 10_000 : undefined,
+    });
+  }, [error, details]);
 
   return (
     <Form
@@ -115,18 +127,6 @@ export function CustomerForm({
         </h2>
       </div>
 
-      {error && (
-        <div
-          role="alert"
-          className="mb-5 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-        >
-          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" />
-          <div>
-            <p className="font-medium">{error}</p>
-            <ValidationIssues details={details} />
-          </div>
-        </div>
-      )}
 
       {/* Hidden fields carry the uploaded URLs into the submission. */}
       <input type="hidden" name="photoUrl" value={photo.url ?? ""} />
@@ -402,19 +402,56 @@ export function CustomerForm({
   );
 }
 
-function ValidationIssues({ details }: { details?: unknown }) {
-  if (!Array.isArray(details) || details.length === 0) return null;
-  return (
-    <ul className="mt-1 list-disc space-y-0.5 pl-4 text-destructive/90">
-      {details.slice(0, 8).map((issue, i) => {
-        const msg =
-          issue && typeof issue === "object" && "message" in issue
-            ? String((issue as { message: unknown }).message)
-            : String(issue);
-        return <li key={i}>{msg}</li>;
-      })}
-    </ul>
-  );
+/** Friendly names for the API's field paths, so an issue reads as a form label. */
+const FIELD_LABELS: Record<string, string> = {
+  fullName: "Full name",
+  phone: "Phone",
+  altPhone: "Alternative phone",
+  email: "Email",
+  photoUrl: "Photo",
+  idDocumentFrontUrl: "ID document — front",
+  idDocumentBackUrl: "ID document — back",
+  assignedCollectorId: "Assigned collector",
+  dateOfBirth: "Date of birth",
+  gender: "Gender",
+  nationality: "Nationality",
+  maritalStatus: "Marital status",
+  mothersMaidenName: "Mother's maiden name",
+  residentialAddress: "Residential address",
+  ghanaPostGps: "GhanaPost GPS",
+  postalAddress: "Postal address",
+  occupation: "Occupation",
+  employerOrBusiness: "Employer / business",
+  purposeOfAccount: "Purpose of account",
+  identification: "Identification",
+  idType: "ID type",
+  idNumber: "ID number",
+  idPlaceOfIssue: "Place of issue",
+  idExpiryDate: "ID expiry date",
+  nextOfKin: "Next of kin",
+  relationship: "Relationship",
+  address: "Address",
+};
+
+/**
+ * One line per API issue. Each carries the field it is about (`path`) and a
+ * message such as "expected string, received undefined"; without the path the
+ * message on its own says nothing about what to fix.
+ */
+function describeIssues(details: unknown): string[] {
+  if (!Array.isArray(details)) return [];
+  return details.slice(0, 12).map((issue) => {
+    const obj = issue && typeof issue === "object" ? (issue as Record<string, unknown>) : null;
+    const msg = obj && "message" in obj ? String(obj.message) : String(issue);
+    const rawPath = obj?.path ?? obj?.field;
+    const segments = Array.isArray(rawPath)
+      ? rawPath.map(String)
+      : typeof rawPath === "string" && rawPath
+        ? rawPath.split(".")
+        : [];
+    const field = segments.map((s) => FIELD_LABELS[s] ?? s).join(" › ");
+    return field ? `${field}: ${msg}` : msg;
+  });
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {

@@ -48,6 +48,7 @@ import {
   formatCount,
   formatDayRange,
 } from "~/lib/format";
+import { receiptPathFor } from "~/lib/reports";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/customer-statement";
@@ -297,6 +298,23 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
                 Export PDF
               </a>
             </DropdownMenuItem>
+            {/* The module's own receipt for this entry — a resource route
+                answering with bytes, so a plain anchor. Disabled rather than
+                absent on a charge that has not landed: the same menu on every
+                row, or an item that comes and goes reads as a bug. */}
+            {receiptPathFor(tx) ? (
+              <DropdownMenuItem asChild>
+                <a href={receiptPathFor(tx)!} target="_blank" rel="noreferrer">
+                  <PrinterIcon />
+                  Print receipt
+                </a>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem disabled>
+                <PrinterIcon />
+                No receipt yet
+              </DropdownMenuItem>
+            )}
           </>
         )}
         noun={{ one: "entry", many: "entries" }}

@@ -1,6 +1,7 @@
 import {
   ArrowLeftRightIcon,
   BanknoteArrowUpIcon,
+  BookOpenTextIcon,
   ChartColumnIcon,
   CoinsIcon,
   ScaleIcon,
@@ -157,6 +158,16 @@ export const NAV: NavItem[] = [
     label: "Reports",
     icon: ChartColumnIcon,
     blurb: "Collections, arrears and what the branch kept.",
+    roles: OFFICE,
+  },
+  // The company's own books, as opposed to its customers': what it holds in
+  // the drawer and the bank, what it spends, what it owns, what the owner put
+  // in — and the balance sheet and profit and loss built from all of it.
+  {
+    to: "/accounting",
+    label: "Accounting",
+    icon: BookOpenTextIcon,
+    blurb: "Cash, expenses, assets, capital and the two statements.",
     roles: OFFICE,
   },
   {

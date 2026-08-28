@@ -38,6 +38,9 @@ export async function loader({ request }: Route.LoaderArgs) {
           customerId: url.searchParams.get("customerId")?.trim() || undefined,
           from: day("from"),
           to: day("to"),
+          // Same switch as the listing's "Include pending" toggle.
+          includePending:
+            url.searchParams.get("pending") === "1" ? "true" : undefined,
         },
         format,
       ),

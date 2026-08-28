@@ -520,6 +520,57 @@ export function refPath(txn: UnifiedTransaction): string | null {
   }
 }
 
+/**
+ * Where a ledger row's printable receipt lives, or null when there is none.
+ *
+ * Every receipt route is keyed by the owning record (`ref.id`) and, where the
+ * record has many money events, by the event itself. The assumption behind the
+ * second key is that `t.id` **is the underlying record's own id** — the
+ * deposit's, the repayment's, the HP payment's — rather than an id minted for
+ * the feed. The ledger row and the receipt are both built from the same
+ * document, so that holds today; if the feed ever starts synthesising ids,
+ * this is the one place to change.
+ *
+ * Only a `completed` row has a receipt. A pending or failed Paystack charge is
+ * money that has not landed, and there is nothing to print for it. The
+ * customer statement's row type leaves `status` optional — the API writes it
+ * on every ledger row and omits it nowhere that matters — so a missing status
+ * is read as completed rather than as unprintable.
+ */
+export function receiptPathFor(
+  t: Pick<UnifiedTransaction, "id" | "type" | "ref"> & { status?: TxnStatus },
+): string | null {
+  if ((t.status ?? "completed") !== "completed") return null;
+  switch (t.type) {
+    case "susu-deposit":
+      return `/susu/${t.ref.id}/deposits/${t.id}/receipt`;
+    // A partial withdrawal and a payout share one receipt endpoint.
+    case "susu-payout":
+    case "susu-withdrawal":
+      return `/susu/${t.ref.id}/withdrawals/${t.id}/receipt`;
+    case "savings-deposit":
+    case "savings-withdrawal":
+    case "savings-closure":
+      return `/savings/${t.ref.id}/txns/${t.id}/receipt`;
+    // One per loan: the disbursement is the loan's own event, not a row of its own.
+    case "loan-disbursement":
+      return `/loans/${t.ref.id}/disbursement/receipt`;
+    case "loan-repayment":
+      return `/loans/${t.ref.id}/repayments/${t.id}/receipt`;
+    // Deposit, instalment and redemption are one document under three titles.
+    case "hp-deposit":
+    case "hp-installment":
+    case "hp-redemption":
+      return `/hire-purchase/${t.ref.id}/payments/${t.id}/receipt`;
+    case "hp-sale":
+      return `/sales/${t.ref.id}/receipt`;
+    case "transfer":
+      return `/transfers/${t.ref.id}/receipt`;
+    default:
+      return null;
+  }
+}
+
 /** A worker's heartbeat, read as one of three states for the panel. */
 export function workerHealth(w: WorkerStatus): "ok" | "failing" | "idle" {
   if (w.lastOk === false) return "failing";

@@ -39,6 +39,12 @@ export interface TransactionParams {
   to?: string;
   module?: TxnModule;
   customerId?: string;
+  /**
+   * `"true"` to also list Paystack charges not yet applied — money still in
+   * flight, as `status: "pending"` or `"failed"` rows that are never in
+   * `totals`. The API's default is `"false"`, so omit it for the ledger proper.
+   */
+  includePending?: "true" | "false";
 }
 
 /**

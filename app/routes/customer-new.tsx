@@ -41,7 +41,7 @@ export async function action({ request }: Route.ActionArgs) {
     return data(
       {
         error:
-          "Add the full name, phone, the photo and a collector.",
+          "Add the full name, phone, the photo, both sides of the ID and a collector.",
       },
       { status: 400 },
     );

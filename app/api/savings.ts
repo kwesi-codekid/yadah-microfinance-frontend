@@ -29,7 +29,7 @@ export interface AccountListParams {
   customerId?: string;
   accountType?: SavingsAccountType;
   status?: SavingsStatus;
-  /** Exactly ten digits. */
+  /** The full `SV` number, or the bare ten digits: `^(SV\d{8}|\d{10})$`. */
   accountNumber?: string;
   /** Fuzzy and typo-tolerant: customer name, phone, or account-number prefix. */
   search?: string;
@@ -81,7 +81,7 @@ export function getAccount(
 /**
  * POST /savings/accounts — open one (office). An `initialDeposit` is recorded
  * in the same transaction as the opening, so the account is never briefly open
- * and empty; it obeys the GHS 10 floor like any other deposit and therefore
+ * and empty; it obeys the GHS 5 floor like any other deposit and therefore
  * needs an idempotency key of its own.
  */
 export function openAccount(
@@ -212,7 +212,7 @@ export function restoreTxn(
 
 /**
  * POST /savings/accounts/{id}/deposits — record the cash handed over, from
- * GHS 10 up. Any collector or office staff. The idempotency key is what makes a
+ * GHS 5 up. Any collector or office staff. The idempotency key is what makes a
  * retry safe: the same key returns the original transaction with `200` rather
  * than crediting the account twice.
  */
