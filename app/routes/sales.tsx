@@ -175,7 +175,9 @@ export async function loader({ request }: Route.LoaderArgs) {
         all: STATUSES.reduce((sum, s) => sum + byStatus[s], 0),
         ...byStatus,
       },
-      // Ringing a sale up is counter work; unpicking one is not.
+      // Ringing a sale up is counter work; unpicking one, and taking the day's
+      // sales away as a spreadsheet, are not.
+      canExport: isOffice(viewer),
       rows: result.list.items.map((sale) => toRow(sale, isOffice(viewer))),
     },
     { headers },
@@ -288,7 +290,7 @@ function toRow(sale: Sale, canDecide: boolean): Row {
  * come back as a new page of rows.
  */
 export default function Sales({ loaderData }: Route.ComponentProps) {
-  const { filters, page, total, totals, counts, rows } = loaderData;
+  const { filters, page, total, totals, counts, rows, canExport } = loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
   const fetcher = useFetcher<ActionResult>();
@@ -456,12 +458,14 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
                 apply={(next) => apply(next)}
                 title="Sold"
               />
-              <ExportMenu
-                path="/sales/export"
-                query={queryFor(filters).toString()}
-                total={total}
-                noun="sale"
-              />
+              {canExport && (
+                <ExportMenu
+                  path="/sales/export"
+                  query={queryFor(filters).toString()}
+                  total={total}
+                  noun="sale"
+                />
+              )}
               <Button asChild size="sm">
                 <Link to="/pos" prefetch="intent">
                   <ShoppingCartIcon />

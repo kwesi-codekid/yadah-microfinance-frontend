@@ -26,6 +26,7 @@ import {
   needsReconciliation,
   PROVIDER_LABELS,
 } from "~/lib/payments";
+import { isOffice } from "~/lib/auth";
 import { requireUser, withAuth } from "~/lib/session.server";
 import { withToast } from "~/lib/toast.server";
 import type { Route } from "./+types/payment-charge";
@@ -50,7 +51,7 @@ export function meta(_: Route.MetaArgs) {
  */
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireUser(request);
+  const viewer = await requireUser(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
@@ -60,7 +61,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     }
   });
 
-  return data({ charge: result.charge }, { headers });
+  return data({ charge: result.charge, office: isOffice(viewer) }, { headers });
 }
 
 interface ActionResult {
@@ -108,7 +109,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function PaymentCharge({ loaderData }: Route.ComponentProps) {
-  const { charge } = loaderData;
+  const { charge, office } = loaderData;
   const revalidator = useRevalidator();
   const navigation = useNavigation();
   const verifying = navigation.state === "submitting";
@@ -130,9 +131,18 @@ export default function PaymentCharge({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page>
-      <BackLink to="/transactions" className="mb-4">
-        All transactions
-      </BackLink>
+      {/* The ledger is the office's; anyone else came here from a customer's
+          account and goes back to the dashboard rather than to a door that
+          would refuse them. */}
+      {office ? (
+        <BackLink to="/transactions" className="mb-4">
+          All transactions
+        </BackLink>
+      ) : (
+        <BackLink to="/dashboard" className="mb-4">
+          Dashboard
+        </BackLink>
+      )}
 
       <PageHeader
         title={KIND_LABELS[charge.kind]}

@@ -302,7 +302,9 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
             customerId={loan.customerId}
             open={open}
             disbursed={Boolean(loan.disbursedAt)}
-            trashable={canTrash(loan)}
+            /* Taking a loan out of the book is the office's, whatever state
+               it is in — so the counter is shown the entry greyed, not live. */
+            trashable={canDecide && canTrash(loan)}
           />
         </div>
       </header>

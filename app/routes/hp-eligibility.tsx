@@ -1,6 +1,6 @@
 import { ApiError } from "~/api/error";
 import { getEligibility } from "~/api/hire-purchase";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/hp-eligibility";
 
 /**
@@ -18,7 +18,7 @@ import type { Route } from "./+types/hp-eligibility";
  * everything when the agreement is actually signed.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   try {
     const { data: eligibility } = await withAuth(request, (token) =>

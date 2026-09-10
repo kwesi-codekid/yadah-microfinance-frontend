@@ -1,6 +1,6 @@
 import { getEligibility } from "~/api/loans";
 import { ApiError } from "~/api/error";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/loan-eligibility";
 
 /**
@@ -14,7 +14,7 @@ import type { Route } from "./+types/loan-eligibility";
  * form rather than made a page of its own.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   try {
     const { data: eligibility } = await withAuth(request, (token) =>

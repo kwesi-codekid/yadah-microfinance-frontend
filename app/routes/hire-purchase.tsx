@@ -70,6 +70,7 @@ import {
   type HpAgreement,
 } from "~/lib/hire-purchase";
 import { requireCounter, withAuth } from "~/lib/session.server";
+import { isOffice } from "~/lib/auth";
 import { useCurrentUser } from "~/lib/use-current-user";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/hire-purchase";
@@ -88,10 +89,19 @@ export const handle = {
 const PAGE_SIZE = 20;
 
 /** The states that are a queue — something is owed of the office in each. */
-const LIVE: AgreementStatus[] = ["pending", "active", "in-arrears", "repossessed"];
+const LIVE: AgreementStatus[] = [
+  "awaiting-approval",
+  "pending",
+  "active",
+  "in-arrears",
+  "repossessed",
+];
 
 const TABS = [
   { key: "all", label: "All" },
+  // First on the rail because it is the only queue where the agreement cannot
+  // move at all until somebody in the office looks at it.
+  { key: "awaiting-approval", label: "To approve" },
   { key: "pending", label: "Awaiting deposit" },
   { key: "active", label: "Active" },
   { key: "in-arrears", label: "In arrears" },
@@ -105,6 +115,7 @@ const TABS = [
  */
 const STATUS_OPTIONS: { value: AgreementStatus; label: string }[] = (
   [
+    "awaiting-approval",
     "pending",
     "active",
     "in-arrears",
@@ -322,16 +333,20 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
             title="Signed"
             apply={(next) => apply(next)}
           />
-          <ExportMenu
-            path="/hire-purchase/export"
-            query={(() => {
-              const p = queryFor(filters);
-              p.delete("page");
-              return p.toString();
-            })()}
-            total={total}
-            noun="agreement"
-          />
+          {/* Downloading the whole book is the office's; the counter works one
+              agreement at a time. */}
+          {isOffice(user) && (
+            <ExportMenu
+              path="/hire-purchase/export"
+              query={(() => {
+                const p = queryFor(filters);
+                p.delete("page");
+                return p.toString();
+              })()}
+              total={total}
+              noun="agreement"
+            />
+          )}
           {/* The rate new agreements snapshot. Admin only — the drawer's own
               loader is the gate; this only hides the door for everyone else. */}
           {user?.role === "admin" && (
@@ -535,6 +550,10 @@ function AgreementsEmpty({
   filters: Filters;
   narrowed: boolean;
 }) {
+  // The shelf itself is the office's — the counter sells off it without
+  // keeping it, so an empty book offers them nothing to go and look at.
+  const office = isOffice(useCurrentUser());
+
   return (
     <Empty className="py-16">
       <EmptyHeader>
@@ -562,7 +581,7 @@ function AgreementsEmpty({
             Clear filters
           </Link>
         </Button>
-      ) : filters.status === "all" ? (
+      ) : filters.status === "all" && office ? (
         <Button asChild variant="outline" size="sm">
           <Link to="/inventory">
             <PackageIcon />

@@ -5,7 +5,6 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { createItem } from "~/api/hire-purchase";
-import { BarcodeField } from "~/components/barcode-field";
 import { Figure } from "~/components/listing";
 import {
   RouteSheet,
@@ -37,7 +36,6 @@ export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
-  const barcode = String(form.get("barcode") ?? "").trim();
   const quantityInStock = Number(form.get("quantityInStock") ?? 0);
   const costPrice = parseCedis(String(form.get("costPrice") ?? "").trim());
   const sellingPrice = parseCedis(
@@ -61,7 +59,6 @@ export async function action({ request }: Route.ActionArgs) {
       createItem(token, {
         name,
         description: description || undefined,
-        barcode: barcode || undefined,
         quantityInStock,
         costPrice,
         sellingPrice,
@@ -133,7 +130,6 @@ export default function InventoryNew() {
             />
           </div>
 
-          <BarcodeField />
 
           <div className="space-y-1.5">
             <Label

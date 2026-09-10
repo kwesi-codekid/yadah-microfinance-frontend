@@ -4,7 +4,6 @@ import {
   MinusIcon,
   PackageIcon,
   PlusIcon,
-  ScanBarcodeIcon,
   SearchIcon,
   ShoppingBagIcon,
   Trash2Icon,
@@ -17,15 +16,9 @@ import { toast } from "sonner";
 import { ApiError } from "~/api/error";
 import { listItems } from "~/api/hire-purchase";
 import { createSale } from "~/api/sales";
-import { CameraScanner } from "~/components/camera-scanner";
-import {
-  CustomerPicker,
-  type PickedCustomer,
-} from "~/components/customer-picker";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { formatPesewas, parseCedis, toCedisInput } from "~/lib/format";
-import { useBarcodeWedge, type ScanState } from "~/hooks/use-barcode-wedge";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import {
   CHANNEL_OPTIONS,
@@ -63,17 +56,16 @@ interface Sellable {
   sellingPrice: number;
   available: number;
   condition: string;
-  barcode?: string;
 }
 
 /**
  * The shelf, so the till can be worked without a round trip per line.
  *
  * Everything in stock is loaded up front rather than searched: a counter sale
- * is rung up with a customer standing there, and a picker that has to fetch on
+ * is rung up with somebody standing there, and a picker that has to fetch on
  * every keystroke is the wrong shape for that. The list is capped — a shelf
  * beyond that is a different problem than this screen solves, and the note
- * under the picker says so rather than letting the tail vanish silently.
+ * under the search says so rather than letting the tail vanish silently.
  */
 const SHELF_LIMIT = 100;
 
@@ -97,7 +89,6 @@ export async function loader({ request }: Route.LoaderArgs) {
         sellingPrice: item.sellingPrice,
         available: item.quantityInStock,
         condition: item.condition,
-        barcode: item.barcode,
       })),
       truncated: result.total > result.items.length,
     },
@@ -116,7 +107,6 @@ export async function action({ request }: Route.ActionArgs) {
   await requireCounter(request);
   const form = await request.formData();
 
-  const customerId = String(form.get("customerId") ?? "").trim();
   const buyerName = String(form.get("buyerName") ?? "")
     .trim()
     .toUpperCase();
@@ -137,11 +127,8 @@ export async function action({ request }: Route.ActionArgs) {
   if (!Array.isArray(lines) || lines.length === 0) {
     return data({ error: "Add something to the basket." }, { status: 400 });
   }
-  if (!customerId && !buyerName) {
-    return data(
-      { error: "Name the buyer, or pick a registered customer." },
-      { status: 400 },
-    );
+  if (!buyerName) {
+    return data({ error: "Name the buyer." }, { status: 400 });
   }
   if (idempotencyKey.length < 8) {
     return data({ error: "Reload the page and try again." }, { status: 400 });
@@ -150,7 +137,7 @@ export async function action({ request }: Route.ActionArgs) {
   try {
     const { data: result, headers } = await withAuth(request, (token) =>
       createSale(token, {
-        ...(customerId ? { customerId } : { buyerName }),
+        buyerName,
         ...(buyerPhone ? { buyerPhone } : {}),
         lines,
         channel,
@@ -203,8 +190,6 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
 
   const [query, setQuery] = useState("");
   const [shelf, setShelf] = useState<Shelf>("all");
-  const [walkIn, setWalkIn] = useState(true);
-  const [customer, setCustomer] = useState<PickedCustomer | null>(null);
   const [buyerName, setBuyerName] = useState("");
   const [buyerPhone, setBuyerPhone] = useState("");
   const [channel, setChannel] = useState<SaleChannel>("cash");
@@ -225,7 +210,8 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
     if (!actionData?.error) return;
     toast.error(actionData.error);
     // Widened: a form-side refusal carries no code, an API one does.
-    const refusal: { error: string; code?: string; details?: unknown } = actionData;
+    const refusal: { error: string; code?: string; details?: unknown } =
+      actionData;
     setServerLineErrors(lineErrorsFromRefusal(refusal.code, refusal.details));
   }, [actionData]);
 
@@ -236,7 +222,7 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
       return rest;
     });
 
-  /** Add one, or one more, of an item — the same move whether tapped or scanned. */
+  /** Add one, or one more, of an item. */
   const add = useCallback((item: Sellable) => {
     let bumped = false;
     setLines((current) => {
@@ -281,21 +267,6 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
     setIdempotencyKey(newIdempotencyKey());
   };
 
-  // A scan is matched on the item's barcode first, then its id, then its
-  // exact name — the last two so a label printed from Inventory still works
-  // on a shelf that was never barcoded.
-  const [camera, setCamera] = useState(false);
-  const { state: scan, report } = useBarcodeWedge((code) => {
-    const key = code.trim().toLowerCase();
-    const item =
-      items.find((i) => i.barcode && i.barcode.toLowerCase() === key) ??
-      items.find((i) => i.id.toLowerCase() === key) ??
-      items.find((i) => i.name.toLowerCase() === key);
-    if (!item || item.available === 0) return false;
-    add(item);
-    return true;
-  });
-
   const term = query.trim().toLowerCase();
   const shown = items.filter(
     (i) =>
@@ -310,13 +281,7 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
   const units = lines.reduce((n, l) => n + l.quantity, 0);
 
   const basketIssue = checkBasket(lines);
-  const buyerIssue = walkIn
-    ? buyerName.trim()
-      ? null
-      : "Name the buyer."
-    : customer
-      ? null
-      : "Pick a customer.";
+  const buyerIssue = buyerName.trim() ? null : "Name the buyer.";
   const blocked = Boolean(basketIssue || buyerIssue) || submitting;
 
   return (
@@ -364,9 +329,6 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            <li>
-              <ScannerTile state={scan} onOpenCamera={() => setCamera(true)} />
-            </li>
             {shown.map((item) => (
               <li key={item.id}>
                 <ItemTile
@@ -384,32 +346,18 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
               <p className="mt-2 text-sm text-muted-foreground">
                 {items.length === 0
                   ? "Nothing on the shelf. Add stock in Inventory."
-                  : "Nothing matches. Try another name, or scan it."}
+                  : "Nothing matches. Try another name."}
               </p>
             </div>
           )}
 
           {truncated && (
             <p className="mt-4 text-xs text-muted-foreground">
-              Showing the first {SHELF_LIMIT} items — search, or scan, for the
-              rest.
+              Showing the first {SHELF_LIMIT} items — search for the rest.
             </p>
           )}
         </div>
       </section>
-
-      <CameraScanner
-        open={camera}
-        onOpenChange={setCamera}
-        onScan={report}
-        lastResult={
-          scan.kind === "hit"
-            ? { ok: true, text: "Added to the order." }
-            : scan.kind === "miss"
-              ? { ok: false, text: `No item for “${scan.code}”.` }
-              : null
-        }
-      />
 
       {/* ------------------------------------------------------ the order --- */}
       <Form
@@ -431,7 +379,7 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
             </h2>
             <p className="tabular text-xs text-muted-foreground">
               {lines.length === 0
-                ? "Tap an item or scan it to begin."
+                ? "Tap an item to begin."
                 : `${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${units} ${units === 1 ? "unit" : "units"}`}
             </p>
           </div>
@@ -473,58 +421,34 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
         <div className="shrink-0 space-y-4 border-t border-border px-5 py-4">
           {/* The buyer. A walk-in is the ordinary case at a counter. */}
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                Buyer
-              </span>
-              <div className="inline-flex items-center gap-1 rounded-full bg-muted/70 p-0.5">
-                <Half
-                  active={walkIn}
-                  onClick={() => {
-                    setWalkIn(true);
-                    setCustomer(null);
-                  }}
-                >
-                  Walk-in
-                </Half>
-                <Half
-                  active={!walkIn}
-                  onClick={() => {
-                    setWalkIn(false);
-                    setBuyerName("");
-                  }}
-                >
-                  Registered
-                </Half>
-              </div>
+            <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Buyer
+            </span>
+            {/* Only what the receipt prints: a name, and a number to reach
+                them on. A sale at the counter is over in a minute — it is not
+                the moment to look somebody up in the book. */}
+            <div className="grid grid-cols-[1fr_130px] gap-2">
+              <Input
+                name="buyerName"
+                value={buyerName}
+                onChange={(e) => setBuyerName(e.target.value.toUpperCase())}
+                placeholder="BUYER'S NAME"
+                aria-label="Buyer's name"
+                maxLength={120}
+                autoComplete="off"
+              />
+              <Input
+                name="buyerPhone"
+                value={buyerPhone}
+                onChange={(e) => setBuyerPhone(e.target.value)}
+                placeholder="Phone"
+                aria-label="Buyer's phone"
+                inputMode="tel"
+                maxLength={20}
+                autoComplete="off"
+                className="tabular"
+              />
             </div>
-
-            {walkIn ? (
-              <div className="grid grid-cols-[1fr_130px] gap-2">
-                <Input
-                  name="buyerName"
-                  value={buyerName}
-                  onChange={(e) => setBuyerName(e.target.value.toUpperCase())}
-                  placeholder="BUYER'S NAME"
-                  aria-label="Buyer's name"
-                  maxLength={120}
-                  autoComplete="off"
-                />
-                <Input
-                  name="buyerPhone"
-                  value={buyerPhone}
-                  onChange={(e) => setBuyerPhone(e.target.value)}
-                  placeholder="Phone"
-                  aria-label="Buyer's phone"
-                  inputMode="tel"
-                  maxLength={20}
-                  autoComplete="off"
-                  className="tabular"
-                />
-              </div>
-            ) : (
-              <CustomerPicker value={customer} onChange={setCustomer} />
-            )}
           </div>
 
           {/* How the money arrives. */}
@@ -592,114 +516,6 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
 }
 
 /* ------------------------------------------------------------------- parts --- */
-
-/**
- * The first tile on the shelf, and the one that is never tapped: it shows
- * that the scanner is live, and what the last scan did.
- */
-function ScannerTile({
-  state,
-  onOpenCamera,
-}: {
-  state: ScanState;
-  onOpenCamera: () => void;
-}) {
-  const hit = state.kind === "hit";
-  const miss = state.kind === "miss";
-
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={cn(
-        "relative flex h-full min-h-[132px] flex-col justify-between overflow-hidden rounded-xl border-2 p-3 transition-colors",
-        hit && "border-success bg-success-subtle",
-        miss && "border-destructive bg-danger-subtle",
-        !hit && !miss && "border-dashed border-foreground/30 bg-card",
-      )}
-    >
-      <div className="flex items-center justify-between">
-        <ScanBarcodeIcon
-          className={cn(
-            "size-5",
-            hit
-              ? "text-success"
-              : miss
-                ? "text-destructive"
-                : "text-foreground",
-          )}
-        />
-        <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-          <span
-            aria-hidden
-            className={cn(
-              "size-1.5 rounded-full",
-              hit ? "bg-success" : miss ? "bg-destructive" : "bg-brand-coral",
-              !hit && !miss && "motion-safe:animate-pulse",
-            )}
-          />
-          {hit ? "Added" : miss ? "Not found" : "Live"}
-        </span>
-      </div>
-
-      {/* The bar the scanner's red line sweeps across. */}
-      <div aria-hidden className="relative my-2 h-9 overflow-hidden">
-        <svg
-          viewBox="0 0 120 36"
-          className="h-full w-full text-foreground/70"
-          preserveAspectRatio="none"
-        >
-          {[
-            0, 5, 8, 14, 17, 23, 28, 31, 37, 42, 45, 51, 56, 59, 65, 70, 73, 79,
-            84, 87, 93, 98, 101, 107, 112, 116,
-          ].map((x, i) => (
-            <rect
-              key={x}
-              x={x}
-              y="0"
-              width={i % 3 === 0 ? 3 : 1.5}
-              height="36"
-              fill="currentColor"
-            />
-          ))}
-        </svg>
-        {!hit && !miss && (
-          <span className="pos-scanline absolute inset-x-0 top-0 h-px bg-brand-coral shadow-[0_0_6px_1px_var(--brand-coral)]" />
-        )}
-      </div>
-
-      <p className="truncate text-xs font-semibold">
-        {hit
-          ? "Scanned and added"
-          : miss
-            ? `No item for “${state.code}”`
-            : "Scan an item"}
-      </p>
-      <div className="flex items-center justify-between gap-2">
-        <p className="truncate text-[11px] text-muted-foreground">
-          {miss
-            ? "Check the label, or search by name."
-            : "Ready whenever you are."}
-        </p>
-        <button
-          type="button"
-          onClick={onOpenCamera}
-          className="flex shrink-0 items-center gap-1 rounded-full bg-foreground px-2 py-1 text-[11px] font-medium text-background transition-colors hover:bg-foreground/85 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
-        >
-          <CameraIcon className="size-3" />
-          Camera
-        </button>
-      </div>
-
-      <style>{`
-        @keyframes pos-scan { from { transform: translateY(0) } to { transform: translateY(35px) } }
-        @media (prefers-reduced-motion: no-preference) {
-          .pos-scanline { animation: pos-scan 1.6s ease-in-out infinite alternate; }
-        }
-      `}</style>
-    </div>
-  );
-}
 
 function ItemTile({
   item,
@@ -933,32 +749,6 @@ function ShelfTab({
         active
           ? "bg-foreground text-background"
           : "bg-card text-muted-foreground ring-1 ring-border hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-function Half({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-        active
-          ? "bg-card text-foreground shadow-sm"
-          : "text-muted-foreground hover:text-foreground",
       )}
     >
       {children}

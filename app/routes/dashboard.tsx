@@ -42,6 +42,8 @@ import {
 } from "~/lib/reports";
 import { getCollectorDashboardPage } from "~/api/collectors";
 import { CollectorDashboard } from "~/components/collector-dashboard";
+import { isOffice } from "~/lib/auth";
+import { useCurrentUser } from "~/lib/use-current-user";
 import { requireUser, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/dashboard";
@@ -558,8 +560,14 @@ function exportCsv(rows: UnifiedTransaction[]) {
 
 /* --------------------------------------------------------------- chrome bits --- */
 
-/** The white card every block sits in, with the reference header row.
- *  `detailTo` makes See Detail and the ⋯ menu real doors into the module. */
+/**
+ * The white card every block sits in, with the reference header row.
+ * `detailTo` makes See Detail and the ⋯ menu real doors into the module.
+ *
+ * Every one of those doors opens on reports or the ledger, which are the
+ * office's. A teller reads the same figures — the summary is theirs — but is
+ * not offered a door that would only turn them around at it.
+ */
 function Card({
   title,
   detailTo,
@@ -580,6 +588,9 @@ function Card({
   note?: string;
   children: ReactNode;
 }) {
+  // The card's own filter stays whoever is reading; only the way out goes.
+  const door = isOffice(useCurrentUser()) ? detailTo : undefined;
+
   return (
     <section className="rounded-2xl bg-card p-4 text-card-foreground sm:p-5">
       <header
@@ -589,28 +600,32 @@ function Card({
         )}
       >
         <h3 className="text-[15px] font-bold tracking-tight">{title}</h3>
-        {!plain && detailTo && (
+        {!plain && (aside || door) && (
           <div className="flex flex-wrap items-center gap-1.5">
             {aside}
-            <Link
-              to={detailTo}
-              className="rounded-full border border-border bg-card px-3 py-1 text-[10.5px] font-medium"
-            >
-              See Detail
-            </Link>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                aria-label={`More options for ${title}`}
-                className="flex size-6 items-center justify-center rounded-full border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              >
-                <EllipsisIcon className="size-3.5" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link to={detailTo}>Open full report</Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {door && (
+              <>
+                <Link
+                  to={door}
+                  className="rounded-full border border-border bg-card px-3 py-1 text-[10.5px] font-medium"
+                >
+                  See Detail
+                </Link>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    aria-label={`More options for ${title}`}
+                    className="flex size-6 items-center justify-center rounded-full border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+                  >
+                    <EllipsisIcon className="size-3.5" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem asChild>
+                      <Link to={door}>Open full report</Link>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
           </div>
         )}
       </header>
@@ -1393,6 +1408,8 @@ function TransactionsTable({
   /** How many rows the panel holds before the filter, for the empty message. */
   total: number;
 }) {
+  const office = isOffice(useCurrentUser());
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-2xl text-[13px]">
@@ -1486,9 +1503,11 @@ function TransactionsTable({
                       <DropdownMenuItem asChild>
                         <Link to={`/customers/${tx.customerId}`}>Open customer</Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem asChild>
-                        <Link to="/transactions">Open the ledger</Link>
-                      </DropdownMenuItem>
+                      {office && (
+                        <DropdownMenuItem asChild>
+                          <Link to="/transactions">Open the ledger</Link>
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </td>

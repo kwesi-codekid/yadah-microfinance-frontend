@@ -40,7 +40,8 @@ import {
   type HpConfig,
   type HpEligibility,
 } from "~/lib/hire-purchase";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { isOffice } from "~/lib/auth";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/hp-new";
@@ -53,7 +54,7 @@ export function meta(_: Route.MetaArgs) {
 const DURATIONS = [3, 6, 12] as const;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  const viewer = await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     const [items, config] = await Promise.all([
@@ -67,6 +68,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return data(
     {
+      /** Whether the shelf is theirs to go and look at. */
+      canStock: isOffice(viewer),
       items: result.items.items.filter(isSellable).map((item) => ({
         id: item.id,
         name: item.name,
@@ -82,7 +85,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const customerId = String(form.get("customerId") ?? "").trim();
   const itemId = String(form.get("itemId") ?? "").trim();
@@ -125,7 +128,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function HpNew({ loaderData }: Route.ComponentProps) {
-  const { items, interestRatePercent } = loaderData;
+  const { items, interestRatePercent, canStock } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -216,11 +219,21 @@ export default function HpNew({ loaderData }: Route.ComponentProps) {
               <PackageIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               <span>
                 Nothing on the shelf can back an agreement — every item is out of
-                stock or discontinued.{" "}
-                <Link to="/inventory" className="underline underline-offset-4">
-                  Check the inventory
-                </Link>
-                .
+                stock or discontinued.
+                {/* The shelf is the office's to keep, so only they are pointed
+                    at it; the counter is told what is wrong, which is the part
+                    they can act on by asking. */}
+                {canStock ? (
+                  <>
+                    {" "}
+                    <Link to="/inventory" className="underline underline-offset-4">
+                      Check the inventory
+                    </Link>
+                    .
+                  </>
+                ) : (
+                  " Ask the office to restock before signing one."
+                )}
               </span>
             </div>
           ) : (

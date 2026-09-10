@@ -22,6 +22,8 @@
  * gap surfaces in the variance report.
  */
 
+import { isOffice, type AuthUser, type Role } from "~/lib/auth";
+
 export type ReconciliationStatus = "declared" | "reconciled";
 
 /**
@@ -45,6 +47,8 @@ export interface Reconciliation {
   collectorId: string;
   /** Present on list responses, for display. */
   collectorName?: string;
+  /** What the person who declared the day does here — see `canConfirm`. */
+  collectorRole?: Role;
   /** The Accra day being closed, `YYYY-MM-DD`. */
   accraDay: string;
   /** Recomputed at confirmation, not reused from declaration. */
@@ -115,6 +119,25 @@ export const STATUS_TONE: Record<ReconciliationStatus, "warning" | "muted"> = {
 /** True while the day is still waiting for the office to count it. */
 export function isPending(row: Pick<Reconciliation, "status">): boolean {
   return row.status === "declared";
+}
+
+/**
+ * Whether this viewer is the one who counts this day in.
+ *
+ * The handover runs one rank at a time. A collector brings the round's cash to
+ * a teller, and the teller counts it in; the teller's own drawer goes to a
+ * manager, who counts that in. Nobody confirms their own day, and a teller
+ * never confirms another teller's — that is the whole point of the chain.
+ *
+ * The API refuses the wrong pairing with `NOT_YOUR_HANDOVER`; this is the same
+ * rule, so that the control is never drawn for somebody it would refuse.
+ */
+export function canConfirm(
+  viewer: Pick<AuthUser, "role"> | null,
+  row: Pick<Reconciliation, "collectorRole">,
+): boolean {
+  if (isOffice(viewer)) return true;
+  return viewer?.role === "teller" && row.collectorRole === "collector";
 }
 
 /**

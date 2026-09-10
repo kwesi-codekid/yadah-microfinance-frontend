@@ -1,5 +1,6 @@
 import {
   BanknoteArrowDownIcon,
+  CheckIcon,
   MoreHorizontalIcon,
   PackageXIcon,
   PrinterIcon,
@@ -19,6 +20,7 @@ import { throwAsRouteError } from "~/api/client";
 import { getCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
 import {
+  approveAgreement,
   forfeit,
   getAgreement,
   markArrears,
@@ -73,6 +75,7 @@ import {
   AGREEMENT_STATUS_TONE,
   CHANNEL_LABELS,
   PAYMENT_TYPE_LABELS,
+  awaitingApproval,
   awaitingDeposit,
   canTrashAgreement,
   isRedeemable,
@@ -144,7 +147,7 @@ interface ActionResult {
 
 /**
  * Everything that changes an agreement's state but does not take a typed
- * amount: reject, flag arrears, repossess, redeem, forfeit, trash.
+ * amount: approve, reject, flag arrears, repossess, redeem, forfeit, trash.
  *
  * Redemption is here rather than in a drawer because it has nothing to fill in
  * — the API computes the full remaining balance itself and returns it. It still
@@ -166,6 +169,14 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   try {
     const { data: result, headers } = await withAuth(request, async (token) => {
+      if (intent === "approve") {
+        await approveAgreement(token, params.id);
+        return {
+          message:
+            "Approved. The customer has been sent the terms and the deposit can now be taken.",
+          gone: false,
+        };
+      }
       if (intent === "reject") {
         await rejectAgreement(token, params.id, reason);
         return {
@@ -256,6 +267,7 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
   const { agreement, canDecide, customerName, payments } = loaderData;
 
   const awaiting = awaitingDeposit(agreement);
+  const unapproved = awaitingApproval(agreement);
   const running = isRunning(agreement);
   const repossessed = agreement.status === "repossessed";
   // Only while the window after a repossession is still open — buying the item
@@ -316,6 +328,11 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
               </Link>
             </Button>
           )}
+          {/* The one decision that is the point of the page while it is in this
+              state, so it is a button rather than a line in the ⋯ menu. */}
+          {canDecide && unapproved && (
+            <ApproveButton customerName={customerName} />
+          )}
           {/* Every item in it decides something, so the counter is not shown a
               menu whose every entry would be refused. */}
           {canDecide && (
@@ -355,6 +372,14 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
           <span className="font-medium">Behind on instalments.</span> Clearing
           every month-overdue instalment lifts this flag on its own.
           Repossession is the step after it.
+        </Note>
+      )}
+
+      {unapproved && (
+        <Note tone="warning">
+          <span className="font-medium">Signed at the counter.</span> The unit
+          is reserved, but no deposit can be taken until a manager approves it —
+          and the customer has not been sent the terms yet.
         </Note>
       )}
 
@@ -432,6 +457,47 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
       {/* The payment drawer renders here, over the agreement. */}
       <Outlet />
     </Page>
+  );
+}
+
+/* ---------------------------------------------------------------- approve --- */
+
+/**
+ * The office letting a counter-signed agreement stand.
+ *
+ * It is its own control rather than an entry in the ⋯ menu because while an
+ * agreement is `awaiting-approval` this is the only thing anybody can do with
+ * it — nothing may be charged against it, and it is a manager's queue. The
+ * confirmation is worth a click: approving sends the customer the terms by SMS
+ * and there is no un-approving afterwards, only rejecting.
+ */
+function ApproveButton({ customerName }: { customerName: string }) {
+  const fetcher = useFetcher<ActionResult>();
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!fetcher.data) return;
+    if (fetcher.data.ok) toast.success(fetcher.data.message);
+    else toast.error(fetcher.data.message);
+  }, [fetcher.data]);
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)} disabled={fetcher.state !== "idle"}>
+        <CheckIcon />
+        Approve
+      </Button>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Approve this agreement?"
+        description={`${customerName} is sent the terms by SMS and the deposit can be taken from that moment. Approving cannot be undone — an agreement you have let stand can only be rejected while it is still unpaid.`}
+        confirmLabel="Approve"
+        onConfirm={() =>
+          fetcher.submit({ intent: "approve" }, { method: "post" })
+        }
+      />
+    </>
   );
 }
 
@@ -549,6 +615,7 @@ function AgreementMenu({
   }, [fetcher.data]);
 
   const awaiting = awaitingDeposit(agreement);
+  const unapproved = awaitingApproval(agreement);
   const running = isRunning(agreement);
   const redeemable = isRedeemable(agreement);
   const lapsed = windowLapsed(agreement);
@@ -563,8 +630,10 @@ function AgreementMenu({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
+          {/* Turning one down is the same act either side of approval: nothing
+              has been paid in either state, and the unit goes back either way. */}
           <DropdownMenuItem
-            disabled={!awaiting}
+            disabled={!awaiting && !unapproved}
             onSelect={(event) => {
               event.preventDefault();
               setDialog("reject");

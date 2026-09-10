@@ -26,6 +26,7 @@ import {
   STATUS_TONE,
   VARIANCE_LABELS,
   VARIANCE_TONE,
+  canConfirm as mayConfirm,
   checkReceivedAmount,
   isPending,
   reasonExpected,
@@ -53,20 +54,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   });
 
   const row = result.reconciliation;
-  const office = user.role === "admin" || user.role === "manager";
 
   return data(
     {
       row,
       /**
-       * Who may press Confirm. Two conditions, and both matter: the office does
-       * the counting, and **nobody confirms their own cash**. The API refuses
-       * it either way — this only decides whether the form is drawn, and says
-       * which of the two is in the way when it is not.
+       * Who may press Confirm. Two conditions, and both matter: the handover
+       * runs one rank at a time — a teller counts in a collector's day, the
+       * office counts in a teller's — and **nobody confirms their own cash**.
+       * The API refuses it either way; this only decides whether the form is
+       * drawn, and says which of the two is in the way when it is not.
        */
-      canConfirm: office && row.collectorId !== user.id && isPending(row),
+      canConfirm:
+        mayConfirm(user, row) && row.collectorId !== user.id && isPending(row),
       isOwnCash: row.collectorId === user.id,
-      office,
     },
     { headers },
   );
@@ -121,7 +122,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function ReconciliationDetail({ loaderData }: Route.ComponentProps) {
-  const { row, canConfirm, isOwnCash, office } = loaderData;
+  const { row, canConfirm, isOwnCash } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -194,7 +195,7 @@ export default function ReconciliationDetail({ loaderData }: Route.ComponentProp
           tone={row.receivedAmount == null ? "muted" : undefined}
           hint={
             row.receivedAt
-              ? `By the office, ${formatAccraDateTime(row.receivedAt)}`
+              ? `At the counter, ${formatAccraDateTime(row.receivedAt)}`
               : "Not yet"
           }
         />
@@ -251,10 +252,8 @@ export default function ReconciliationDetail({ loaderData }: Route.ComponentProp
           <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-warning" />
           <span>
             {isOwnCash
-              ? "This is your own cash, so somebody else in the office has to count it."
-              : office
-                ? "This day has already been counted."
-                : "The office has not counted this yet. It will show here when it does."}
+              ? "This is your own cash, so the person you hand it to has to count it in — a collector's day goes to a teller, a teller's to a manager."
+              : "Whoever receives this handover has not counted it yet. It will show here when they do."}
           </span>
         </p>
       )}
