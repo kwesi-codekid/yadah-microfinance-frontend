@@ -2,6 +2,7 @@ import {
   BanknoteArrowDownIcon,
   MoreHorizontalIcon,
   PackageXIcon,
+  PrinterIcon,
   RotateCcwIcon,
   SmartphoneIcon,
   Trash2Icon,
@@ -391,7 +392,7 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
         ) : null}
       </section>
 
-      <Payments rows={payments} />
+      <Payments agreementId={agreement.id} rows={payments} />
 
       {/* The payment drawer renders here, over the agreement. */}
       <Outlet />
@@ -401,9 +402,16 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
 
 /* --------------------------------------------------------------- payments --- */
 
+/**
+ * Every payment against the agreement — deposit, instalments, redemption — as
+ * the API sends them. Each row carries a ⋯ menu with its receipt: a resource
+ * route answering with bytes, so a plain anchor rather than a `Link`.
+ */
 function Payments({
+  agreementId,
   rows,
 }: {
+  agreementId: string;
   rows: { id: string; amount: number; what: string; how: string; at: string }[];
 }) {
   return (
@@ -423,6 +431,9 @@ function Payments({
               <Th>What</Th>
               <Th className="hidden sm:table-cell">How</Th>
               <Th className="text-right">Amount</Th>
+              <Th className="text-right">
+                <span className="sr-only">Actions</span>
+              </Th>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -435,6 +446,32 @@ function Payments({
                 </TableCell>
                 <TableCell className="tabular px-4 py-3 text-right font-medium whitespace-nowrap text-cash-in">
                   +{formatAmount(row.amount)}
+                </TableCell>
+                <TableCell className="px-4 py-3 text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Actions"
+                        className="text-muted-foreground"
+                      >
+                        <MoreHorizontalIcon />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuItem asChild>
+                        <a
+                          href={`/hire-purchase/${agreementId}/payments/${row.id}/receipt`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <PrinterIcon />
+                          Print receipt
+                        </a>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             ))}

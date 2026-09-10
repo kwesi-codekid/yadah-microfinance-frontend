@@ -81,9 +81,12 @@ export function getSale(accessToken: string, id: string): Promise<{ sale: Sale }
  * price, which then prints against the list price on the receipt.
  *
  * Stock comes off inside the transaction under a guard, so two tills cannot
- * sell the same unit, and `OUT_OF_STOCK` names the line that failed. Idempotent
- * on the key: a retry after a dropped connection returns the original sale
- * rather than selling the basket twice.
+ * sell the same unit. A line that cannot be sold is refused by name:
+ * `INSUFFICIENT_STOCK` (details `itemId`, `requested`, `quantityInStock`),
+ * `ITEM_NOT_FOUND` (details `itemId`), or `ITEM_DISCONTINUED`. Idempotent on
+ * the key: a retry after a dropped connection answers `200 {}` — an empty
+ * body, not the original sale — rather than selling the basket twice, so the
+ * absence of `sale` is what says it was already rung up.
  */
 export function createSale(
   accessToken: string,
@@ -95,7 +98,7 @@ export function createSale(
     idempotencyKey: string;
     channel?: SaleChannel;
   },
-): Promise<{ sale: Sale; replayed: boolean }> {
+): Promise<{ sale?: Sale; replayed?: boolean }> {
   return apiFetch("/hire-purchase/sales", {
     method: "POST",
     json: input,

@@ -5,6 +5,7 @@ import {
   DownloadIcon,
   FileTextIcon,
   Loader2Icon,
+  PrinterIcon,
   SearchIcon,
   SlidersHorizontalIcon,
   XIcon,
@@ -27,6 +28,7 @@ import { Label } from "~/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import { TableHead } from "~/components/ui/table";
 import { formatCount, formatDayRange } from "~/lib/format";
+import { MODULE_VAR, type TxnModule } from "~/lib/reports";
 import { cn } from "~/lib/utils";
 
 /**
@@ -202,6 +204,30 @@ export function StatusPill({
       <span aria-hidden className={cn("size-1.5 rounded-full", TONE_DOT[tone])} />
       <span className={TONE_TEXT[tone]}>{label}</span>
     </span>
+  );
+}
+
+/**
+ * The dot that stands for one of the five modules, in that module's own colour.
+ *
+ * Both ledgers draw it — the business-wide one and a customer's statement — and
+ * a colour that meant susu on one screen and savings on the other would be
+ * worse than no colour at all, so it is defined once and read off the same
+ * `--module-*` names the charts use.
+ */
+export function ModuleDot({
+  module,
+  className,
+}: {
+  module: TxnModule;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn("size-2 shrink-0 rounded-full", className)}
+      style={{ backgroundColor: MODULE_VAR[module] }}
+    />
   );
 }
 
@@ -497,6 +523,180 @@ export function DayRangeFilter({
   );
 }
 
+/**
+ * A reporting period that always names itself.
+ *
+ * The difference from `DayRangeFilter` above is the default. A listing with no
+ * date filter shows everything, so the button can say "Registered" and mean it.
+ * A report has no such state: ask for no range and the API quietly answers with
+ * the last thirty days, and a total with no period beside it is a figure nobody
+ * can check. So the route resolves the default itself, this button prints the
+ * range whether it was chosen or defaulted, and `active` — set only once
+ * somebody picks — is what decides the tint and whether Clear can be pressed.
+ *
+ * Both ledgers use it, the business-wide one and a customer's statement.
+ */
+export function PeriodFilter({
+  from,
+  to,
+  active,
+  title = "Period",
+  apply,
+  align = "end",
+}: {
+  /** The resolved range — never blank, defaulted or not. */
+  from: string;
+  to: string;
+  /** True once somebody has set the range rather than taking the default. */
+  active: boolean;
+  title?: string;
+  /** Clear hands back two empty strings, which is the route's cue to default. */
+  apply: (next: { from: string; to: string }) => void;
+  align?: "start" | "end";
+}) {
+  const [open, setOpen] = useState(false);
+  const fieldsRef = useRef<HTMLDivElement>(null);
+
+  const commit = (next: { from: string; to: string }) => {
+    setOpen(false);
+    apply(next);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(active && "border-primary/50 text-primary")}
+        >
+          <SlidersHorizontalIcon />
+          {formatDayRange(from, to)}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align={align} className="w-72 space-y-3">
+        {/* Keyed on the applied range so reopening after a Clear shows it. */}
+        <div ref={fieldsRef} key={`${from}|${to}`} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="eyebrow text-muted-foreground">{title} from</Label>
+            <DateField name="from" defaultValue={from} endMonth={new Date()} />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="eyebrow text-muted-foreground">{title} to</Label>
+            <DateField name="to" defaultValue={to} endMonth={new Date()} />
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!active}
+            onClick={() => commit({ from: "", to: "" })}
+          >
+            Clear
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              // Each DateField keeps its value in a hidden input; read those on
+              // apply rather than mirroring every calendar click into state.
+              const read = (name: string) =>
+                fieldsRef.current?.querySelector<HTMLInputElement>(
+                  `input[name='${name}']`,
+                )?.value ?? "";
+              commit({ from: read("from"), to: read("to") });
+            }}
+          >
+            Apply
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * One day rather than a range, for the books that are read *as at* a date —
+ * the asset register, the balance sheet, the cash position. The question they
+ * answer is "what was everything worth on that day", not "what happened
+ * between two days", so a range would be the wrong shape. Empty means today.
+ */
+export function AsOfFilter({
+  value,
+  apply,
+  title,
+  align = "end",
+}: {
+  /** `YYYY-MM-DD`, or empty for today. */
+  value: string;
+  apply: (next: string) => void;
+  title: string;
+  align?: "start" | "end";
+}) {
+  const [open, setOpen] = useState(false);
+  const fieldRef = useRef<HTMLDivElement>(null);
+  const active = Boolean(value);
+
+  const commit = (next: string) => {
+    setOpen(false);
+    apply(next);
+  };
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(active && "border-primary/50 text-primary")}
+        >
+          <CalendarIcon />
+          {active ? `As at ${formatDayRange(value, value)}` : "As at today"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align={align} className="w-72 space-y-3">
+        {/* Keyed on the applied day so reopening after a reset shows it. */}
+        <div ref={fieldRef} key={value} className="space-y-1.5">
+          <Label className="eyebrow text-muted-foreground">{title}</Label>
+          <DateField
+            name="asOf"
+            defaultValue={value || undefined}
+            placeholder="Today"
+            endMonth={new Date()}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!active}
+            onClick={() => commit("")}
+          >
+            Today
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              // The DateField keeps its value in a hidden input; read it on
+              // apply rather than mirroring every calendar click into state.
+              const input = fieldRef.current?.querySelector<HTMLInputElement>(
+                "input[name='asOf']",
+              );
+              commit(input?.value ?? "");
+            }}
+          >
+            Apply
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /** A one-of dropdown filter — a status, a type, a module. */
 export function ChoiceFilter<T extends string>({
   value,
@@ -627,11 +827,23 @@ export function ExportMenu({
   query,
   total,
   noun = "row",
+  pdf = false,
+  label,
 }: {
   path: string;
   query: string;
   total: number;
   noun?: string;
+  /**
+   * Offer the laid-out A4 statement as well. Only the balance sheet and the
+   * profit and loss print — every list is a spreadsheet and nothing more.
+   */
+  pdf?: boolean;
+  /**
+   * What the menu says it is exporting, when a row count would be wrong — a
+   * statement is one document, not a list of matches.
+   */
+  label?: string;
 }) {
   const suffix = query ? `&${query}` : "";
   const capped = Math.min(total, 10_000);
@@ -646,10 +858,18 @@ export function ExportMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="font-normal text-muted-foreground">
-          {formatCount(capped)} {noun}
-          {capped === 1 ? "" : "s"}, matching the filters above
+          {label ??
+            `${formatCount(capped)} ${noun}${capped === 1 ? "" : "s"}, matching the filters above`}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {pdf && (
+          <DropdownMenuItem asChild>
+            <a href={`${path}?format=pdf${suffix}`} target="_blank" rel="noreferrer">
+              <PrinterIcon />
+              Print (PDF)
+            </a>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem asChild>
           <a href={`${path}?format=csv${suffix}`}>
             <FileTextIcon />

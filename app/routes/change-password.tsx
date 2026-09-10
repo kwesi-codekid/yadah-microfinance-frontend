@@ -5,7 +5,7 @@ import * as authApi from "~/api/auth";
 import { describeAuthError } from "~/api/error";
 import { AuthField } from "~/components/auth-field";
 import { FormError, FormNotice } from "~/components/auth-shell";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import { Button } from "~/components/ui/button";
 import { FieldGroup } from "~/components/ui/field";
 import { Spinner } from "~/components/ui/spinner";
@@ -18,7 +18,10 @@ export function meta(_: Route.MetaArgs) {
 }
 
 /** This page has no rail item of its own, so it names itself for the header. */
-export const handle = { title: "Change password" };
+export const handle = {
+  title: "Change password",
+  description: "Changing it here signs you out of every other device.",
+};
 
 type ActionData = {
   fieldErrors?: Record<string, string>;
@@ -70,11 +73,6 @@ export default function ChangePassword({ actionData }: Route.ComponentProps) {
 
   return (
     <Page contentClassName="max-w-lg">
-      <PageHeader
-        title="Change password"
-        description="Changing it here signs you out of every other device."
-      />
-
       {idle && actionData?.formError && <FormError>{actionData.formError}</FormError>}
       {idle && actionData?.changed && (
         <FormNotice tone="success">

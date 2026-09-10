@@ -13,7 +13,7 @@ import {
   ListingToolbar,
   Th,
 } from "~/components/listing";
-import { BackLink, Page, PageHeader } from "~/components/page";
+import { BackLink, Page } from "~/components/page";
 import {
   Empty,
   EmptyDescription,
@@ -36,6 +36,12 @@ import type { Route } from "./+types/report-collections";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Collections by staff · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Collections by staff",
+  description: "Susu and savings deposits, grouped by whoever recorded them.",
+};
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -153,11 +159,6 @@ export default function ReportCollections({ loaderData }: Route.ComponentProps) 
       <BackLink to="/reports" className="mb-4">
         All reports
       </BackLink>
-
-      <PageHeader
-        title="Collections by staff"
-        description="Susu and savings deposits, grouped by whoever recorded them."
-      />
 
       <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Figure

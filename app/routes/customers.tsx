@@ -15,6 +15,7 @@ import {
   SlidersHorizontalIcon,
   Trash2Icon,
   UserPlusIcon,
+  UserRoundCogIcon,
   UsersIcon,
   XIcon,
 } from "lucide-react";
@@ -25,7 +26,16 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { data, Form, Link, useFetcher, useNavigation, useSubmit } from "react-router";
+import {
+  data,
+  Form,
+  Link,
+  Outlet,
+  useFetcher,
+  useLocation,
+  useNavigation,
+  useSubmit,
+} from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -35,7 +45,10 @@ import {
   trashCustomer,
 } from "~/api/customers";
 import { ApiError } from "~/api/error";
-import { Page, PageHeader } from "~/components/page";
+import { listUsers } from "~/api/users";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
+import { Page } from "~/components/page";
+import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -148,6 +161,9 @@ function hrefFor(f: Filters, page = 1): string {
 /** Everyone signed in may read customers; only the office may register them. */
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireUser(request);
+  // Moving a round is admin-only: a manager may edit a customer but must not
+  // silently change who collects from them.
+  const canReassign = user.role === "admin";
   const url = new URL(request.url);
 
   const filters = readFilters(url);
@@ -161,7 +177,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       from: filters.from || undefined,
       to: filters.to || undefined,
     };
-    const [list, active, inactive] = await Promise.all([
+    const [list, active, inactive, collectors] = await Promise.all([
       listCustomers(token, {
         ...scope,
         page,
@@ -170,9 +186,34 @@ export async function loader({ request }: Route.LoaderArgs) {
       }),
       listCustomers(token, { ...scope, page: 1, limit: 1, status: "active" }),
       listCustomers(token, { ...scope, page: 1, limit: 1, status: "inactive" }),
+      // Read once with the page, not once per drawer. The reassign panel opens
+      // over these rows and needs a round to move a customer to; asking for it
+      // on each opening made the panel wait on the server every single time,
+      // for a list that is identical every single time.
+      //
+      // Admin-only, both because only an admin may reassign and because
+      // `GET /users` is closed to everyone else — a manager asking would be a
+      // 403 that fails the whole listing.
+      //
+      // Soft, for the same reason the bell in the layout is: a page of
+      // customers must not go down because the staff list is briefly away.
+      // Without it the drawer falls back to the route that fetches for itself.
+      canReassign
+        ? listUsers(token, {
+            role: "collector",
+            status: "active",
+            limit: 100,
+          }).catch((error: unknown) => {
+            // A 401 belongs to `withAuth`, which renews the token and retries.
+            if (error instanceof ApiError && error.status === 401) throw error;
+            return null;
+          })
+        : null,
     ]);
     return {
       list,
+      collectors:
+        collectors?.items.map(({ id, name }) => ({ id, name })) ?? null,
       counts: {
         all: active.total + inactive.total,
         active: active.total,
@@ -187,6 +228,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   return data(
     {
       canManage: isOffice(user),
+      canReassign,
+      // Everything the reassign drawer needs to open without asking for it.
+      collectors: result.collectors,
       filters,
       page,
       total: result.list.total,
@@ -196,6 +240,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     { headers },
   );
 }
+
+/** Opening the reassign drawer does not re-read the listing underneath it. */
+export const shouldRevalidate = drawerParentShouldRevalidate;
 
 interface ActionResult {
   ok: boolean;
@@ -272,6 +319,8 @@ interface Row {
   idNumber: string | null;
   status: CustomerStatus;
   registered: string;
+  /** Empty when they are on nobody's round. Read by the reassign drawer. */
+  assignedCollectorId: string;
 }
 
 function toRow(c: Customer, now: Date): Row {
@@ -290,6 +339,7 @@ function toRow(c: Customer, now: Date): Row {
     idNumber: c.identification?.idNumber ?? null,
     status: c.status,
     registered: relativeDayLabel(c.createdAt, now),
+    assignedCollectorId: c.assignedCollectorId ?? "",
   };
 }
 
@@ -304,8 +354,13 @@ function shortId(id: string): string {
 }
 
 export default function Customers({ loaderData }: Route.ComponentProps) {
-  const { canManage, filters, page, total, counts, rows } = loaderData;
+  const { canManage, canReassign, filters, page, total, counts, rows } =
+    loaderData;
   const navigation = useNavigation();
+  // Rides along on every link out of here, so a drawer closes onto the same
+  // filters it opened over — and so opening one leaves the query string
+  // untouched, which is what `shouldRevalidate` reads to refuse the reload.
+  const { search } = useLocation();
 
   // A navigation back into this listing — the search box and the table both
   // dim while one is in flight, so a slow query never looks like no result.
@@ -318,59 +373,41 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
   const filtered = Boolean(filters.search || filters.from || filters.to);
 
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter customers by status"
+          sections={[
+            {
+              label: "Status",
+              items: TABS.map((tab) => ({
+                key: tab.key,
+                label: tab.label,
+                count: counts[tab.key],
+                to: hrefFor({ ...filters, status: tab.key }),
+              })),
+            },
+          ]}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
-      <PageHeader
-        title="Customers"
-        actions={
-          canManage ? (
-            <Button asChild>
-              <Link to="/customers/new">
-                <UserPlusIcon />
-                Register customer
-              </Link>
-            </Button>
-          ) : undefined
-        }
-      />
-
       <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="inline-flex w-fit items-center gap-1 rounded-lg bg-muted/60 p-1">
-            {TABS.map((tab) => {
-              const activeTab = filters.status === tab.key;
-              return (
-                <Link
-                  key={tab.key}
-                  to={hrefFor({ ...filters, status: tab.key })}
-                  aria-current={activeTab ? "page" : undefined}
-                  preventScrollReset
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                    activeTab
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {tab.label}
-                  <span
-                    className={cn(
-                      "tabular rounded-full px-1.5 py-px text-xs font-semibold",
-                      activeTab
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {formatCount(counts[tab.key])}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-
+        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-end">
           <div className="flex flex-wrap items-center gap-2">
             <SearchBox filters={filters} busy={busy} />
             <DateRangeFilter filters={filters} />
             <ExportMenu filters={filters} total={total} />
+            {canManage && (
+              <Button asChild size="sm">
+                <Link to="/customers/new">
+                  <UserPlusIcon />
+                  Register customer
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -394,7 +431,13 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
               </TableHeader>
               <TableBody>
                 {rows.map((row) => (
-                  <CustomerRow key={row.id} row={row} canManage={canManage} />
+                  <CustomerRow
+                    key={row.id}
+                    row={row}
+                    canManage={canManage}
+                    canReassign={canReassign}
+                    search={search}
+                  />
                 ))}
               </TableBody>
             </Table>
@@ -429,7 +472,12 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
           </div>
         )}
       </div>
+
+      {/* The reassign drawer renders here — over the rows, not a page away
+          from them. */}
+      <Outlet />
     </Page>
+    </RailFrame>
   );
 }
 
@@ -721,7 +769,17 @@ function ExportMenu({ filters, total }: { filters: Filters; total: number }) {
 
 /* -------------------------------------------------------------------- rows --- */
 
-function CustomerRow({ row, canManage }: { row: Row; canManage: boolean }) {
+function CustomerRow({
+  row,
+  canManage,
+  canReassign,
+  search,
+}: {
+  row: Row;
+  canManage: boolean;
+  canReassign: boolean;
+  search: string;
+}) {
   return (
     <TableRow className="group">
       <TableCell className="px-4 py-3">
@@ -788,14 +846,29 @@ function CustomerRow({ row, canManage }: { row: Row; canManage: boolean }) {
       </TableCell>
 
       <TableCell className="px-4 py-3">
-        <RowActions row={row} canManage={canManage} />
+        <RowActions
+          row={row}
+          canManage={canManage}
+          canReassign={canReassign}
+          search={search}
+        />
       </TableCell>
     </TableRow>
   );
 }
 
-/** View · Statement · Print · Edit · Deactivate · Move to trash. */
-function RowActions({ row, canManage }: { row: Row; canManage: boolean }) {
+/** View · Statement · Print · Edit · Reassign · Deactivate · Move to trash. */
+function RowActions({
+  row,
+  canManage,
+  canReassign,
+  search,
+}: {
+  row: Row;
+  canManage: boolean;
+  canReassign: boolean;
+  search: string;
+}) {
   const fetcher = useFetcher<ActionResult>();
   const [confirm, setConfirm] = useState<"deactivate" | "trash" | null>(null);
   const [reason, setReason] = useState("");
@@ -866,6 +939,18 @@ function RowActions({ row, canManage }: { row: Row; canManage: boolean }) {
                 <Link to={`/customers/${row.id}/edit`}>
                   <PencilIcon />
                   Edit
+                </Link>
+              </DropdownMenuItem>
+              {/* Drawn for everyone who can reach this menu and disabled for a
+                  manager, rather than hidden — the same way every other row menu
+                  in this app says "not yours to do". */}
+              <DropdownMenuItem asChild disabled={!canReassign}>
+                <Link
+                  to={`/customers/${row.id}/reassign${search}`}
+                  prefetch="intent"
+                >
+                  <UserRoundCogIcon />
+                  Reassign collector
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />

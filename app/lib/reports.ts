@@ -42,6 +42,9 @@ export type TxnType =
 /** From the company's cash perspective. `internal` rows are transfer legs. */
 export type Direction = "in" | "out" | "internal";
 
+/** Whether the money actually moved. Only Paystack rows are ever not `completed`. */
+export type TxnStatus = "completed" | "pending" | "failed";
+
 /** A count and a total, the pair almost every figure in these reports comes as. */
 export interface Tally {
   count: number;
@@ -57,13 +60,26 @@ export interface UnifiedTransaction {
   amount: number;
   /** Pesewas — a savings withdrawal or transfer fee. */
   fee: number;
+  /**
+   * Every ledger row is `completed` — the modules only write once money has
+   * moved. `pending` and `failed` appear only where the caller asked for
+   * unapplied Paystack charges: pending is awaiting confirmation, failed is
+   * money Paystack took that could not be posted. Neither is in `totals`.
+   */
+  status: TxnStatus;
   channel: string | null;
   /** Payout destination, repayment source, or transfer route — `susu->loan`. */
   detail: string | null;
   customerId: string;
   customerName: string;
   ref: {
-    kind: "susu-account" | "savings-account" | "loan" | "hp-agreement" | "transfer";
+    kind:
+      | "susu-account"
+      | "savings-account"
+      | "loan"
+      | "hp-agreement"
+      | "hp-sale"
+      | "transfer";
     id: string;
     /** Present for susu and savings accounts. */
     accountNumber?: string;
@@ -97,7 +113,40 @@ export interface TransactionFeed {
 
 /* --------------------------------------------------------------- dashboard --- */
 
-export interface DashboardMetrics {
+/**
+ * The five `/dashboard/*` endpoints, which exist only to feed this one screen.
+ *
+ * They are deliberately not the `/reports` endpoints: a report answers a
+ * question someone asked, a dashboard states the position without being asked.
+ * Money is integer pesewas throughout, as everywhere else in the API.
+ */
+
+/**
+ * The headline tiles, already flattened by the API. Every value is derived from
+ * the blocks below it and repeated only so the screen need not redo the sums.
+ */
+export interface DashboardKpis {
+  /** Customers with status `active`. */
+  totalCustomers: number;
+  /** Open susu cycles + active savings + open loans + open HP agreements. */
+  activeAccounts: number;
+  /** Completed cycles not yet paid out. */
+  pendingSusuPayouts: Tally;
+  /** Today's cash in, pesewas. */
+  amountCollectedToday: number;
+  /**
+   * Against yesterday, one decimal. **Null when yesterday took nothing** —
+   * there is no percentage change from zero, so the tile must draw a dash
+   * rather than `0%` or `∞`.
+   */
+  amountCollectedChangePercent: number | null;
+  /** Loans in arrears + HP agreements in arrears. */
+  inArrears: number;
+}
+
+/** `GET /dashboard/summary` — the position right now, computed on every call. */
+export interface DashboardSummary {
+  kpis: DashboardKpis;
   today: {
     /** Accra calendar day, `YYYY-MM-DD`. */
     day: string;
@@ -117,6 +166,11 @@ export interface DashboardMetrics {
       loanDisbursements: Tally;
     };
   };
+  /** Yesterday's take, the denominator behind `amountCollectedChangePercent`. */
+  yesterday: {
+    day: string;
+    cashIn: Tally;
+  };
   monthToDate: {
     from: string;
     to: string;
@@ -135,6 +189,7 @@ export interface DashboardMetrics {
     susu: {
       activeAccounts: number;
       completedAwaitingClosure: number;
+      /** Deposits less anything already withdrawn. */
       valueHeld: number;
       pendingPayout: Tally;
     };
@@ -148,6 +203,145 @@ export interface DashboardMetrics {
   };
   generatedAt: string;
 }
+
+/** How `GET /dashboard/series` groups its buckets. */
+export type SeriesBucket = "day" | "week" | "month";
+
+/**
+ * One bucket of the cash series.
+ *
+ * `expected` and `received` come from **reconciled collector days only**, so
+ * the newest buckets legitimately read as zero until the office confirms those
+ * handovers — a chart that treats that as a collapse in collections is lying.
+ */
+export interface CashSeriesPoint {
+  /** `2026-08-27` (day), `2026-W35` (ISO week), or `2026-08` (month). */
+  key: string;
+  cashIn: Tally;
+  cashOut: Tally;
+  internalMoves: Tally;
+  /** Field cash the system recorded collectors taking in. */
+  expected: number;
+  /** What the office confirmed was turned in. */
+  received: number;
+}
+
+/**
+ * `GET /dashboard/series` — one series behind the cash-flow, collections and
+ * reconciliation charts. Every bucket in the range is present, empty ones
+ * included: a chart that skips an empty month draws a slope across it and
+ * implies activity that never happened.
+ */
+export interface CashSeries {
+  from: string;
+  to: string;
+  bucket: SeriesBucket;
+  points: CashSeriesPoint[];
+  totals: {
+    cashIn: Tally;
+    cashOut: Tally;
+    internalMoves: Tally;
+    expected: number;
+    received: number;
+  };
+}
+
+/**
+ * `GET /dashboard/efficiency` — of the field cash the system recorded
+ * collectors taking in, how much the office confirmed receiving.
+ *
+ * **This measures whether money reached the office, not whether customers paid
+ * what they owed.** Loans and hire purchase are collected at the counter and
+ * never appear here; only susu and savings cash does. Label it accordingly or
+ * it will be read as a repayment rate.
+ */
+export interface CollectionEfficiency {
+  from: string;
+  to: string;
+  expected: number;
+  received: number;
+  /** One decimal. Null when nothing was due — draw a dash, not a zero. */
+  percent: number | null;
+  /** Negative means collectors were short overall. */
+  netVariance: number;
+  daysReconciled: number;
+  daysWithVariance: number;
+}
+
+/**
+ * A standing condition, not a notification. A notification is one past event
+ * addressed to one person; an alert stays true until the work is done and reads
+ * the same for everyone in the office. Alerts with nothing behind them are
+ * omitted, so an empty array means nothing needs attention.
+ */
+export interface DashboardAlert {
+  /** Stable identifier — key the UI off this, never off the title. */
+  key: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  /** One sentence stating the condition, already phrased for display. */
+  body: string;
+  count: number;
+  /** Pesewas at stake, or null when the alert is not about an amount. */
+  amount: number | null;
+  /** Where the work lives, so the action button routes without a lookup table. */
+  target: { module: string; filter: Record<string, string> };
+}
+
+export interface DashboardAlerts {
+  alerts: DashboardAlert[];
+  generatedAt: string;
+}
+
+/** `GET /dashboard/recent-transactions` — a short window onto the ledger. */
+export interface RecentTransactions {
+  items: UnifiedTransaction[];
+  /** Counts only money that moved: pending and failed rows are excluded. */
+  totals: TransactionTotals;
+}
+
+/** Where an alert's action button goes. The API names the module; this maps it. */
+const ALERT_MODULE_PATHS: Record<string, string> = {
+  susu: "/susu",
+  savings: "/savings",
+  loans: "/loans",
+  "hire-purchase": "/hire-purchase",
+  hp: "/hire-purchase",
+  transfers: "/transfers",
+  payments: "/transactions",
+  reconciliation: "/reconciliation",
+  customers: "/customers",
+  reports: "/reports",
+};
+
+/**
+ * The alert's target as a path this app can navigate to, filter included.
+ *
+ * The filter arrives as plain strings and is passed straight through as query
+ * parameters, so a filter the API adds later still lands on the right screen
+ * without a release here. An unknown module falls back to the ledger rather
+ * than to a dead link.
+ */
+export function alertPath(alert: DashboardAlert): string {
+  const base = ALERT_MODULE_PATHS[alert.target.module] ?? "/transactions";
+  const query = new URLSearchParams(alert.target.filter ?? {}).toString();
+  return query ? `${base}?${query}` : base;
+}
+
+/** The share of a bucket's expected cash that reached the office, 0–100. */
+export function matchRate(point: CashSeriesPoint): number | null {
+  if (point.expected <= 0) return null;
+  return (point.received / point.expected) * 100;
+}
+
+/**
+ * `GET /reports/dashboard`, the deprecated alias that `/dashboard/summary`
+ * replaced. Kept for the one caller that has not moved yet; new screens read
+ * `DashboardSummary`, which carries `kpis` and `yesterday` on top of this.
+ *
+ * @deprecated Use {@link DashboardSummary}.
+ */
+export type DashboardMetrics = Omit<DashboardSummary, "kpis" | "yesterday">;
 
 /* ----------------------------------------------------------- other reports --- */
 
@@ -322,6 +516,57 @@ export function refPath(txn: UnifiedTransaction): string | null {
       return `/hire-purchase/${txn.ref.id}`;
     default:
       // A transfer has no page of its own — its legs are the record.
+      return null;
+  }
+}
+
+/**
+ * Where a ledger row's printable receipt lives, or null when there is none.
+ *
+ * Every receipt route is keyed by the owning record (`ref.id`) and, where the
+ * record has many money events, by the event itself. The assumption behind the
+ * second key is that `t.id` **is the underlying record's own id** — the
+ * deposit's, the repayment's, the HP payment's — rather than an id minted for
+ * the feed. The ledger row and the receipt are both built from the same
+ * document, so that holds today; if the feed ever starts synthesising ids,
+ * this is the one place to change.
+ *
+ * Only a `completed` row has a receipt. A pending or failed Paystack charge is
+ * money that has not landed, and there is nothing to print for it. The
+ * customer statement's row type leaves `status` optional — the API writes it
+ * on every ledger row and omits it nowhere that matters — so a missing status
+ * is read as completed rather than as unprintable.
+ */
+export function receiptPathFor(
+  t: Pick<UnifiedTransaction, "id" | "type" | "ref"> & { status?: TxnStatus },
+): string | null {
+  if ((t.status ?? "completed") !== "completed") return null;
+  switch (t.type) {
+    case "susu-deposit":
+      return `/susu/${t.ref.id}/deposits/${t.id}/receipt`;
+    // A partial withdrawal and a payout share one receipt endpoint.
+    case "susu-payout":
+    case "susu-withdrawal":
+      return `/susu/${t.ref.id}/withdrawals/${t.id}/receipt`;
+    case "savings-deposit":
+    case "savings-withdrawal":
+    case "savings-closure":
+      return `/savings/${t.ref.id}/txns/${t.id}/receipt`;
+    // One per loan: the disbursement is the loan's own event, not a row of its own.
+    case "loan-disbursement":
+      return `/loans/${t.ref.id}/disbursement/receipt`;
+    case "loan-repayment":
+      return `/loans/${t.ref.id}/repayments/${t.id}/receipt`;
+    // Deposit, instalment and redemption are one document under three titles.
+    case "hp-deposit":
+    case "hp-installment":
+    case "hp-redemption":
+      return `/hire-purchase/${t.ref.id}/payments/${t.id}/receipt`;
+    case "hp-sale":
+      return `/sales/${t.ref.id}/receipt`;
+    case "transfer":
+      return `/transfers/${t.ref.id}/receipt`;
+    default:
       return null;
   }
 }

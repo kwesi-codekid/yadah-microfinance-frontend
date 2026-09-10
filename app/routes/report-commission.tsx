@@ -10,7 +10,7 @@ import {
   ListingCard,
   ListingToolbar,
 } from "~/components/listing";
-import { BackLink, Page, PageHeader } from "~/components/page";
+import { BackLink, Page } from "~/components/page";
 import { formatCount, formatPesewas } from "~/lib/format";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/report-commission";
@@ -18,6 +18,12 @@ import type { Route } from "./+types/report-commission";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Commission and fees · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Commission and fees",
+  description: "What the branch earned, as opposed to what passed through it.",
+};
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -105,11 +111,6 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
       <BackLink to="/reports" className="mb-4">
         All reports
       </BackLink>
-
-      <PageHeader
-        title="Commission and fees"
-        description="What the branch earned, as opposed to what passed through it."
-      />
 
       <ListingCard>
         <ListingToolbar>

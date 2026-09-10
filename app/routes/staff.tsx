@@ -32,7 +32,8 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { disableUser, enableUser, listUsers, resetUserPassword } from "~/api/users";
-import { Page, PageHeader } from "~/components/page";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
+import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   ResetPasswordDialog,
@@ -345,60 +346,42 @@ export default function StaffRoute({ loaderData }: Route.ComponentProps) {
   );
 
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter staff by status"
+          sections={[
+            {
+              label: "Status",
+              items: TABS.map((tab) => ({
+                key: tab.key,
+                label: tab.label,
+                count: counts[tab.key],
+                to: hrefFor({ ...filters, status: tab.key }),
+              })),
+            },
+          ]}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
-      <PageHeader
-        title="Staff"
-        actions={
-          canManage ? (
-            <Button asChild>
-              <Link to={`/staff/new${search}`} prefetch="intent">
-                <UserPlusIcon />
-                Add staff member
-              </Link>
-            </Button>
-          ) : undefined
-        }
-      />
-
       <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="inline-flex w-fit items-center gap-1 rounded-lg bg-muted/60 p-1">
-            {TABS.map((tab) => {
-              const activeTab = filters.status === tab.key;
-              return (
-                <Link
-                  key={tab.key}
-                  to={hrefFor({ ...filters, status: tab.key })}
-                  aria-current={activeTab ? "page" : undefined}
-                  preventScrollReset
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                    activeTab
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {tab.label}
-                  <span
-                    className={cn(
-                      "tabular rounded-full px-1.5 py-px text-xs font-semibold",
-                      activeTab
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {formatCount(counts[tab.key])}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-
+        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-end">
           <div className="flex flex-wrap items-center gap-2">
             <SearchBox filters={filters} busy={busy} />
             <RoleFilter filters={filters} />
             <DateRangeFilter filters={filters} />
             <ExportMenu filters={filters} total={total} />
+            {canManage && (
+              <Button asChild size="sm">
+                <Link to={`/staff/new${search}`} prefetch="intent">
+                  <UserPlusIcon />
+                  Add staff member
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -465,6 +448,7 @@ export default function StaffRoute({ loaderData }: Route.ComponentProps) {
           away from it. */}
       <Outlet />
     </Page>
+    </RailFrame>
   );
 }
 

@@ -142,6 +142,52 @@ export function checkLine(line: BasketLine): string | null {
   return null;
 }
 
+/**
+ * Server-side line faults, keyed by item id, to lay over what `checkLine`
+ * found. The till checks what it knows about the shelf; the API knows what is
+ * on it *now*, and refuses one line by name — `INSUFFICIENT_STOCK`,
+ * `ITEM_NOT_FOUND`, `ITEM_DISCONTINUED` — after the money is counted. That
+ * refusal belongs on the line it names, in the same place, not in a toast.
+ */
+export type LineErrors = Record<string, string>;
+
+/**
+ * The line a refused `POST /hire-purchase/sales` names, and what to say on it.
+ * Empty for any other code, and for a refusal that does not name a line.
+ */
+export function lineErrorsFromRefusal(
+  code: string | undefined,
+  details: unknown,
+): LineErrors {
+  if (!details || typeof details !== "object") return {};
+  const d = details as {
+    itemId?: unknown;
+    requested?: unknown;
+    quantityInStock?: unknown;
+  };
+  if (typeof d.itemId !== "string" || !d.itemId) return {};
+
+  switch (code) {
+    case "INSUFFICIENT_STOCK": {
+      const left = typeof d.quantityInStock === "number" ? d.quantityInStock : null;
+      return {
+        [d.itemId]:
+          left === 0
+            ? "Sold out while ringing up."
+            : left != null
+              ? `Only ${left} left on the shelf now.`
+              : "Not enough on the shelf now.",
+      };
+    }
+    case "ITEM_NOT_FOUND":
+      return { [d.itemId]: "No longer on the shelf. Remove it." };
+    case "ITEM_DISCONTINUED":
+      return { [d.itemId]: "Discontinued. Remove it." };
+    default:
+      return {};
+  }
+}
+
 /** What is wrong with the basket as a whole, or null. */
 export function checkBasket(lines: BasketLine[]): string | null {
   if (lines.length === 0) return "Add something to the basket.";

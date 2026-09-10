@@ -11,7 +11,7 @@ import {
   Th,
   type Tone,
 } from "~/components/listing";
-import { BackLink, Page, PageHeader } from "~/components/page";
+import { BackLink, Page } from "~/components/page";
 import {
   Empty,
   EmptyDescription,
@@ -35,6 +35,13 @@ import type { Route } from "./+types/report-loans";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Loan portfolio · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Loan portfolio",
+  description:
+    "What is still out there, and how late it is. A position as at now, not a period.",
+};
 
 /**
  * The loan book from the office's side, in two readings of the same set.
@@ -146,11 +153,6 @@ export default function ReportLoans({ loaderData }: Route.ComponentProps) {
       <BackLink to="/reports" className="mb-4">
         All reports
       </BackLink>
-
-      <PageHeader
-        title="Loan portfolio"
-        description="What is still out there, and how late it is. A position as at now, not a period."
-      />
 
       <dl className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Figure

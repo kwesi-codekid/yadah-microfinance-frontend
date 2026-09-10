@@ -79,7 +79,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 interface ActionResult {
   error: string;
   code?: string;
-  /** The exact balance an `EXCEEDS_REMAINING` reports, for the retry button. */
+  /** The exact balance an `EXCEEDS_BALANCE` reports, for the retry button. */
   remaining?: number;
 }
 
@@ -133,9 +133,13 @@ export async function action({ request, params }: Route.ActionArgs) {
   );
 }
 
-/** The `remaining` an `EXCEEDS_REMAINING` reports, when it reports one. */
+/** The `remaining` an `EXCEEDS_BALANCE` reports, when it reports one. */
 function remainingFrom(error: ApiError): number | undefined {
-  if (error.code !== "EXCEEDS_REMAINING") return undefined;
+  // `EXCEEDS_BALANCE` is what the API sends; the older `EXCEEDS_REMAINING` is
+  // still accepted so a lagging deployment keeps the retry button.
+  if (error.code !== "EXCEEDS_BALANCE" && error.code !== "EXCEEDS_REMAINING") {
+    return undefined;
+  }
   const details = error.details;
   if (details && typeof details === "object" && "remaining" in details) {
     const value = (details as { remaining: unknown }).remaining;

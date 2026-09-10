@@ -30,7 +30,8 @@ import {
 import { data } from "react-router";
 
 import { listAccounts } from "~/api/susu";
-import { Page, PageHeader } from "~/components/page";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
+import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { DateField } from "~/components/ui/date-field";
@@ -85,6 +86,12 @@ import type { Route } from "./+types/susu";
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Susu · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Susu",
+  description: "One account is one cycle: 31 deposits at a fixed daily amount.",
+};
 
 const PAGE_SIZE = 20;
 
@@ -252,74 +259,53 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
   const filtered = Boolean(filters.search || filters.from || filters.to);
 
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter susu accounts by status"
+          sections={[
+            {
+              label: "Status",
+              items: TABS.map((tab) => ({
+                key: tab.key,
+                label: tab.label,
+                count: counts[tab.key],
+                to: hrefFor({ ...filters, status: tab.key }),
+              })),
+            },
+          ]}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
-      <PageHeader
-        title="Susu"
-        description="One account is one cycle: 31 deposits at a fixed daily amount."
-        actions={
-          <>
-            <Button asChild variant="outline">
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-end">
+          <div className="flex flex-wrap items-center gap-2">
+            <SearchBox filters={filters} busy={busy} />
+            <DateRangeFilter filters={filters} />
+            <ExportMenu filters={filters} total={total} />
+            <Button asChild variant="outline" size="sm">
               <Link to="/susu/summary">
                 <LayersIcon />
                 Day summary
               </Link>
             </Button>
-            <Button asChild variant="outline">
+            <Button asChild variant="outline" size="sm">
               <Link to={`/susu/collect${search}`} prefetch="intent">
                 <HandCoinsIcon />
                 Collect all
               </Link>
             </Button>
             {canManage && (
-              <Button asChild>
+              <Button asChild size="sm">
                 <Link to={`/susu/new${search}`} prefetch="intent">
                   <PlusIcon />
                   Open account
                 </Link>
               </Button>
             )}
-          </>
-        }
-      />
-
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="inline-flex w-fit flex-wrap items-center gap-1 rounded-lg bg-muted/60 p-1">
-            {TABS.map((tab) => {
-              const activeTab = filters.status === tab.key;
-              return (
-                <Link
-                  key={tab.key}
-                  to={hrefFor({ ...filters, status: tab.key })}
-                  aria-current={activeTab ? "page" : undefined}
-                  preventScrollReset
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                    activeTab
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {tab.label}
-                  <span
-                    className={cn(
-                      "tabular rounded-full px-1.5 py-px text-xs font-semibold",
-                      activeTab
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {formatCount(counts[tab.key])}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <SearchBox filters={filters} busy={busy} />
-            <DateRangeFilter filters={filters} />
-            <ExportMenu filters={filters} total={total} />
           </div>
         </div>
 
@@ -387,6 +373,7 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
       {/* Open account and collect-all render here — drawers over the book. */}
       <Outlet />
     </Page>
+    </RailFrame>
   );
 }
 

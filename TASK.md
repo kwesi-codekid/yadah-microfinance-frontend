@@ -4,10 +4,11 @@
 
 | | |
 |---|---|
-| API base (staging) | `https://yadah-backend-staging.adamusgh.com/api/v1` |
-| API docs (Scalar) | `https://yadah-backend-staging.adamusgh.com/api/v1/docs` |
-| OpenAPI spec | `https://yadah-backend-staging.adamusgh.com/api/v1/openapi.json` (OpenAPI 3.1.0, v0.1.0) |
-| Surface | **88 endpoints** across **11 modules**, 16 shared schemas |
+| API base (staging) | `https://staging-backend.yadahdynamic.com/api/v1` |
+| API docs (Scalar) | `https://staging-backend.yadahdynamic.com/api/v1/docs` |
+| OpenAPI spec | `https://staging-backend.yadahdynamic.com/api/v1/openapi.json` (OpenAPI 3.1.0, v0.1.0) |
+| Portal | Built into this app at `/portal/*` (own OTP login, own `__yadah_session_portal` cookie scoped to `/portal`) — see `app/lib/portal-session.server.ts` |
+| Surface | **134 endpoints** across **17 tags**, 31 shared schemas (Aug 2026 — added Dashboard, Collectors, Payout Requests, Customer Portal, printable receipts) |
 | Frontend stack | React Router v8 (framework mode, SSR on), React 19, Tailwind v4, shadcn/ui + Radix + Base UI, Recharts, Sonner, TypeScript |
 | Current state | Bare template — `app/routes.ts` has a single `index("routes/home.tsx")`. The full shadcn component library is already vendored in [app/components/ui/](app/components/ui/). **No app code exists yet.** |
 
@@ -23,7 +24,7 @@ These apply to every request and must be encoded once in the API layer, not repe
 - **Errors always** use `{ error: { code, message, details? } }`. `code` is a stable machine-readable string; `details` is an issue array on `VALIDATION_ERROR`.
 - **Idempotency**: 12 money-moving endpoints require an `idempotencyKey` **in the JSON body** (not a header), 8–128 chars. Retries return the original record with `200` instead of double-recording.
 - **Exports**: most list endpoints accept `format=json|csv|xlsx`. Export ignores pagination and caps at **10,000 rows**. `GET /customers/{id}/registration-form` returns **binary `application/pdf`**.
-- **Realtime**: Socket.io emits money events to an admin room. Those events signal *when to refetch*; `GET /reports/dashboard` is always the source of truth. Never render off the socket payload.
+- **Realtime**: Socket.io emits money events to an admin room. Those events signal *when to refetch*; `GET /dashboard/summary` is always the source of truth (`GET /reports/dashboard` is a deprecated alias). Never render off the socket payload.
 
 ### Status codes in use
 

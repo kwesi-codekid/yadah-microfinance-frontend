@@ -5,6 +5,7 @@ import {
   PackageIcon,
   PlusIcon,
   ReceiptTextIcon,
+  SettingsIcon,
   UserIcon,
 } from "lucide-react";
 import {
@@ -29,10 +30,10 @@ import {
   ListingToolbar,
   SearchBox,
   StatusPill,
-  StatusTabs,
   Th,
 } from "~/components/listing";
-import { Page, PageHeader } from "~/components/page";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
+import { Page } from "~/components/page";
 import { RedemptionCountdown } from "~/components/redemption";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -69,12 +70,20 @@ import {
   type HpAgreement,
 } from "~/lib/hire-purchase";
 import { requireOffice, withAuth } from "~/lib/session.server";
+import { useCurrentUser } from "~/lib/use-current-user";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/hire-purchase";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Hire purchase · Yadah Dynamic Enterprise" }];
 }
+
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Hire purchase",
+  description:
+    "Half down, the rest financed. The item goes out when the deposit lands.",
+};
 
 const PAGE_SIZE = 20;
 
@@ -91,8 +100,8 @@ const TABS = [
 
 /**
  * Everything the API filters on, including the endings. The four closed states
- * are not tabs — nothing is owed of anyone once an agreement is over — but they
- * still have to be reachable, so they live in the dropdown.
+ * are not on the rail — nothing is owed of anyone once an agreement is over —
+ * but they still have to be reachable, so they live in the dropdown.
  */
 const STATUS_OPTIONS: { value: AgreementStatus; label: string }[] = (
   [
@@ -243,6 +252,7 @@ function toRow(a: HpAgreement, now: Date): Row {
 
 export default function HirePurchase({ loaderData }: Route.ComponentProps) {
   const { filters, page, total, counts, rows } = loaderData;
+  const user = useCurrentUser();
   const navigation = useNavigation();
   const submit = useSubmit();
   const { search } = useLocation();
@@ -263,40 +273,29 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
       : "";
   const narrowed = Boolean(filters.search || filters.from || filters.to || closedStatus);
 
-  return (
-    <Page className="max-w-none">
-      <PageHeader
-        title="Hire purchase"
-        description="Half down, the rest financed. The item goes out when the deposit lands."
-        actions={
-          <Button asChild>
-            <Link
-              to={`/hire-purchase/new${search}`}
-              prefetch="intent"
-              preventScrollReset
-            >
-              <PlusIcon />
-              Sign an agreement
-            </Link>
-          </Button>
-        }
-      />
+  // The live states down the rail; a closed state picked from the dropdown
+  // lights nothing here.
+  const railItems = TABS.map((t) => ({
+    key: t.key,
+    label: t.label,
+    count: counts[t.key as keyof typeof counts],
+    to: hrefFor({ ...filters, status: t.key as AgreementStatus | "all" }),
+  }));
 
+  return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter agreements by status"
+          sections={[{ label: "Status", items: railItems }]}
+          active={closedStatus ? "" : filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
+    <Page className="max-w-none">
       <ListingCard>
-        <ListingToolbar
-          tabs={
-            <StatusTabs
-              tabs={TABS.map((t) => ({
-                ...t,
-                count: counts[t.key as keyof typeof counts],
-              }))}
-              active={closedStatus ? "" : filters.status}
-              hrefFor={(key) =>
-                hrefFor({ ...filters, status: key as AgreementStatus | "all" })
-              }
-            />
-          }
-        >
+        <ListingToolbar>
           <SearchBox
             value={filters.search}
             apply={(next) => apply({ search: next })}
@@ -333,6 +332,26 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
             total={total}
             noun="agreement"
           />
+          {/* The rate new agreements snapshot. Admin only — the drawer's own
+              loader is the gate; this only hides the door for everyone else. */}
+          {user?.role === "admin" && (
+            <Button asChild variant="outline" size="sm">
+              <Link to={`/hire-purchase/config${search}`} prefetch="intent" preventScrollReset>
+                <SettingsIcon />
+                Settings
+              </Link>
+            </Button>
+          )}
+          <Button asChild size="sm">
+            <Link
+              to={`/hire-purchase/new${search}`}
+              prefetch="intent"
+              preventScrollReset
+            >
+              <PlusIcon />
+              Sign an agreement
+            </Link>
+          </Button>
         </ListingToolbar>
 
         {narrowed && (
@@ -394,6 +413,7 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
       {/* Signing renders here — a drawer over the book. */}
       <Outlet />
     </Page>
+    </RailFrame>
   );
 }
 

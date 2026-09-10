@@ -14,6 +14,7 @@
     "@react-router/node": "^8",
     "@react-router/serve": "^8",
     "@shadcn/react": "^0.3.0",
+    "barcode-detector": "^3.2.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -27,6 +28,7 @@
     "react": "^19.2.7",
     "react-day-picker": "^10.0.1",
     "react-dom": "^19.2.7",
+    "react-is": "^18.2.0",
     "react-resizable-panels": "^4.12.3",
     "react-router": "^8",
     "recharts": "^3.8.0",
@@ -45,5 +47,8 @@
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
     "vite": "^8.0.3"
+  },
+  "engines": {
+    "node": ">=22.22.0"
   }
 }

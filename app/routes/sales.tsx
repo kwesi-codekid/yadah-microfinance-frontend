@@ -1,5 +1,6 @@
 import {
-  MoreHorizontalIcon,
+  BanknoteIcon,
+  CoinsIcon,
   PrinterIcon,
   ReceiptIcon,
   ShoppingCartIcon,
@@ -7,34 +8,19 @@ import {
   XCircleIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import {
-  data,
-  Link,
-  useFetcher,
-  useLocation,
-  useNavigation,
-  useSubmit,
-} from "react-router";
+import { data, Link, useFetcher, useLocation, useNavigation, useSubmit } from "react-router";
 import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { listSales, voidSale } from "~/api/sales";
+import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
 import {
-  DayRangeChip,
   DayRangeFilter,
   ExportMenu,
-  Figure,
-  FilterBar,
-  FilterChip,
-  ListingCard,
-  ListingFooter,
-  ListingToolbar,
   SearchBox,
   StatusPill,
-  StatusTabs,
-  Th,
 } from "~/components/listing";
-import { Page, PageHeader } from "~/components/page";
+import { Page } from "~/components/page";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -45,30 +31,14 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
+import { DataTable, type Column } from "~/components/ui/data-table";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHeader,
-  TableRow,
-} from "~/components/ui/table";
-import { formatAccraDateTime, formatCount, formatPesewas } from "~/lib/format";
+import { formatAccraDate, formatAccraDateTime, formatCount, formatPesewas } from "~/lib/format";
 import {
   CHANNEL_LABELS,
   SALE_STATUS_BLURBS,
@@ -85,10 +55,17 @@ import { cn } from "~/lib/utils";
 import type { Route } from "./+types/sales";
 
 export function meta(_: Route.MetaArgs) {
-  return [{ title: "Counter sales · Yadah Dynamic Enterprise" }];
+  return [{ title: "Sales · Yadah Dynamic Enterprise" }];
 }
 
-const PAGE_SIZE = 20;
+/** What the layout header calls this page, and the line under it. */
+export const handle = {
+  title: "Sales",
+  description: "Everything sold outright: stock out, money in, no agreement.",
+};
+
+/** Ten rows, as the ledger and the customer's statement page them. */
+const PAGE_SIZE = 10;
 
 const STATUSES: SaleStatus[] = ["completed", "voided"];
 
@@ -129,11 +106,6 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
   return p;
 }
 
-function hrefFor(f: Filters, page = 1): string {
-  const s = queryFor(f, page).toString();
-  return s ? `/sales?${s}` : "/sales";
-}
-
 /** What the API wants, from what the URL says. */
 function paramsFor(f: Filters) {
   return {
@@ -147,7 +119,7 @@ function paramsFor(f: Filters) {
 /**
  * `GET /hire-purchase/sales` — the day book. Office only.
  *
- * The tab counts are fetched the way every other listing here does it: one
+ * The rail counts are fetched the way every other listing here does it: one
  * one-row request per status, scoped by the same filters as the rows, so a
  * count never contradicts the list under it.
  */
@@ -200,7 +172,7 @@ interface ActionResult {
   message: string;
 }
 
-/** Voiding, from the row menu. Ringing one up is a page of its own. */
+/** Voiding, from the row menu. Ringing one up is the POS. */
 export async function action({ request }: Route.ActionArgs) {
   await requireOffice(request);
   const form = await request.formData();
@@ -254,7 +226,8 @@ interface Row {
   status: SaleStatus;
   voidable: boolean;
   voidReason: string;
-  createdAt: string;
+  date: string;
+  time: string;
 }
 
 function toRow(sale: Sale): Row {
@@ -274,16 +247,36 @@ function toRow(sale: Sale): Row {
     status: sale.status,
     voidable: canVoid(sale),
     voidReason: sale.voidReason ?? "",
-    createdAt: sale.createdAt,
+    date: formatAccraDate(sale.createdAt),
+    // The full stamp reads `25 Aug 2026, 1:32 pm`; the date has its own line.
+    time: formatAccraDateTime(sale.createdAt).split(", ")[1] ?? "",
   };
 }
 
+/**
+ * The day book, drawn as the ledger and the customer's statement are drawn.
+ *
+ * A sale is a money event like any other, so it gets the same table: the same
+ * status rail beside it, the same KPI cards over it, the same ⋯ menu on every row and
+ * the same ten-row footer. What is particular to a sale is the basket — units
+ * against lines — and the void, which is the one thing here that changes a
+ * record and so is the one thing behind a confirmation.
+ *
+ * The search and the paging are the API's, not the table's: this endpoint
+ * searches server-side and pages server-side, so both go through the URL and
+ * come back as a new page of rows.
+ */
 export default function Sales({ loaderData }: Route.ComponentProps) {
   const { filters, page, total, totals, counts, rows } = loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
   const fetcher = useFetcher<ActionResult>();
   const { search } = useLocation();
+
+  // The sale being voided, and the reason given for it. Held here rather than
+  // per row: one dialog over the table, opened by whichever menu asked for it.
+  const [voiding, setVoiding] = useState<Row | null>(null);
+  const [reason, setReason] = useState("");
 
   useEffect(() => {
     if (!fetcher.data) return;
@@ -300,58 +293,161 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
       preventScrollReset: true,
     });
 
+  const goToPage = (next: number) =>
+    submit(queryFor(filters, next), { replace: true, preventScrollReset: true });
+
+  const items: RailItem[] = TABS.map((t) => ({
+    key: t.key,
+    label: t.label,
+    count: counts[t.key],
+    onSelect: () => apply({ status: t.key }),
+  }));
+
   const narrowed = Boolean(
     filters.search || filters.walkInOnly || filters.from || filters.to,
   );
 
-  return (
-    <Page className="max-w-none">
-      <PageHeader
-        title="Counter sales"
-        description="Things sold outright: stock out, money in, no agreement."
-        actions={
-          <Button asChild>
-            <Link to="/sales/new" prefetch="intent">
-              <ShoppingCartIcon />
-              New sale
-            </Link>
-          </Button>
-        }
-      />
-
-      {/* The API's totals cover the whole filter, not the page, and always
-          leave voided sales out. Both of those are said here rather than left
-          to be inferred from figures that will not add up to the rows. */}
-      <dl className="mb-6 grid gap-3 sm:grid-cols-3">
-        <Figure
-          label="Sales"
-          value={formatCount(totals.salesCount)}
-          hint="Completed, across every page"
-        />
-        <Figure
-          label="Revenue"
-          value={formatPesewas(totals.revenue)}
-          tone="success"
-          hint="Voided sales excluded"
-        />
-        <Figure
-          label="Profit"
-          value={formatPesewas(totals.profit)}
-          tone="revenue"
-          hint="Margin over cost — office figure"
-        />
-      </dl>
-
-      <ListingCard>
-        <ListingToolbar
-          tabs={
-            <StatusTabs
-              tabs={TABS.map((t) => ({ ...t, count: counts[t.key] }))}
-              active={filters.status}
-              hrefFor={(key) => hrefFor({ ...filters, status: key as Tab })}
-            />
-          }
+  const columns: Column<Row>[] = [
+    {
+      key: "date",
+      header: "Sold",
+      className: "whitespace-nowrap text-muted-foreground",
+      cell: (row) => (
+        <>
+          <p>{row.date}</p>
+          <p className="text-xs">{row.time}</p>
+        </>
+      ),
+    },
+    {
+      key: "receipt",
+      header: "Receipt",
+      cell: (row) => (
+        <Link
+          to={`/sales/${row.id}${search}`}
+          prefetch="intent"
+          className="tabular font-medium underline-offset-4 hover:underline"
         >
+          {row.receiptNo}
+        </Link>
+      ),
+    },
+    {
+      key: "buyer",
+      header: "Buyer",
+      cell: (row) => <Buyer row={row} />,
+    },
+    {
+      key: "basket",
+      header: "Items",
+      align: "end",
+      className: "tabular hidden md:table-cell",
+      // Units is the figure that matters at the counter; the line count only
+      // earns its place when a basket holds more of one thing than of another.
+      cell: (row) => (
+        <>
+          {formatCount(row.units)}
+          {row.items !== row.units && (
+            <span className="ml-1 text-xs text-muted-foreground">
+              /{formatCount(row.items)} line{row.items === 1 ? "" : "s"}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: "channel",
+      header: "Channel",
+      className: "hidden text-muted-foreground lg:table-cell",
+      cell: (row) => row.channel,
+    },
+    {
+      key: "total",
+      header: "Total · GH₵",
+      align: "end",
+      cell: (row) => <Total row={row} />,
+    },
+    {
+      key: "discount",
+      header: "Discount",
+      align: "end",
+      className: "tabular hidden md:table-cell",
+      // What came off for haggling. A dash means the sale went at shelf prices,
+      // not that the figure is unknown.
+      cell: (row) =>
+        row.discount > 0 ? (
+          <span className="font-medium text-warning">
+            −{formatPesewas(row.discount)}
+          </span>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (row) => (
+        <StatusPill
+          label={SALE_STATUS_LABELS[row.status]}
+          blurb={row.voidReason || SALE_STATUS_BLURBS[row.status]}
+          tone={SALE_STATUS_TONE[row.status]}
+        />
+      ),
+    },
+  ];
+
+  return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter sales by status"
+          sections={[{ label: "Status", items }]}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
+    <Page className="max-w-none">
+      <TotalsBand totals={totals} voided={counts.voided} />
+
+      <DataTable
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={filters.walkInOnly}
+              onClick={() => apply({ walkInOnly: !filters.walkInOnly })}
+              className={cn(filters.walkInOnly && "border-primary/50 text-primary")}
+            >
+              <UserXIcon />
+              Walk-ins only
+            </Button>
+            <DayRangeFilter
+              from={filters.from}
+              to={filters.to}
+              apply={(next) => apply(next)}
+              title="Sold"
+            />
+            <ExportMenu
+              path="/sales/export"
+              query={queryFor(filters).toString()}
+              total={total}
+              noun="sale"
+            />
+            <Button asChild size="sm">
+              <Link to="/pos" prefetch="intent">
+                <ShoppingCartIcon />
+                New sale
+              </Link>
+            </Button>
+          </>
+        }
+        // This endpoint searches server-side, so the term goes through the URL
+        // rather than sifting the ten rows in hand. `SearchBox` owns the
+        // debounce and keeps working as a plain GET without JavaScript, which
+        // is why it replaces the table's own box rather than sitting beside it.
+        searchSlot={
           <SearchBox
             value={filters.search}
             apply={(next) => apply({ search: next })}
@@ -365,267 +461,270 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
             label="Search sales"
             busy={busy}
           />
-          <Button
-            variant="outline"
-            size="sm"
-            aria-pressed={filters.walkInOnly}
-            onClick={() => apply({ walkInOnly: !filters.walkInOnly })}
-            className={cn(filters.walkInOnly && "border-primary/50 text-primary")}
-          >
-            <UserXIcon />
-            Walk-ins only
-          </Button>
-          <DayRangeFilter
-            from={filters.from}
-            to={filters.to}
-            apply={(next) => apply(next)}
-            title="Sold"
-          />
-          <ExportMenu
-            path="/sales/export"
-            query={queryFor({ ...filters, status: filters.status }).toString()}
-            total={total}
-            noun="sale"
-          />
-        </ListingToolbar>
-
-        {narrowed && (
-          <FilterBar total={total} noun="sale" plural="sales">
-            {filters.search && (
-              <FilterChip
-                label={`“${filters.search}”`}
-                onDrop={() => apply({ search: "" })}
-              />
-            )}
-            {filters.walkInOnly && (
-              <FilterChip
-                label="Walk-ins only"
-                onDrop={() => apply({ walkInOnly: false })}
-              />
-            )}
-            {(filters.from || filters.to) && (
-              <DayRangeChip
-                from={filters.from}
-                to={filters.to}
-                onDrop={() => apply({ from: "", to: "" })}
-              />
-            )}
-          </FilterBar>
-        )}
-
-        {rows.length === 0 ? (
-          <Empty className="py-16">
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
+        }
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.id}
+        paging={{ page, pageSize: PAGE_SIZE, total, onPageChange: goToPage }}
+        loading={busy}
+        rowActions={(row) => (
+          <>
+            <DropdownMenuItem asChild>
+              <Link to={`/sales/${row.id}${search}`} prefetch="intent">
                 <ReceiptIcon />
-              </EmptyMedia>
-              <EmptyTitle>
-                {narrowed ? "Nothing matches" : "Nothing sold over the counter yet"}
-              </EmptyTitle>
-              <EmptyDescription>
-                {narrowed
-                  ? "Widen the filters, or clear them to see every sale."
-                  : "Ring one up and it appears here with its receipt number."}
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <Th>Receipt</Th>
-                <Th>Buyer</Th>
-                <Th className="text-right">Items</Th>
-                <Th className="text-right">Discount</Th>
-                <Th className="text-right">Total</Th>
-                <Th>Channel</Th>
-                <Th>Sold</Th>
-                <Th>Status</Th>
-                <Th className="w-12 text-right">
-                  <span className="sr-only">Actions</span>
-                </Th>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((row) => (
-                <SaleRow key={row.id} row={row} fetcher={fetcher} search={search} />
-              ))}
-            </TableBody>
-          </Table>
+                Open the sale
+              </Link>
+            </DropdownMenuItem>
+            {/* A resource route answering with bytes — a plain anchor, so the
+                router does not try to navigate to it. A voided sale still
+                prints, which is why this is never disabled. */}
+            <DropdownMenuItem asChild>
+              <a href={`/sales/${row.id}/receipt`}>
+                <PrinterIcon />
+                Print receipt
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={!row.voidable}
+              onSelect={(event) => {
+                event.preventDefault();
+                setReason("");
+                setVoiding(row);
+              }}
+            >
+              <XCircleIcon />
+              Void this sale
+            </DropdownMenuItem>
+          </>
         )}
+        noun={{ one: "sale", many: "sales" }}
+        pageSize={PAGE_SIZE}
+        empty={
+          narrowed
+            ? "Nothing matches these filters. Widen them, or clear them to see every sale."
+            : filters.status === "voided"
+              ? "Nothing has been voided."
+              : "Nothing sold over the counter yet. Ring one up at the POS and it appears here with its receipt number."
+        }
+      />
 
-        <ListingFooter
-          page={page}
-          pageSize={PAGE_SIZE}
-          total={total}
-          hrefFor={(p) => hrefFor(filters, p)}
-        />
-      </ListingCard>
+      <AlertDialog
+        open={voiding !== null}
+        onOpenChange={(open) => !open && setVoiding(null)}
+      >
+        <AlertDialogContent>
+          {voiding && (
+            <>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Void receipt {voiding.receiptNo}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The {formatCount(voiding.units)} unit
+                  {voiding.units === 1 ? "" : "s"} go back on the shelf and the{" "}
+                  {formatPesewas(voiding.total)} stops counting toward revenue. The
+                  sale itself stays on the record, stamped with your name and this
+                  reason. There is no undo.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="void-reason" className="eyebrow text-muted-foreground">
+                  Why<span className="ml-0.5 text-destructive">*</span>
+                </Label>
+                <Input
+                  id="void-reason"
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  placeholder="Wrong item rung up"
+                  maxLength={200}
+                  autoComplete="off"
+                />
+              </div>
+
+              <AlertDialogFooter>
+                <AlertDialogCancel>Keep it</AlertDialogCancel>
+                <Button
+                  variant="destructive"
+                  disabled={!reason.trim()}
+                  onClick={() => {
+                    const id = voiding.id;
+                    setVoiding(null);
+                    fetcher.submit({ id, reason: reason.trim() }, { method: "post" });
+                  }}
+                >
+                  Void the sale
+                </Button>
+              </AlertDialogFooter>
+            </>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
     </Page>
+    </RailFrame>
   );
 }
 
-function SaleRow({
-  row,
-  fetcher,
-  search,
+/* ------------------------------------------------------------------ totals --- */
+
+/**
+ * What the filter came to, as the four KPI cards the dashboard and the ledger
+ * open with. The API's figures cover the **whole filter** rather than the page
+ * on screen and always leave voided sales out, so a page of ten rows can sit
+ * under a total covering four hundred — which is why each card says what it is
+ * counting rather than leaving it to be inferred from figures that will not add
+ * up to the rows.
+ */
+function TotalsBand({
+  totals,
+  voided,
 }: {
-  row: Row;
-  fetcher: ReturnType<typeof useFetcher<ActionResult>>;
-  search: string;
+  totals: { salesCount: number; revenue: number; profit: number };
+  voided: number;
 }) {
-  const [confirmVoid, setConfirmVoid] = useState(false);
-  const [reason, setReason] = useState("");
+  return (
+    <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <Stat
+        label="Sales"
+        value={formatCount(totals.salesCount)}
+        note="Completed, across every page"
+        icon={ReceiptIcon}
+        tone="neutral"
+      />
+      <Stat
+        label="Revenue"
+        value={formatPesewas(totals.revenue)}
+        note="Taken at the till. Voided sales excluded."
+        icon={BanknoteIcon}
+        tone="in"
+      />
+      <Stat
+        label="Profit"
+        value={formatPesewas(totals.profit)}
+        note="Margin over cost — an office figure, never on a receipt."
+        icon={CoinsIcon}
+        tone="revenue"
+      />
+      <Stat
+        label="Voided"
+        value={formatCount(voided)}
+        note="Reversed after the fact. Stock went back on the shelf."
+        icon={XCircleIcon}
+        tone="out"
+      />
+    </div>
+  );
+}
+
+/** The dashboard's KPI tile, with the ledger's own colours in the square. */
+function Stat({
+  label,
+  value,
+  note,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  icon: typeof ReceiptIcon;
+  tone: "in" | "out" | "revenue" | "neutral";
+}) {
+  return (
+    <div className="relative rounded-2xl bg-card p-4">
+      <span
+        aria-hidden
+        className={cn(
+          "absolute top-3.5 right-3.5 rounded-lg p-2",
+          tone === "in" && "bg-cash-in-subtle",
+          tone === "out" && "bg-cash-out-subtle",
+          tone === "revenue" && "bg-revenue-subtle",
+          tone === "neutral" && "bg-internal-subtle",
+        )}
+      >
+        <Icon
+          className={cn(
+            "size-4",
+            tone === "in" && "text-cash-in",
+            tone === "out" && "text-cash-out",
+            tone === "revenue" && "text-revenue-foreground",
+            tone === "neutral" && "text-internal",
+          )}
+        />
+      </span>
+      {/* Keyed so a change of filter re-enters the number instead of snapping,
+          exactly as the dashboard's own cards do. */}
+      <p
+        key={value}
+        className={cn(
+          "tabular animate-in fade-in slide-in-from-bottom-1 pr-10 text-[22px] font-bold tracking-tight duration-300 motion-reduce:animate-none",
+          tone === "in" && "text-cash-in",
+          tone === "revenue" && "text-revenue-foreground",
+          tone === "out" && "text-muted-foreground",
+          tone === "neutral" && "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-xs font-medium">{label}</p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{note}</p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------- cells --- */
+
+/**
+ * Who bought it. A walk-in is the case this module exists to allow — a name and
+ * nothing else — so the row says which kind of buyer it was rather than leaving
+ * a blank where a customer link would be.
+ */
+function Buyer({ row }: { row: Row }) {
+  return (
+    <div className="min-w-0">
+      {row.customerId ? (
+        <Link
+          to={`/customers/${row.customerId}`}
+          className="block truncate font-medium underline-offset-4 hover:underline"
+        >
+          {row.buyerName}
+        </Link>
+      ) : (
+        <p className="truncate font-medium">{row.buyerName}</p>
+      )}
+      <p className="truncate text-xs text-muted-foreground">
+        {row.walkIn ? "Walk-in" : "Registered"}
+        {row.buyerPhone ? ` · ${row.buyerPhone}` : ""}
+        {/* The channel has its own column from `lg` up; narrower than that it
+            rides here rather than dropping off the screen. */}
+        <span className="lg:hidden"> · {row.channel}</span>
+      </p>
+    </div>
+  );
+}
+
+/** What was paid, struck through once the sale is reversed. */
+function Total({ row }: { row: Row }) {
+  const voided = row.status === "voided";
 
   return (
     <>
-      <TableRow className={cn(row.status === "voided" && "text-muted-foreground")}>
-        <TableCell className="px-4 py-3">
-          <Link
-            to={`/sales/${row.id}${search}`}
-            prefetch="intent"
-            className="tabular font-medium underline-offset-4 hover:underline"
-          >
-            {row.receiptNo}
-          </Link>
-        </TableCell>
-        <TableCell className="px-4 py-3">
-          <div className="min-w-0">
-            {row.customerId ? (
-              <Link
-                to={`/customers/${row.customerId}`}
-                className="font-medium underline-offset-4 hover:underline"
-              >
-                {row.buyerName}
-              </Link>
-            ) : (
-              <span className="font-medium">{row.buyerName}</span>
-            )}
-            <p className="text-xs text-muted-foreground">
-              {row.walkIn ? "Walk-in" : "Registered"}
-              {row.buyerPhone ? ` · ${row.buyerPhone}` : ""}
-            </p>
-          </div>
-        </TableCell>
-        <TableCell className="tabular px-4 py-3 text-right">
-          {formatCount(row.units)}
-          {row.items !== row.units && (
-            <span className="ml-1 text-xs text-muted-foreground">
-              /{formatCount(row.items)} line{row.items === 1 ? "" : "s"}
-            </span>
-          )}
-        </TableCell>
-        <TableCell className="tabular px-4 py-3 text-right">
-          {row.discount > 0 ? (
-            <span className="text-warning">−{formatPesewas(row.discount)}</span>
-          ) : (
-            <span className="text-muted-foreground">—</span>
-          )}
-        </TableCell>
-        <TableCell className="tabular px-4 py-3 text-right font-semibold">
-          {formatPesewas(row.total)}
-        </TableCell>
-        <TableCell className="px-4 py-3 text-sm">{row.channel}</TableCell>
-        <TableCell className="px-4 py-3 text-sm whitespace-nowrap">
-          {formatAccraDateTime(row.createdAt)}
-        </TableCell>
-        <TableCell className="px-4 py-3">
-          <StatusPill
-            label={SALE_STATUS_LABELS[row.status]}
-            blurb={row.voidReason || SALE_STATUS_BLURBS[row.status]}
-            tone={SALE_STATUS_TONE[row.status]}
-          />
-        </TableCell>
-        <TableCell className="px-4 py-3 text-right">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <MoreHorizontalIcon />
-                <span className="sr-only">Actions for receipt {row.receiptNo}</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuItem asChild>
-                <Link to={`/sales/${row.id}${search}`} prefetch="intent">
-                  <ReceiptIcon />
-                  Open the sale
-                </Link>
-              </DropdownMenuItem>
-              {/* A resource route answering with bytes — a plain anchor, so the
-                  router does not try to navigate to it. A voided sale still
-                  prints, which is why this is never disabled. */}
-              <DropdownMenuItem asChild>
-                <a href={`/sales/${row.id}/receipt`}>
-                  <PrinterIcon />
-                  Print receipt
-                </a>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={!row.voidable}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  setReason("");
-                  setConfirmVoid(true);
-                }}
-              >
-                <XCircleIcon />
-                Void this sale
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </TableCell>
-      </TableRow>
-
-      <AlertDialog open={confirmVoid} onOpenChange={setConfirmVoid}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Void receipt {row.receiptNo}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              The {formatCount(row.units)} unit{row.units === 1 ? "" : "s"} go back
-              on the shelf and the {formatPesewas(row.total)} stops counting toward
-              revenue. The sale itself stays on the record, stamped with your name
-              and this reason. There is no undo.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          <div className="space-y-1.5">
-            <Label
-              htmlFor={`reason-${row.id}`}
-              className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
-            >
-              Why<span className="ml-0.5 text-destructive">*</span>
-            </Label>
-            <Input
-              id={`reason-${row.id}`}
-              value={reason}
-              onChange={(event) => setReason(event.target.value)}
-              placeholder="Wrong item rung up"
-              maxLength={200}
-              autoComplete="off"
-            />
-          </div>
-
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <Button
-              variant="destructive"
-              disabled={!reason.trim()}
-              onClick={() => {
-                setConfirmVoid(false);
-                fetcher.submit({ id: row.id, reason: reason.trim() }, { method: "post" });
-              }}
-            >
-              Void the sale
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <p
+        className={cn(
+          "tabular font-medium",
+          voided && "text-muted-foreground line-through",
+        )}
+      >
+        {formatPesewas(row.total)}
+      </p>
+      {/* The basket and the discount have columns from `md` up; below that they
+          ride under the total instead of disappearing. */}
+      <p className="tabular text-xs text-muted-foreground md:hidden">
+        {formatCount(row.units)} unit{row.units === 1 ? "" : "s"}
+        {row.discount > 0 && (
+          <span className="text-warning"> · −{formatPesewas(row.discount)}</span>
+        )}
+      </p>
     </>
   );
 }

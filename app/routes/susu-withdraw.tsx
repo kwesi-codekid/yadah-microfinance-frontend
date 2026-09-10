@@ -64,10 +64,17 @@ export async function action({ request, params }: Route.ActionArgs) {
     const { data: result, headers } = await withAuth(request, (token) =>
       withdraw(token, params.id, { amount, idempotencyKey }),
     );
-    if (result.replayed) {
-      return data(
-        { error: "That withdrawal was already processed. Nothing was paid twice." },
-        { status: 200 },
+    // A replay is an empty `200 {}` — no account, no amount — so the figures
+    // below would be undefined. Nothing was paid twice; say so and go back.
+    if (result.replayed || !result.account || result.amount == null) {
+      return redirectWithToast(
+        `/susu/${params.id}`,
+        {
+          tone: "success",
+          message: "That withdrawal was already processed.",
+          description: "Nothing was paid twice.",
+        },
+        headers,
       );
     }
     await redirectWithToast(

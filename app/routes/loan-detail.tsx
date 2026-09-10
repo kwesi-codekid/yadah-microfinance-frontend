@@ -6,6 +6,7 @@ import {
   IdCardIcon,
   LockIcon,
   MoreHorizontalIcon,
+  PrinterIcon,
   SmartphoneIcon,
   SnowflakeIcon,
   Trash2Icon,
@@ -282,6 +283,7 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
             loanId={loan.id}
             customerId={loan.customerId}
             open={open}
+            disbursed={Boolean(loan.disbursedAt)}
             trashable={canTrash(loan)}
           />
         </div>
@@ -362,7 +364,7 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
           />
 
           <Schedule rows={schedule} />
-          <Repayments rows={repayments} />
+          <Repayments loanId={loan.id} rows={repayments} />
         </>
       )}
 
@@ -772,9 +774,16 @@ function Schedule({ rows }: { rows: ScheduleRow[] }) {
 
 /* -------------------------------------------------------------- repayments --- */
 
+/**
+ * Every payment against the loan, newest first as the API sends them. Each row
+ * carries a ⋯ menu with its receipt — a resource route answering with bytes,
+ * so a plain anchor rather than a `Link`.
+ */
 function Repayments({
+  loanId,
   rows,
 }: {
+  loanId: string;
   rows: { id: string; amount: number; source: string; at: string; recordedBy: string }[];
 }) {
   return (
@@ -794,6 +803,9 @@ function Repayments({
               <Th>Source</Th>
               <Th className="hidden sm:table-cell">Recorded by</Th>
               <Th className="text-right">Amount</Th>
+              <Th className="text-right">
+                <span className="sr-only">Actions</span>
+              </Th>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -808,6 +820,32 @@ function Repayments({
                 </TableCell>
                 <TableCell className="tabular px-4 py-3 text-right font-medium whitespace-nowrap text-cash-in">
                   +{formatAmount(row.amount)}
+                </TableCell>
+                <TableCell className="px-4 py-3 text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Actions"
+                        className="text-muted-foreground"
+                      >
+                        <MoreHorizontalIcon />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuItem asChild>
+                        <a
+                          href={`/loans/${loanId}/repayments/${row.id}/receipt`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <PrinterIcon />
+                          Print receipt
+                        </a>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             ))}
@@ -824,11 +862,14 @@ function LoanMenu({
   loanId,
   customerId,
   open,
+  disbursed,
   trashable,
 }: {
   loanId: string;
   customerId: string;
   open: boolean;
+  /** Whether the money has left the drawer — the receipt exists only after. */
+  disbursed: boolean;
   trashable: boolean;
 }) {
   const fetcher = useFetcher<ActionResult>();
@@ -868,6 +909,21 @@ function LoanMenu({
               <SmartphoneIcon />
               Repay by mobile money
             </Link>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {/* Proof the customer received the money. A resource route answering
+              with bytes — a plain anchor, so the router does not try to
+              navigate to it. Disabled rather than absent before the payout:
+              the API would answer NOT_DISBURSED, and the menu should say so. */}
+          <DropdownMenuItem asChild disabled={!disbursed}>
+            <a
+              href={`/loans/${loanId}/disbursement/receipt`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <PrinterIcon />
+              Print disbursement receipt
+            </a>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>

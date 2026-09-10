@@ -6,18 +6,18 @@ import {
   FileTextIcon,
   PrinterIcon,
   ReceiptTextIcon,
-  SlidersHorizontalIcon,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { data, useSubmit } from "react-router";
 
 import { throwAsRouteError } from "~/api/client";
 import { getCustomerStatement } from "~/api/customers";
+import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
+import { ModuleDot, PeriodFilter } from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
 import { TransactionAdvice } from "~/components/transaction-advice";
 import { Button } from "~/components/ui/button";
-import { DataTable, type Column, type TableTab } from "~/components/ui/data-table";
-import { DateField } from "~/components/ui/date-field";
+import { DataTable, type Column } from "~/components/ui/data-table";
 import {
   Dialog,
   DialogContent,
@@ -34,8 +34,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
-import { Label } from "~/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import {
   channelLabel,
   MODULE_LABELS,
@@ -51,6 +49,7 @@ import {
   formatCount,
   formatDayRange,
 } from "~/lib/format";
+import { receiptPathFor } from "~/lib/reports";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/customer-statement";
@@ -102,25 +101,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   );
 }
 
-/** The CSS custom property carrying each module's colour. */
-const MODULE_VAR: Record<TxModule, string> = {
-  susu: "--module-susu",
-  savings: "--module-savings",
-  loans: "--module-loans",
-  "hire-purchase": "--module-hp",
-  transfers: "--module-transfers",
-};
-
-function ModuleDot({ module, className }: { module: TxModule; className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={cn("size-2 shrink-0 rounded-full", className)}
-      style={{ backgroundColor: `var(${MODULE_VAR[module]})` }}
-    />
-  );
-}
-
 /** Everything that would identify a row when someone types into the search box. */
 function haystack(tx: UnifiedTransaction): string {
   return [
@@ -143,7 +123,7 @@ function haystack(tx: UnifiedTransaction): string {
  * Susu, savings, loans, hire purchase and transfers share a row shape, so they
  * share a table — reading a statement means following the money in date order,
  * and splitting it per product hides the day a payout became a repayment. The
- * module tabs narrow it when that is what you want. Both the tabs and the
+ * module rail narrows it when that is what you want. Both the rail and the
  * search are local: the rows are already loaded, so neither should cost a
  * round trip.
  */
@@ -158,6 +138,16 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
   // screen of its own.
   const [advice, setAdvice] = useState<UnifiedTransaction | null>(null);
 
+  // The period is the only thing in this URL, so an empty pair is a clean slate
+  // and the loader falls back to the API's own last-30-days.
+  const submit = useSubmit();
+  const applyPeriod = (next: { from: string; to: string }) => {
+    const params = new URLSearchParams();
+    if (next.from) params.set("from", next.from);
+    if (next.to) params.set("to", next.to);
+    submit(params, { replace: true, preventScrollReset: true });
+  };
+
   const adviceHref = (tx: UnifiedTransaction) =>
     `/customers/${id}/advice/${tx.id}?from=${period.from}&to=${period.to}`;
 
@@ -166,12 +156,17 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
     return acc;
   }, {});
 
-  const tabs: TableTab[] = [
-    { value: "all", label: "All entries", count: transactions.length },
+  const items: RailItem[] = [
+    {
+      key: "all",
+      label: "All entries",
+      count: transactions.length,
+      onSelect: () => setModule("all"),
+    },
     ...(Object.keys(MODULE_LABELS) as TxModule[])
       .filter((m) => counts[m])
       .map((m) => ({
-        value: m,
+        key: m,
         label: (
           <span className="inline-flex items-center gap-1.5">
             <ModuleDot module={m} />
@@ -179,6 +174,7 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
           </span>
         ),
         count: counts[m],
+        onSelect: () => setModule(m),
       })),
   ];
 
@@ -259,6 +255,16 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
   }
 
   return (
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter entries by module"
+          sections={[{ label: "Module", items }]}
+          active={module}
+          horizontal={horizontal}
+        />
+      )}
+    >
     <Page className="max-w-none">
       {/* Back on the left, who this statement is for on the right. The period
           is not repeated here — the filter in the toolbar already states it. */}
@@ -277,14 +283,19 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
       <DataTable
         actions={
           <>
-            <PeriodFilter from={from} to={to} active={explicit} />
+            <PeriodFilter
+              from={from}
+              to={to}
+              active={explicit}
+              apply={applyPeriod}
+            />
             <ExportMenu id={id} period={period} rows={transactions.length} />
           </>
         }
-        tabs={tabs}
+        // No strip is drawn for this — the rail beside the page owns the choice.
+        // It is still passed because the table is paged locally and resets to
+        // page one when it changes.
         activeTab={module}
-        onTabChange={setModule}
-        tabsLabel="Filter entries by module"
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search entry, account or staff"
@@ -304,6 +315,23 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
                 Export PDF
               </a>
             </DropdownMenuItem>
+            {/* The module's own receipt for this entry — a resource route
+                answering with bytes, so a plain anchor. Disabled rather than
+                absent on a charge that has not landed: the same menu on every
+                row, or an item that comes and goes reads as a bug. */}
+            {receiptPathFor(tx) ? (
+              <DropdownMenuItem asChild>
+                <a href={receiptPathFor(tx)!} target="_blank" rel="noreferrer">
+                  <PrinterIcon />
+                  Print receipt
+                </a>
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem disabled>
+                <PrinterIcon />
+                No receipt yet
+              </DropdownMenuItem>
+            )}
           </>
         )}
         noun={{ one: "entry", many: "entries" }}
@@ -376,6 +404,7 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
         </DialogContent>
       </Dialog>
     </Page>
+    </RailFrame>
   );
 }
 
@@ -442,88 +471,6 @@ function Amount({ tx }: { tx: UnifiedTransaction }) {
         </p>
       )}
     </>
-  );
-}
-
-/**
- * The reporting period — the same control, drawn the same way, as the registered
- * date range on the customer list. Applies on Apply so both ends move together;
- * Clear drops back to the API's default of the last 30 days.
- */
-function PeriodFilter({
-  from,
-  to,
-  active,
-}: {
-  from: string;
-  to: string;
-  /** True once someone has set the range, rather than taking the default. */
-  active: boolean;
-}) {
-  const submit = useSubmit();
-  const [open, setOpen] = useState(false);
-  const fieldsRef = useRef<HTMLDivElement>(null);
-
-  const apply = (next: { from: string; to: string }) => {
-    setOpen(false);
-    const params = new URLSearchParams();
-    if (next.from) params.set("from", next.from);
-    if (next.to) params.set("to", next.to);
-    submit(params, { replace: true, preventScrollReset: true });
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(active && "border-primary/50 text-primary")}
-        >
-          <SlidersHorizontalIcon />
-          {formatDayRange(from, to)}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-3">
-        {/* Keyed on the applied range so reopening after a Clear shows it. */}
-        <div ref={fieldsRef} key={`${from}|${to}`} className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="eyebrow text-muted-foreground">Period from</Label>
-            <DateField name="from" defaultValue={from} endMonth={new Date()} />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="eyebrow text-muted-foreground">Period to</Label>
-            <DateField name="to" defaultValue={to} endMonth={new Date()} />
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={!active}
-            onClick={() => apply({ from: "", to: "" })}
-          >
-            Clear
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              // Each DateField keeps its value in a hidden input; read those on
-              // apply rather than mirroring every calendar click into state.
-              const read = (name: string) =>
-                fieldsRef.current?.querySelector<HTMLInputElement>(
-                  `input[name='${name}']`,
-                )?.value ?? "";
-              apply({ from: read("from"), to: read("to") });
-            }}
-          >
-            Apply
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
   );
 }
 

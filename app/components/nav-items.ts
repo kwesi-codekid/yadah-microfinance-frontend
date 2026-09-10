@@ -1,11 +1,14 @@
 import {
   ArrowLeftRightIcon,
+  BanknoteArrowUpIcon,
+  BookOpenTextIcon,
   ChartColumnIcon,
   CoinsIcon,
   ScaleIcon,
   ShoppingCartIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
+  ReceiptIcon,
   ReceiptTextIcon,
   RepeatIcon,
   Trash2Icon,
@@ -41,6 +44,7 @@ const OFFICE: Role[] = ["admin", "manager"];
  * route's loader — hiding a link is not access control.
  */
 export const NAV: NavItem[] = [
+  // Every role: the office sees the branch, a collector sees their own day.
   {
     to: "/dashboard",
     label: "Dashboard",
@@ -101,13 +105,23 @@ export const NAV: NavItem[] = [
     blurb: "Agreements, instalments and redemption.",
     roles: OFFICE,
   },
-  // The till. Beside hire purchase because they draw down the same shelf, and
+  // The till itself, and the book it writes into — two items, because they are
+  // two jobs. Someone at the counter wants the POS and nothing else; someone
+  // asking what was sold last week wants the listing and never the basket.
+  // Beside hire purchase because all three draw down the same shelf, and
   // separate from it because a sale is over in a minute and has no lifecycle.
   {
-    to: "/sales",
-    label: "Counter sales",
+    to: "/pos",
+    label: "POS",
     icon: ShoppingCartIcon,
-    blurb: "Sold outright: stock out, money in.",
+    blurb: "Ring up a counter sale: stock out, money in.",
+    roles: OFFICE,
+  },
+  {
+    to: "/sales",
+    label: "Sales",
+    icon: ReceiptIcon,
+    blurb: "Every sale rung up, with its receipt.",
     roles: OFFICE,
   },
   // Its own section: the shelf is stocked whether or not anything is signed for.
@@ -127,6 +141,16 @@ export const NAV: NavItem[] = [
     icon: ScaleIcon,
     blurb: "Declare a day's cash, count it, record the gap.",
   },
+  // Office only: the customer asks from the portal, the office says yes or no,
+  // and Paystack carries the money. A failed transfer here is an account
+  // already debited — the one queue in the app that must not go unwatched.
+  {
+    to: "/payout-requests",
+    label: "Payout requests",
+    icon: BanknoteArrowUpIcon,
+    blurb: "Withdrawals customers asked for, waiting on a decision.",
+    roles: OFFICE,
+  },
   // A hub, not a module: each report cuts across several of the books above,
   // which is why none of them lives on a module screen.
   {
@@ -134,6 +158,16 @@ export const NAV: NavItem[] = [
     label: "Reports",
     icon: ChartColumnIcon,
     blurb: "Collections, arrears and what the branch kept.",
+    roles: OFFICE,
+  },
+  // The company's own books, as opposed to its customers': what it holds in
+  // the drawer and the bank, what it spends, what it owns, what the owner put
+  // in — and the balance sheet and profit and loss built from all of it.
+  {
+    to: "/accounting",
+    label: "Accounting",
+    icon: BookOpenTextIcon,
+    blurb: "Cash, expenses, assets, capital and the two statements.",
     roles: OFFICE,
   },
   {

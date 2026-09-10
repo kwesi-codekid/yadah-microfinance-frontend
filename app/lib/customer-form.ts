@@ -32,9 +32,9 @@ export function toDay(iso?: string): string | undefined {
 
 /**
  * Every field the form submits, as one object. Blank fields become `undefined`
- * so they are omitted from the body — the API rejects empty strings against its
- * `minLength` rules. The ID scans are the exception on an edit: `diffCustomer`
- * turns an emptied slot into an explicit clear.
+ * so they are omitted from a `POST` body — the API rejects empty strings
+ * against its `minLength` rules. Clearing a field is an edit's concern, and
+ * `diffCustomer` turns "was set, now blank" into the `null` a `PATCH` wants.
  *
  * Free-text branch data is recorded in capitals, matching how the entry form
  * shows it and how v1 stored it. Email and phone numbers keep their case.
@@ -105,7 +105,8 @@ export function missingRequired(input: CreateCustomerInput): boolean {
  *
  * `PATCH` has no collector field — a round moves only through the admin-only
  * `PATCH /customers/{id}/collector` — so the edit form does not post one, and
- * holding it to the registration check would refuse every save.
+ * holding it to the registration check would refuse every save. Emptying an
+ * ID slot on an edit clears that scan, which is what the Remove button is for.
  */
 export function missingRequiredForEdit(input: CreateCustomerInput): boolean {
   return missingProfile(input);
@@ -126,11 +127,32 @@ const SCALARS = [
   "idDocumentBackUrl",
 ] as const satisfies readonly (keyof CreateCustomerInput)[];
 
-const ID_DOCUMENT_KEYS = ["idDocumentFrontUrl", "idDocumentBackUrl"] as const;
+/**
+ * The ones a `PATCH` may blank with `null`. The rest — name, phone, photo —
+ * the record cannot be without, so a blank there is "leave it alone", never
+ * "clear it". The ID scans are clearable like any other optional; the API is
+ * the one that refuses (`ID_DOCUMENT_IN_USE`) while credit is open on them.
+ */
+const CLEARABLE = new Set<(typeof SCALARS)[number]>([
+  "dateOfBirth",
+  "gender",
+  "nationality",
+  "maritalStatus",
+  "residentialAddress",
+  "altPhone",
+  "occupation",
+  "idDocumentFrontUrl",
+  "idDocumentBackUrl",
+]);
 
 /** Dates come back with a time on them; compare the day, not the timestamp. */
 function sameDate(a?: string, b?: string): boolean {
   return toDay(a) === toDay(b);
+}
+
+/** Set on the record, in the sense the API means it: present and not blank. */
+function held(value: unknown): boolean {
+  return value != null && value !== "";
 }
 
 /**
@@ -138,6 +160,11 @@ function sameDate(a?: string, b?: string): boolean {
  * unchanged phone or ID number would have the API check it for uniqueness
  * against every *other* record and, worse, makes the audit trail claim an edit
  * that never happened. Returns an empty object when nothing was touched.
+ *
+ * A field that was set and is now blank goes as `null`, which is how the API
+ * clears it — omitting it would leave the old value standing, and a form that
+ * cannot remove a wrong email is a form people work around. A field blank on
+ * both sides is left out of the body altogether.
  */
 export function diffCustomer(
   current: Customer,
@@ -147,20 +174,16 @@ export function diffCustomer(
 
   for (const key of SCALARS) {
     const value = next[key];
-    if (value === undefined) continue;
     const was = current[key];
+    if (value === undefined || value === "") {
+      if (CLEARABLE.has(key) && held(was)) patch[key] = null;
+      continue;
+    }
     const changed =
       key === "dateOfBirth"
         ? !sameDate(value as string, was as string)
         : value !== was;
     if (changed) patch[key] = value;
-  }
-
-  // The ID scans are the one pair the form can take away as well as change:
-  // an emptied slot on a record that had one is sent as `null`, which the API
-  // reads as "clear it" — and refuses while a loan or agreement is open.
-  for (const key of ID_DOCUMENT_KEYS) {
-    if (next[key] === undefined && current[key]) patch[key] = null;
   }
 
   if (next.identification) {
@@ -172,6 +195,8 @@ export function diffCustomer(
     // The API returns the whole block, so every field of it can be compared.
     // It is still sent whole: it has no partial update of its own.
     if (changed) patch.identification = next.identification;
+  } else if (current.identification) {
+    patch.identification = null;
   }
 
   if (next.nextOfKin) {
@@ -183,6 +208,8 @@ export function diffCustomer(
       was.phone !== next.nextOfKin.phone ||
       was.address !== next.nextOfKin.address;
     if (changed) patch.nextOfKin = next.nextOfKin;
+  } else if (current.nextOfKin) {
+    patch.nextOfKin = null;
   }
 
   return patch as UpdateCustomerInput;

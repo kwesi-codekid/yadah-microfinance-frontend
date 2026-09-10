@@ -12,6 +12,13 @@
 
 export type ExportFormat = "csv" | "xlsx";
 
+/**
+ * The two financial statements also print: `format=pdf` returns a laid-out A4
+ * statement on Yadah letterhead. Only they accept it, so the wider type stays
+ * theirs rather than loosening every list export.
+ */
+export type StatementFormat = ExportFormat | "pdf";
+
 /** The envelope every paginated endpoint answers with. */
 export interface Paginated<T> {
   items: T[];
@@ -40,7 +47,7 @@ export interface ListParams {
  */
 export function queryOf(
   params: Record<string, string | number | boolean | undefined>,
-  format?: ExportFormat,
+  format?: StatementFormat,
 ): string {
   const q = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
