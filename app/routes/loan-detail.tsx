@@ -2,6 +2,7 @@ import {
   BanknoteArrowDownIcon,
   CheckIcon,
   CoinsIcon,
+  FileImageIcon,
   IdCardIcon,
   LockIcon,
   MoreHorizontalIcon,
@@ -60,6 +61,7 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
+import { hasIdDocument } from "~/lib/customers";
 import {
   accraDay,
   formatAccraDate,
@@ -136,6 +138,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       loan,
       customerName: result.customer?.fullName ?? loan.customerName ?? "Customer",
       customerHasCard: result.customer?.identification?.idType === "ghana-card",
+      // Fallbacks for when the eligibility read fails: the record itself says
+      // whether the scans are there. An unreadable record does not block — the
+      // API refuses approval without them either way.
+      customerHasIdDocument: result.customer ? hasIdDocument(result.customer) : true,
       eligibility: result.eligibility,
       /** The rate this duration carries under today's config. */
       standardRate: rateFor(config, loan.durationMonths),
@@ -228,6 +234,7 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
     loan,
     customerName,
     customerHasCard,
+    customerHasIdDocument,
     eligibility,
     standardRate,
     overdue,
@@ -301,6 +308,7 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
         <DecisionPanel
           eligibility={eligibility}
           customerHasCard={customerHasCard}
+          customerHasIdDocument={customerHasIdDocument}
           principal={loan.principal}
           interest={loan.interestAmount}
           totalDue={loan.totalDue}
@@ -440,6 +448,7 @@ function RateLadder({
 function DecisionPanel({
   eligibility,
   customerHasCard,
+  customerHasIdDocument,
   principal,
   interest,
   totalDue,
@@ -447,6 +456,7 @@ function DecisionPanel({
 }: {
   eligibility: LoanEligibility | null;
   customerHasCard: boolean;
+  customerHasIdDocument: boolean;
   principal: number;
   interest: number;
   totalDue: number;
@@ -463,7 +473,9 @@ function DecisionPanel({
   }, [fetcher.data]);
 
   const hasCard = eligibility?.customer.hasGhanaCard ?? customerHasCard;
+  const hasScans = eligibility?.customer.hasIdDocument ?? customerHasIdDocument;
   const openLoan = eligibility?.openLoan ?? null;
+  const blocked = !hasCard || !hasScans || openLoan != null;
 
   return (
     <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card">
@@ -514,9 +526,9 @@ function DecisionPanel({
           </p>
         )}
 
-        {/* The two conditions that make approval impossible. Shown as blockers
+        {/* The conditions that make approval impossible. Shown as blockers
             rather than as advice, because the API will refuse either way. */}
-        {(!hasCard || openLoan) && (
+        {blocked && (
           <ul className="space-y-1.5 text-sm">
             {!hasCard && (
               <li className="flex items-start gap-2 text-danger">
@@ -524,6 +536,15 @@ function DecisionPanel({
                 <span>
                   No Ghana Card on the profile. Add it to the customer record
                   before approving.
+                </span>
+              </li>
+            )}
+            {!hasScans && (
+              <li className="flex items-start gap-2 text-danger">
+                <FileImageIcon className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  ID document not uploaded. Add the front and back to the
+                  customer record before approving.
                 </span>
               </li>
             )}
@@ -547,7 +568,7 @@ function DecisionPanel({
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-4">
           <ApproveButton
-            disabled={busy || !hasCard || openLoan != null}
+            disabled={busy || blocked}
             onConfirm={() =>
               fetcher.submit({ intent: "approve" }, { method: "post" })
             }

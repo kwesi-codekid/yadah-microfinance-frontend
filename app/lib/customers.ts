@@ -21,8 +21,6 @@ export type IdType = "ghana-card" | "passport" | "drivers-license" | "voter-id";
 export interface Identification {
   idType: IdType;
   idNumber: string;
-  idExpiryDate?: string;
-  idPlaceOfIssue?: string;
 }
 
 export interface NextOfKin {
@@ -40,17 +38,11 @@ export interface Customer {
   gender?: Gender;
   nationality?: string;
   maritalStatus?: MaritalStatus;
-  mothersMaidenName?: string;
   residentialAddress?: string;
-  ghanaPostGps?: string;
-  postalAddress?: string;
   phone: string;
   altPhone?: string;
-  email?: string;
   identification?: Identification;
   occupation?: string;
-  employerOrBusiness?: string;
-  purposeOfAccount?: string;
   /**
    * The collector whose round this customer sits on. Set at registration and
    * changed *only* through `PATCH /customers/{id}/collector` — a plain profile
@@ -95,8 +87,6 @@ export const ID_TYPE_OPTIONS: { value: IdType; label: string }[] = [
 
 /** Ghanaian mobile number: `0` then `2` or `5`, then eight digits. */
 export const PHONE_RE = /^0[25]\d{8}$/;
-/** GhanaPost GPS digital address, e.g. `GA-183-9832`. */
-export const GHANAPOST_RE = /^[A-Z]{2}-\d{3,4}-\d{4}$/;
 
 /** The body of POST /customers. Optionals are omitted when blank. */
 export interface CreateCustomerInput {
@@ -104,12 +94,12 @@ export interface CreateCustomerInput {
   phone: string;
   photoUrl: string;
   /**
-   * Required at registration: the API refuses the record without both sides
-   * of the ID. Only an edit may leave them alone, and then only because it is
-   * not resending them.
+   * Optional on the profile. Both sides must be on file before a loan or
+   * hire-purchase agreement can be opened, and neither can be removed while
+   * one is running — see `hasIdDocument`.
    */
-  idDocumentFrontUrl: string;
-  idDocumentBackUrl: string;
+  idDocumentFrontUrl?: string;
+  idDocumentBackUrl?: string;
   /**
    * Required. Every customer joins somebody's round at registration — the API
    * refuses the record without it, because an unassigned customer is one nobody
@@ -120,21 +110,13 @@ export interface CreateCustomerInput {
   gender?: Gender;
   nationality?: string;
   maritalStatus?: MaritalStatus;
-  mothersMaidenName?: string;
   residentialAddress?: string;
-  ghanaPostGps?: string;
-  postalAddress?: string;
   altPhone?: string;
-  email?: string;
   identification?: {
     idType: IdType;
     idNumber: string;
-    idExpiryDate?: string;
-    idPlaceOfIssue?: string;
   };
   occupation?: string;
-  employerOrBusiness?: string;
-  purposeOfAccount?: string;
   nextOfKin?: {
     fullName: string;
     relationship?: string;
@@ -148,8 +130,9 @@ export interface CreateCustomerInput {
  *
  * A field that is optional on the record takes `null` to clear it — the only
  * way to blank a value once set, since omitting it means "leave alone". The
- * five the record cannot be without (name, phone, photo, both ID scans) take
- * a replacement or nothing.
+ * three the record cannot be without (name, phone, photo) take a replacement
+ * or nothing; an ID scan clears like any other optional, and the API refuses
+ * that with `ID_DOCUMENT_IN_USE` while a loan or agreement is open.
  *
  * `assignedCollectorId` is deliberately not among them. The API ignores it here
  * and moves a round only through `PATCH /customers/{id}/collector`, which is
@@ -171,6 +154,28 @@ export interface TrashedCustomer extends Customer {
   deletedAt: string;
   deletedById?: string;
   deleteReason?: string;
+}
+
+/** How much of the ID document a record carries. `partial` is one side only. */
+export type IdDocumentState = "complete" | "partial" | "none";
+
+export function idDocumentState(
+  customer: Pick<Customer, "idDocumentFrontUrl" | "idDocumentBackUrl">,
+): IdDocumentState {
+  const sides = [customer.idDocumentFrontUrl, customer.idDocumentBackUrl].filter(
+    Boolean,
+  ).length;
+  return sides === 2 ? "complete" : sides === 1 ? "partial" : "none";
+}
+
+/**
+ * Both sides on file — the API's own definition, and the one that gates a loan
+ * or a hire-purchase agreement. One side alone counts for nothing.
+ */
+export function hasIdDocument(
+  customer: Pick<Customer, "idDocumentFrontUrl" | "idDocumentBackUrl">,
+): boolean {
+  return idDocumentState(customer) === "complete";
 }
 
 /**
@@ -269,7 +274,6 @@ export interface CustomerStatement {
     id: string;
     fullName: string;
     phone: string;
-    email?: string | null;
     residentialAddress?: string | null;
   };
   period: { from: string; to: string };

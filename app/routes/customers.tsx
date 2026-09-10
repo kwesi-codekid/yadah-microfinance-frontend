@@ -334,7 +334,7 @@ function toRow(c: Customer, now: Date): Row {
     age: c.dateOfBirth ? ageInYears(c.dateOfBirth, now) : null,
     gender: c.gender ?? null,
     phone: c.phone,
-    contactSub: c.email ?? c.altPhone ?? null,
+    contactSub: c.altPhone ?? null,
     idLabel: idType ? ID_TYPE_LABELS[idType] : null,
     idNumber: c.identification?.idNumber ?? null,
     status: c.status,

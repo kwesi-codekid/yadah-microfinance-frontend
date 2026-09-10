@@ -130,6 +130,7 @@ export function getLoan(
  * POST /loans/applications — record what the customer asked for.
  *
  * Refused with `GHANA_CARD_REQUIRED` unless the card is on the profile, with
+ * `ID_DOCUMENT_REQUIRED` until both sides of the ID are uploaded, with
  * `LOAN_EXISTS` when one is already open, and with `BIG_TIER_LOCKED` for a big
  * principal from someone who has not repaid a small one on time. Nothing is
  * disbursed here — the application waits for a person.

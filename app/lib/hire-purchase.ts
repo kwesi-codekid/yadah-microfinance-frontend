@@ -127,11 +127,14 @@ export interface HpEligibility {
   eligible?: boolean;
   /** Each unmet condition, in the API's own words, for the form to list. */
   reasons?: string[];
+  /** Both sides of the ID document on the profile — a condition in its own right. */
+  hasIdDocument?: boolean;
+  hasActiveSusuOrSavings?: boolean;
+  /** A loan is open on the customer. Loans and hire purchase block each other. */
+  openLoan?: boolean;
+  /** An agreement is already open on the customer. */
+  openHpAgreement?: boolean;
   monthsOfHistory?: number;
-  hasActiveSusu?: boolean;
-  hasActiveSavings?: boolean;
-  hasActiveLoan?: boolean;
-  openAgreement?: HpAgreement | null;
 }
 
 /* -------------------------------------------------------------- the halves --- */

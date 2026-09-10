@@ -50,33 +50,23 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
     fullName: up("fullName") ?? "",
     phone: get("phone") ?? "",
     photoUrl: get("photoUrl") ?? "",
-    idDocumentFrontUrl: get("idDocumentFrontUrl") ?? "",
-    idDocumentBackUrl: get("idDocumentBackUrl") ?? "",
+    // Optional: an empty slot is simply not sent.
+    idDocumentFrontUrl: get("idDocumentFrontUrl"),
+    idDocumentBackUrl: get("idDocumentBackUrl"),
     assignedCollectorId: get("assignedCollectorId") ?? "",
     dateOfBirth: toIso(get("dateOfBirth")),
     gender: get("gender") as Gender | undefined,
     nationality: up("nationality"),
     maritalStatus: get("maritalStatus") as MaritalStatus | undefined,
-    mothersMaidenName: up("mothersMaidenName"),
     residentialAddress: up("residentialAddress"),
-    ghanaPostGps: up("ghanaPostGps"),
-    postalAddress: up("postalAddress"),
     altPhone: get("altPhone"),
-    email: get("email"),
     occupation: up("occupation"),
-    employerOrBusiness: up("employerOrBusiness"),
-    purposeOfAccount: up("purposeOfAccount"),
   };
 
   const idType = get("idType") as IdType | undefined;
   const idNumber = up("idNumber");
   if (idType && idNumber) {
-    input.identification = {
-      idType,
-      idNumber,
-      idExpiryDate: toIso(get("idExpiryDate")),
-      idPlaceOfIssue: up("idPlaceOfIssue"),
-    };
+    input.identification = { idType, idNumber };
   }
 
   const kinName = up("kinFullName");
@@ -94,24 +84,20 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
 
 /**
  * The three the record cannot be without, whether it is being made or edited.
+ * The ID scans are not among them: the profile saves without them, and it is
+ * the loan and hire-purchase screens that insist on them.
  */
 function missingProfile(input: CreateCustomerInput): boolean {
   return !input.fullName || !input.phone || !input.photoUrl;
 }
 
 /**
- * The six fields `POST /customers` insists on, in the order the form shows
- * them: the three above, both sides of the ID document, and the collector —
- * every customer joins somebody's round at registration, and the API refuses
- * the record without one.
+ * The four fields `POST /customers` insists on, in the order the form shows
+ * them. The fourth is the collector: every customer joins somebody's round at
+ * registration, and the API refuses the record without one.
  */
 export function missingRequired(input: CreateCustomerInput): boolean {
-  return (
-    missingProfile(input) ||
-    !input.idDocumentFrontUrl ||
-    !input.idDocumentBackUrl ||
-    !input.assignedCollectorId
-  );
+  return missingProfile(input) || !input.assignedCollectorId;
 }
 
 /**
@@ -119,8 +105,8 @@ export function missingRequired(input: CreateCustomerInput): boolean {
  *
  * `PATCH` has no collector field — a round moves only through the admin-only
  * `PATCH /customers/{id}/collector` — so the edit form does not post one, and
- * holding it to the registration check would refuse every save. The ID scans
- * are not held to it either: an edit that leaves them blank leaves them alone.
+ * holding it to the registration check would refuse every save. Emptying an
+ * ID slot on an edit clears that scan, which is what the Remove button is for.
  */
 export function missingRequiredForEdit(input: CreateCustomerInput): boolean {
   return missingProfile(input);
@@ -132,40 +118,31 @@ const SCALARS = [
   "gender",
   "nationality",
   "maritalStatus",
-  "mothersMaidenName",
   "residentialAddress",
-  "ghanaPostGps",
-  "postalAddress",
   "phone",
   "altPhone",
-  "email",
   "occupation",
-  "employerOrBusiness",
-  "purposeOfAccount",
   "photoUrl",
   "idDocumentFrontUrl",
   "idDocumentBackUrl",
 ] as const satisfies readonly (keyof CreateCustomerInput)[];
 
 /**
- * The ones a `PATCH` may blank with `null`. The rest — name, phone, photo,
- * the ID scans — the record cannot be without, so a blank there is "leave it
- * alone", never "clear it".
+ * The ones a `PATCH` may blank with `null`. The rest — name, phone, photo —
+ * the record cannot be without, so a blank there is "leave it alone", never
+ * "clear it". The ID scans are clearable like any other optional; the API is
+ * the one that refuses (`ID_DOCUMENT_IN_USE`) while credit is open on them.
  */
 const CLEARABLE = new Set<(typeof SCALARS)[number]>([
   "dateOfBirth",
   "gender",
   "nationality",
   "maritalStatus",
-  "mothersMaidenName",
   "residentialAddress",
-  "ghanaPostGps",
-  "postalAddress",
   "altPhone",
-  "email",
   "occupation",
-  "employerOrBusiness",
-  "purposeOfAccount",
+  "idDocumentFrontUrl",
+  "idDocumentBackUrl",
 ]);
 
 /** Dates come back with a time on them; compare the day, not the timestamp. */
@@ -214,9 +191,7 @@ export function diffCustomer(
     const changed =
       !was ||
       was.idType !== next.identification.idType ||
-      was.idNumber !== next.identification.idNumber ||
-      was.idPlaceOfIssue !== next.identification.idPlaceOfIssue ||
-      !sameDate(next.identification.idExpiryDate, was.idExpiryDate);
+      was.idNumber !== next.identification.idNumber;
     // The API returns the whole block, so every field of it can be compared.
     // It is still sent whole: it has no partial update of its own.
     if (changed) patch.identification = next.identification;

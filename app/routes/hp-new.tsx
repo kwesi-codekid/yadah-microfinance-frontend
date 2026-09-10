@@ -349,7 +349,7 @@ function refusalReasonsOf(result: {
 }
 
 /**
- * The four conditions, as the API reports them. Where it says nothing, this
+ * The five conditions, as the API reports them. Where it says nothing, this
  * says nothing — the endpoint's shape is not settled, and inventing a refusal
  * out of a missing field would block signings that are perfectly good.
  */
@@ -408,9 +408,10 @@ function ConditionsPanel({
             <li className="flex items-start gap-2 text-danger">
               <MinusIcon className="mt-0.5 size-4 shrink-0" />
               <span>
-                This customer cannot sign an agreement yet. Three months of
-                saving history, an active susu or savings account, no active
-                loan, and no agreement already open.
+                This customer cannot sign an agreement yet. Both sides of the
+                ID document on the profile, three months of saving history, an
+                active susu or savings account, no active loan, and no agreement
+                already open.
               </span>
             </li>
           )}
