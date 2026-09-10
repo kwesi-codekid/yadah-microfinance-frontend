@@ -15,7 +15,7 @@ import {
 } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { startCharge } from "~/lib/charge.server";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/loan-charge";
 
 export function meta(_: Route.MetaArgs) {
@@ -24,7 +24,7 @@ export function meta(_: Route.MetaArgs) {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   // Loan and hire-purchase charges are office-only, unlike the deposit ones.
-  await requireOffice(request);
+  await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
@@ -44,7 +44,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   return startCharge(request, "loan-repayment", params.id);
 }
 

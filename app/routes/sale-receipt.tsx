@@ -1,6 +1,6 @@
 import { saleReceiptPdf } from "~/api/sales";
 import { asDownload, downloadFailure } from "~/lib/download.server";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/sale-receipt";
 
 /**
@@ -11,7 +11,7 @@ import type { Route } from "./+types/sale-receipt";
  * Office-only, like the till itself.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   try {
     const { data: upstream, headers } = await withAuth(request, (token) =>

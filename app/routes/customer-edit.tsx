@@ -13,7 +13,7 @@ import {
   parseCustomerForm,
 } from "~/lib/customer-form";
 import type { HpEligibility } from "~/lib/hire-purchase";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import type { Route } from "./+types/customer-edit";
 
@@ -23,7 +23,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const [{ customer }, credit] = await Promise.all([
@@ -62,7 +62,7 @@ function heldBy(credit: HpEligibility | null): string | null {
  * and the detail page offers the button, so it is passed straight through.
  */
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const input = parseCustomerForm(await request.formData());
 
   if (missingRequiredForEdit(input)) {

@@ -20,13 +20,7 @@ import {
   UsersIcon,
   XIcon,
 } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   data,
   Form,
@@ -93,8 +87,12 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
-import { initialsOf, isOffice } from "~/lib/auth";
-import { ID_TYPE_LABELS, type Customer, type CustomerStatus } from "~/lib/customers";
+import { initialsOf, isCounter, isOffice } from "~/lib/auth";
+import {
+  ID_TYPE_LABELS,
+  type Customer,
+  type CustomerStatus,
+} from "~/lib/customers";
 import {
   ageInYears,
   formatCount,
@@ -136,7 +134,9 @@ function readFilters(url: URL): Filters {
   };
   return {
     status:
-      statusParam === "active" || statusParam === "inactive" ? statusParam : "all",
+      statusParam === "active" || statusParam === "inactive"
+        ? statusParam
+        : "all",
     search: url.searchParams.get("search")?.trim() ?? "",
     from: day("from"),
     to: day("to"),
@@ -228,6 +228,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return data(
     {
+      // Registering is counter work; switching a record off, importing a whole
+      // book and the row menu are not.
+      canRegister: isCounter(user),
       canManage: isOffice(user),
       canReassign,
       // Everything the reassign drawer needs to open without asking for it.
@@ -260,25 +263,31 @@ export async function action({ request }: Route.ActionArgs) {
   const id = String(form.get("customerId") ?? "");
   const reason = String(form.get("reason") ?? "").trim();
   if (!id) {
-    return data<ActionResult>({ ok: false, message: "Missing customer." }, { status: 400 });
+    return data<ActionResult>(
+      { ok: false, message: "Missing customer." },
+      { status: 400 },
+    );
   }
 
   try {
-    const { data: message, headers } = await withAuth(request, async (token) => {
-      if (intent === "deactivate") {
-        await deactivateCustomer(token, id);
-        return "Customer deactivated.";
-      }
-      if (intent === "activate") {
-        await activateCustomer(token, id);
-        return "Customer reactivated.";
-      }
-      if (intent === "trash") {
-        await trashCustomer(token, id, reason || undefined);
-        return "Customer moved to the trash.";
-      }
-      throw new Response("Unknown action.", { status: 400 });
-    });
+    const { data: message, headers } = await withAuth(
+      request,
+      async (token) => {
+        if (intent === "deactivate") {
+          await deactivateCustomer(token, id);
+          return "Customer deactivated.";
+        }
+        if (intent === "activate") {
+          await activateCustomer(token, id);
+          return "Customer reactivated.";
+        }
+        if (intent === "trash") {
+          await trashCustomer(token, id, reason || undefined);
+          return "Customer moved to the trash.";
+        }
+        throw new Response("Unknown action.", { status: 400 });
+      },
+    );
     return data<ActionResult>({ ok: true, message }, { headers });
   } catch (error) {
     if (error instanceof ApiError) {
@@ -300,7 +309,9 @@ function openHoldings(error: ApiError): Record<string, number> | undefined {
   if (error.code !== "CANNOT_TRASH" || !error.details) return undefined;
   if (typeof error.details !== "object") return undefined;
   const out: Record<string, number> = {};
-  for (const [key, value] of Object.entries(error.details as Record<string, unknown>)) {
+  for (const [key, value] of Object.entries(
+    error.details as Record<string, unknown>,
+  )) {
     if (typeof value === "number" && value > 0) out[key] = value;
   }
   return Object.keys(out).length ? out : undefined;
@@ -351,12 +362,25 @@ function tintIndex(id: string): number {
 }
 
 function shortId(id: string): string {
-  return id.replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase() || id.toUpperCase();
+  return (
+    id
+      .replace(/[^a-z0-9]/gi, "")
+      .slice(-6)
+      .toUpperCase() || id.toUpperCase()
+  );
 }
 
 export default function Customers({ loaderData }: Route.ComponentProps) {
-  const { canManage, canReassign, filters, page, total, counts, rows } =
-    loaderData;
+  const {
+    canRegister,
+    canManage,
+    canReassign,
+    filters,
+    page,
+    total,
+    counts,
+    rows,
+  } = loaderData;
   const navigation = useNavigation();
   // Rides along on every link out of here, so a drawer closes onto the same
   // filters it opened over — and so opening one leaves the query string
@@ -394,105 +418,120 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
         />
       )}
     >
-    <Page className="max-w-none">
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-end">
-          <div className="flex flex-wrap items-center gap-2">
-            <SearchBox filters={filters} busy={busy} />
-            <DateRangeFilter filters={filters} />
-            <ExportMenu filters={filters} total={total} />
-            {canManage && (
-              <>
-                {/* A whole book at once, for when the office is loading the
-                    branch rather than signing one person up at the counter. */}
+      <Page className="max-w-none">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-end">
+            <div className="flex flex-wrap items-center gap-2">
+              <SearchBox filters={filters} busy={busy} />
+              <DateRangeFilter filters={filters} />
+              <ExportMenu filters={filters} total={total} />
+              {/* A whole book at once, for when the office is loading the branch
+                rather than signing one person up at the counter. */}
+              {canManage && (
                 <Button asChild size="sm" variant="outline">
                   <Link to="/customers/import">
                     <UploadIcon />
                     Import
                   </Link>
                 </Button>
+              )}
+              {canRegister && (
                 <Button asChild size="sm">
                   <Link to="/customers/new">
                     <UserPlusIcon />
                     Register customer
                   </Link>
                 </Button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {filtered && <ActiveFilters filters={filters} total={total} />}
-
-        {rows.length === 0 ? (
-          <CustomersEmpty filters={filters} />
-        ) : (
-          <div className={cn("transition-opacity", busy && "opacity-60")}>
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <Th>Customer</Th>
-                  <Th className="hidden lg:table-cell">Age / Sex</Th>
-                  <Th className="hidden sm:table-cell">Contact</Th>
-                  <Th className="hidden xl:table-cell">Identification</Th>
-                  <Th>Status</Th>
-                  <Th className="hidden md:table-cell">Registered</Th>
-                  <Th className="w-16 text-right">Actions</Th>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <CustomerRow
-                    key={row.id}
-                    row={row}
-                    canManage={canManage}
-                    canReassign={canReassign}
-                    search={search}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-
-        {total > 0 && (
-          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
-            <p>
-              Showing <span className="tabular font-medium text-foreground">{first}</span>
-              –<span className="tabular font-medium text-foreground">{last}</span> of{" "}
-              <span className="tabular font-medium text-foreground">{formatCount(total)}</span>
-            </p>
-            <div className="flex items-center gap-2">
-              <PagerButton
-                to={hrefFor(filters, page - 1)}
-                disabled={page <= 1}
-                label="Previous page"
-              >
-                <ChevronLeftIcon />
-                Prev
-              </PagerButton>
-              <PagerButton
-                to={hrefFor(filters, page + 1)}
-                disabled={last >= total}
-                label="Next page"
-              >
-                Next
-                <ChevronRightIcon />
-              </PagerButton>
+              )}
             </div>
           </div>
-        )}
-      </div>
 
-      {/* The reassign drawer renders here — over the rows, not a page away
+          {filtered && <ActiveFilters filters={filters} total={total} />}
+
+          {rows.length === 0 ? (
+            <CustomersEmpty filters={filters} />
+          ) : (
+            <div className={cn("transition-opacity", busy && "opacity-60")}>
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <Th>Customer</Th>
+                    <Th className="hidden lg:table-cell">Age / Sex</Th>
+                    <Th className="hidden sm:table-cell">Contact</Th>
+                    <Th className="hidden xl:table-cell">Identification</Th>
+                    <Th>Status</Th>
+                    <Th className="hidden md:table-cell">Registered</Th>
+                    <Th className="w-16 text-right">Actions</Th>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row) => (
+                    <CustomerRow
+                      key={row.id}
+                      row={row}
+                      canManage={canManage}
+                      canReassign={canReassign}
+                      search={search}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {total > 0 && (
+            <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
+              <p>
+                Showing{" "}
+                <span className="tabular font-medium text-foreground">
+                  {first}
+                </span>
+                –
+                <span className="tabular font-medium text-foreground">
+                  {last}
+                </span>{" "}
+                of{" "}
+                <span className="tabular font-medium text-foreground">
+                  {formatCount(total)}
+                </span>
+              </p>
+              <div className="flex items-center gap-2">
+                <PagerButton
+                  to={hrefFor(filters, page - 1)}
+                  disabled={page <= 1}
+                  label="Previous page"
+                >
+                  <ChevronLeftIcon />
+                  Prev
+                </PagerButton>
+                <PagerButton
+                  to={hrefFor(filters, page + 1)}
+                  disabled={last >= total}
+                  label="Next page"
+                >
+                  Next
+                  <ChevronRightIcon />
+                </PagerButton>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* The reassign drawer renders here — over the rows, not a page away
           from them. */}
-      <Outlet />
-    </Page>
+        <Outlet />
+      </Page>
     </RailFrame>
   );
 }
 
-function Th({ className, children }: { className?: string; children: ReactNode }) {
+function Th({
+  className,
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) {
   return (
     <TableHead
       className={cn(
@@ -626,14 +665,22 @@ function DateRangeFilter({ filters }: { filters: Filters }) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className={cn(active && "border-primary/50 text-primary")}>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(active && "border-primary/50 text-primary")}
+        >
           <SlidersHorizontalIcon />
           {active ? formatDayRange(filters.from, filters.to) : "Registered"}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 space-y-3">
         {/* Keyed on the applied range so reopening after a Clear shows it. */}
-        <div ref={fieldsRef} key={`${filters.from}|${filters.to}`} className="space-y-3">
+        <div
+          ref={fieldsRef}
+          key={`${filters.from}|${filters.to}`}
+          className="space-y-3"
+        >
           <div className="space-y-1.5">
             <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Registered from
@@ -689,7 +736,13 @@ function DateRangeFilter({ filters }: { filters: Filters }) {
 }
 
 /** What is narrowing the list right now, and one click to drop each of them. */
-function ActiveFilters({ filters, total }: { filters: Filters; total: number }) {
+function ActiveFilters({
+  filters,
+  total,
+}: {
+  filters: Filters;
+  total: number;
+}) {
   const submit = useSubmit();
   const drop = (next: Partial<Filters>) =>
     submit(queryFor({ ...filters, ...next }), {
@@ -703,7 +756,10 @@ function ActiveFilters({ filters, total }: { filters: Filters; total: number }) 
         {formatCount(total)} {total === 1 ? "match" : "matches"}
       </span>
       {filters.search && (
-        <Chip onDrop={() => drop({ search: "" })} label={`“${filters.search}”`} />
+        <Chip
+          onDrop={() => drop({ search: "" })}
+          label={`“${filters.search}”`}
+        />
       )}
       {(filters.from || filters.to) && (
         <Chip
@@ -757,8 +813,8 @@ function ExportMenu({ filters, total }: { filters: Filters; total: number }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="font-normal text-muted-foreground">
-          {formatCount(Math.min(total, 10_000))} row{total === 1 ? "" : "s"}, matching
-          the filters above
+          {formatCount(Math.min(total, 10_000))} row{total === 1 ? "" : "s"},
+          matching the filters above
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
@@ -812,7 +868,9 @@ function CustomerRow({
             >
               {row.fullName}
             </Link>
-            <p className="tabular truncate text-xs text-muted-foreground">#{row.shortId}</p>
+            <p className="tabular truncate text-xs text-muted-foreground">
+              #{row.shortId}
+            </p>
           </div>
         </div>
       </TableCell>
@@ -821,7 +879,11 @@ function CustomerRow({
         {row.age != null ? (
           <div>
             <p className="tabular text-sm text-foreground">{row.age}y</p>
-            {row.gender && <p className="text-xs text-muted-foreground capitalize">{row.gender}</p>}
+            {row.gender && (
+              <p className="text-xs text-muted-foreground capitalize">
+                {row.gender}
+              </p>
+            )}
           </div>
         ) : (
           <Dash />
@@ -829,10 +891,15 @@ function CustomerRow({
       </TableCell>
 
       <TableCell className="hidden px-4 py-3 sm:table-cell">
-        <a href={`tel:${row.phone}`} className="tabular text-sm font-medium text-primary hover:underline">
+        <a
+          href={`tel:${row.phone}`}
+          className="tabular text-sm font-medium text-primary hover:underline"
+        >
           {row.phone}
         </a>
-        <p className="truncate text-xs text-muted-foreground">{row.contactSub ?? "—"}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {row.contactSub ?? "—"}
+        </p>
       </TableCell>
 
       <TableCell className="hidden px-4 py-3 xl:table-cell">
@@ -840,7 +907,9 @@ function CustomerRow({
           <div>
             <p className="text-sm text-foreground">{row.idLabel}</p>
             {row.idNumber && (
-              <p className="tabular truncate text-xs text-muted-foreground">{row.idNumber}</p>
+              <p className="tabular truncate text-xs text-muted-foreground">
+                {row.idNumber}
+              </p>
             )}
           </div>
         ) : (
@@ -1006,16 +1075,21 @@ function RowActions({
           {confirm === "trash" ? (
             <>
               <AlertDialogHeader>
-                <AlertDialogTitle>Move {row.fullName} to the trash?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  Move {row.fullName} to the trash?
+                </AlertDialogTitle>
                 <AlertDialogDescription>
                   They disappear from the listings and from lookups, and can be
-                  restored from Trash. Their phone number stays reserved. This is
-                  refused while they still hold an open susu account, savings
+                  restored from Trash. Their phone number stays reserved. This
+                  is refused while they still hold an open susu account, savings
                   account, loan or hire-purchase agreement.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <div className="space-y-1.5">
-                <Label htmlFor={`reason-${row.id}`} className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                <Label
+                  htmlFor={`reason-${row.id}`}
+                  className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+                >
                   Reason (optional)
                 </Label>
                 <Textarea
@@ -1042,8 +1116,8 @@ function RowActions({
               <AlertDialogHeader>
                 <AlertDialogTitle>Deactivate {row.fullName}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  They stay visible and their records are kept, but the profile and
-                  its accounts cannot be edited until reactivated.
+                  They stay visible and their records are kept, but the profile
+                  and its accounts cannot be edited until reactivated.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -1077,7 +1151,10 @@ function StatusPill({ status }: { status: CustomerStatus }) {
     <span className="inline-flex items-center gap-1.5 text-sm whitespace-nowrap">
       <span
         aria-hidden
-        className={cn("size-1.5 rounded-full", active ? "bg-success" : "bg-muted-foreground/50")}
+        className={cn(
+          "size-1.5 rounded-full",
+          active ? "bg-success" : "bg-muted-foreground/50",
+        )}
       />
       <span className={active ? "text-foreground" : "text-muted-foreground"}>
         {active ? "Active" : "Inactive"}

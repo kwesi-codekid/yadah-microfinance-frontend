@@ -28,7 +28,7 @@ import {
   type SavingsAccountType,
   type SavingsChannel,
 } from "~/lib/savings";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/savings-new";
@@ -39,12 +39,12 @@ export function meta(_: Route.MetaArgs) {
 
 /** Opening an account is office-only — enforced here, not just by hiding it. */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   return null;
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const customerId = String(form.get("customerId") ?? "").trim();
   const accountType = String(form.get("accountType") ?? "standard") as SavingsAccountType;

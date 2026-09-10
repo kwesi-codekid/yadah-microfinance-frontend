@@ -48,6 +48,7 @@ export const STAFF_STATUS_LABELS: Record<StaffStatus, string> = {
 export const ROLE_BLURBS: Record<Role, string> = {
   admin: "Everything, plus staff accounts and the worker reports.",
   manager: "The whole office: customers, accounts, loans, reports.",
+  teller: "The counter: money in and out, and opening accounts. Decides nothing.",
   collector: "The field: susu rounds and savings deposits only.",
 };
 

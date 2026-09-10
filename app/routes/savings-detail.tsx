@@ -98,7 +98,7 @@ import {
   type SavingsTxn,
   type SavingsTxnType,
 } from "~/lib/savings";
-import { requireOffice, requireUser, withAuth } from "~/lib/session.server";
+import { requireCounter, requireUser, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/savings-detail";
@@ -250,7 +250,7 @@ interface ActionResult {
  * all of it moves money or rewrites a record, so each one confirms first.
  */
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const txnId = String(form.get("txnId") ?? "");

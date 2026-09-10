@@ -2,7 +2,7 @@ import { data } from "react-router";
 
 import { ApiError } from "~/api/error";
 import { deleteImage, uploadImage, type UploadKind } from "~/api/uploads";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/uploads";
 
 /**
@@ -15,7 +15,7 @@ import type { Route } from "./+types/uploads";
  *   DELETE /uploads?publicId=...          → 204
  */
 export async function action({ request }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const url = new URL(request.url);
 
   if (request.method === "DELETE") {

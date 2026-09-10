@@ -26,7 +26,7 @@ import {
   isOpen,
   type RepaymentChannel,
 } from "~/lib/loans";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/loan-repay";
@@ -36,7 +36,7 @@ export function meta(_: Route.MetaArgs) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
@@ -72,7 +72,7 @@ interface ActionResult {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const amount = parseCedis(String(form.get("amount") ?? "").trim());
   const channel = String(form.get("channel") ?? "cash") as RepaymentChannel;

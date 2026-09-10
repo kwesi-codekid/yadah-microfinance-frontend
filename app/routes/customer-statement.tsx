@@ -50,7 +50,7 @@ import {
   formatDayRange,
 } from "~/lib/format";
 import { receiptPathFor } from "~/lib/reports";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/customer-statement";
 
@@ -67,7 +67,7 @@ const PAGE_SIZE = 10;
  * Accra days. Office only, which the API enforces and this re-checks.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const url = new URL(request.url);
   const day = (key: string, fallback: string) => {
     const v = url.searchParams.get(key) ?? "";

@@ -39,8 +39,11 @@ export type NavItem = {
   hidden?: boolean;
 };
 
-/** Admin and manager. Collector is field-only. */
+/** Admin and manager: the roles that may decide. */
 const OFFICE: Role[] = ["admin", "manager"];
+
+/** The counter — the office plus the teller. Collector is field-only. */
+const COUNTER: Role[] = ["admin", "manager", "teller"];
 
 /**
  * The modules, in the order the business works through them: who you serve,
@@ -102,14 +105,16 @@ export const NAV: NavItem[] = [
     label: "Loans",
     icon: LandmarkIcon,
     blurb: "Applications, disbursement and repayments.",
-    roles: OFFICE,
+    // The counter takes repayments; the decision panel inside is office-only.
+    roles: COUNTER,
   },
   {
     to: "/hire-purchase",
     label: "Hire purchase",
     icon: ReceiptTextIcon,
     blurb: "Agreements, instalments and redemption.",
-    roles: OFFICE,
+    // The counter takes instalments; signing and repossession are office-only.
+    roles: COUNTER,
   },
   // The till itself, and the book it writes into — two items, because they are
   // two jobs. Someone at the counter wants the POS and nothing else; someone
@@ -121,14 +126,14 @@ export const NAV: NavItem[] = [
     label: "POS",
     icon: ShoppingCartIcon,
     blurb: "Ring up a counter sale: stock out, money in.",
-    roles: OFFICE,
+    roles: COUNTER,
   },
   {
     to: "/sales",
     label: "Sales",
     icon: ReceiptIcon,
     blurb: "Every sale rung up, with its receipt.",
-    roles: OFFICE,
+    roles: COUNTER,
   },
   // Its own section: the shelf is stocked whether or not anything is signed for.
   {

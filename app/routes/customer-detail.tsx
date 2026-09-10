@@ -42,7 +42,7 @@ import {
 } from "~/components/ui/dropdown-menu";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
-import { isOffice } from "~/lib/auth";
+import { isCounter, isOffice } from "~/lib/auth";
 import {
   ID_TYPE_LABELS,
   idDocumentState,
@@ -105,7 +105,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   return data(
     {
       customer: result.customer,
-      canEdit: isOffice(user),
+      // The counter registers and corrects a record; only the office switches
+      // one off or moves it to the trash.
+      canEdit: isCounter(user),
+      canAdminister: isOffice(user),
       // Moving a round is admin-only: a manager may edit a customer but must
       // not silently change who collects from them.
       canReassign: user.role === "admin",
@@ -160,7 +163,10 @@ export async function action({ request, params }: Route.ActionArgs) {
         headers,
       );
     }
-    return data<ActionResult>({ ok: true, message: result.message }, { headers });
+    return data<ActionResult>(
+      { ok: true, message: result.message },
+      { headers },
+    );
   } catch (error) {
     if (error instanceof ApiError) {
       return data<ActionResult>(
@@ -174,11 +180,17 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 /** The `{ susu, savings, loans, hirePurchase }` counts on a `CANNOT_TRASH`. */
 function openHoldings(error: ApiError): Record<string, number> | undefined {
-  if (error.code !== "CANNOT_TRASH" || typeof error.details !== "object" || !error.details) {
+  if (
+    error.code !== "CANNOT_TRASH" ||
+    typeof error.details !== "object" ||
+    !error.details
+  ) {
     return undefined;
   }
   const out: Record<string, number> = {};
-  for (const [key, value] of Object.entries(error.details as Record<string, unknown>)) {
+  for (const [key, value] of Object.entries(
+    error.details as Record<string, unknown>,
+  )) {
     if (typeof value === "number" && value > 0) out[key] = value;
   }
   return Object.keys(out).length ? out : undefined;
@@ -199,8 +211,14 @@ const HOLDING_LABELS: Record<string, string> = {
  * here is that each input is replaced by the value it would hold.
  */
 export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
-  const { customer, canEdit, canReassign, registeredBy, collectorName } =
-    loaderData;
+  const {
+    customer,
+    canEdit,
+    canAdminister,
+    canReassign,
+    registeredBy,
+    collectorName,
+  } = loaderData;
   const registered = `${relativeDayLabel(customer.createdAt)} · ${formatAccraDate(customer.createdAt)}`;
   const kin = customer.nextOfKin;
   const id = customer.identification;
@@ -227,7 +245,11 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
           </p>
         </div>
         {canEdit && (
-          <HeaderActions customer={customer} canReassign={canReassign} />
+          <HeaderActions
+            customer={customer}
+            canAdminister={canAdminister}
+            canReassign={canReassign}
+          />
         )}
       </div>
 
@@ -260,14 +282,23 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
               <Fld
                 label="Date of birth"
                 value={
-                  customer.dateOfBirth ? formatAccraDate(customer.dateOfBirth) : undefined
+                  customer.dateOfBirth
+                    ? formatAccraDate(customer.dateOfBirth)
+                    : undefined
                 }
               />
               <Fld label="Gender" value={customer.gender} capitalize />
-              <Fld label="Marital status" value={customer.maritalStatus} capitalize />
+              <Fld
+                label="Marital status"
+                value={customer.maritalStatus}
+                capitalize
+              />
               <Fld label="Nationality" value={customer.nationality} />
               <Fld label="Occupation" value={customer.occupation} />
-              <Fld label="ID type" value={id?.idType ? ID_TYPE_LABELS[id.idType] : undefined} />
+              <Fld
+                label="ID type"
+                value={id?.idType ? ID_TYPE_LABELS[id.idType] : undefined}
+              />
               <Fld label="ID number" value={id?.idNumber} tabular />
             </div>
           </Section>
@@ -369,9 +400,12 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
 /** Statement · Print · Edit, plus the state changes behind an ellipsis. */
 function HeaderActions({
   customer,
+  canAdminister,
   canReassign,
 }: {
   customer: Customer;
+  /** Switching a customer off, or moving them to the trash. Office only. */
+  canAdminister: boolean;
   canReassign: boolean;
 }) {
   const fetcher = useFetcher<ActionResult>();
@@ -425,54 +459,63 @@ function HeaderActions({
         </Link>
       </Button>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="size-8">
-            <MoreHorizontalIcon />
-            <span className="sr-only">More actions for {customer.fullName}</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
-          {active ? (
+      {/* Nothing behind the ellipsis is the counter's to do, so a teller is
+          not shown a menu whose every item would be refused. */}
+      {canAdminister && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="size-8">
+              <MoreHorizontalIcon />
+              <span className="sr-only">
+                More actions for {customer.fullName}
+              </span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {active ? (
+              <DropdownMenuItem
+                variant="destructive"
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setConfirm("deactivate");
+                }}
+              >
+                <BanIcon />
+                Deactivate
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem onSelect={() => submit("activate")}>
+                <CircleCheckIcon />
+                Activate
+              </DropdownMenuItem>
+            )}
+            {/* Drawn for everyone who can reach this menu and disabled for a
+              manager, rather than hidden — the same way every other row menu in
+              this app says "not yours to do". */}
+            <DropdownMenuItem asChild disabled={!canReassign}>
+              <Link
+                to={`/customers/${customer.id}/collector`}
+                prefetch="intent"
+              >
+                <UserRoundCogIcon />
+                Reassign collector
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
               onSelect={(e) => {
                 e.preventDefault();
-                setConfirm("deactivate");
+                setReason("");
+                setConfirm("trash");
               }}
             >
-              <BanIcon />
-              Deactivate
+              <Trash2Icon />
+              Move to trash
             </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem onSelect={() => submit("activate")}>
-              <CircleCheckIcon />
-              Activate
-            </DropdownMenuItem>
-          )}
-          {/* Drawn for everyone who can reach this menu and disabled for a
-              manager, rather than hidden — the same way every other row menu in
-              this app says "not yours to do". */}
-          <DropdownMenuItem asChild disabled={!canReassign}>
-            <Link to={`/customers/${customer.id}/collector`} prefetch="intent">
-              <UserRoundCogIcon />
-              Reassign collector
-            </Link>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            variant="destructive"
-            onSelect={(e) => {
-              e.preventDefault();
-              setReason("");
-              setConfirm("trash");
-            }}
-          >
-            <Trash2Icon />
-            Move to trash
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       <AlertDialog
         open={confirm !== null}
@@ -482,11 +525,13 @@ function HeaderActions({
           {confirm === "trash" ? (
             <>
               <AlertDialogHeader>
-                <AlertDialogTitle>Move {customer.fullName} to the trash?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  Move {customer.fullName} to the trash?
+                </AlertDialogTitle>
                 <AlertDialogDescription>
                   They disappear from the listings and from lookups, and can be
-                  restored from Trash. Their phone number stays reserved. This is
-                  refused while they still hold an open susu account, savings
+                  restored from Trash. Their phone number stays reserved. This
+                  is refused while they still hold an open susu account, savings
                   account, loan or hire-purchase agreement.
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -519,10 +564,12 @@ function HeaderActions({
           ) : (
             <>
               <AlertDialogHeader>
-                <AlertDialogTitle>Deactivate {customer.fullName}?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  Deactivate {customer.fullName}?
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  They stay visible and their records are kept, but the profile and
-                  its accounts cannot be edited until reactivated.
+                  They stay visible and their records are kept, but the profile
+                  and its accounts cannot be edited until reactivated.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -657,7 +704,10 @@ function StatusPill({ status }: { status: CustomerStatus }) {
     <span className="inline-flex items-center gap-1.5 text-sm whitespace-nowrap">
       <span
         aria-hidden
-        className={cn("size-1.5 rounded-full", active ? "bg-success" : "bg-muted-foreground/50")}
+        className={cn(
+          "size-1.5 rounded-full",
+          active ? "bg-success" : "bg-muted-foreground/50",
+        )}
       />
       <span className={active ? "text-foreground" : "text-muted-foreground"}>
         {active ? "Active" : "Inactive"}
@@ -667,5 +717,10 @@ function StatusPill({ status }: { status: CustomerStatus }) {
 }
 
 function shortId(id: string): string {
-  return id.replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase() || id.toUpperCase();
+  return (
+    id
+      .replace(/[^a-z0-9]/gi, "")
+      .slice(-6)
+      .toUpperCase() || id.toUpperCase()
+  );
 }

@@ -3,14 +3,23 @@
  * a `.server` module — it is bundled into the client.
  */
 
-/** The three roles the API defines. "Office" is admin + manager. */
-export type Role = "admin" | "manager" | "collector";
+/**
+ * The four roles the API defines.
+ *
+ * Two questions get asked of a role, and they are not the same one. "Office"
+ * is admin and manager: may you decide? "The counter" is those two plus the
+ * teller: may you serve whoever is standing here? A teller is unscoped, like
+ * the office, because anyone may walk up — and junior, like a collector,
+ * because deciding is not their job.
+ */
+export type Role = "admin" | "manager" | "teller" | "collector";
 
-export const ROLES: Role[] = ["admin", "manager", "collector"];
+export const ROLES: Role[] = ["admin", "manager", "teller", "collector"];
 
 export const ROLE_LABELS: Record<Role, string> = {
   admin: "Administrator",
   manager: "Manager",
+  teller: "Teller",
   collector: "Collector",
 };
 
@@ -32,9 +41,22 @@ export interface AuthTokens {
   refreshToken: string;
 }
 
-/** True when this user may register and edit records, not just collect. */
+/**
+ * True when this user may decide: approve a loan, sign a hire purchase, move
+ * money between a customer's products, read the company's books, or take
+ * something out of the listings.
+ */
 export function isOffice(user: Pick<AuthUser, "role"> | null): boolean {
   return user?.role === "admin" || user?.role === "manager";
+}
+
+/**
+ * True when this user serves the counter: taking money in, paying it out,
+ * opening an account, registering the person in front of them. Everyone but
+ * the collector, who is scoped to their own round instead.
+ */
+export function isCounter(user: Pick<AuthUser, "role"> | null): boolean {
+  return isOffice(user) || user?.role === "teller";
 }
 
 /** Initials for the avatar fallback — two letters at most. */

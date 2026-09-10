@@ -1,4 +1,8 @@
-import { createCookieSessionStorage, redirect, type Session } from "react-router";
+import {
+  createCookieSessionStorage,
+  redirect,
+  type Session,
+} from "react-router";
 
 import * as authApi from "~/api/auth";
 import { ApiError } from "~/api/error";
@@ -194,7 +198,9 @@ export async function startPasswordReset(request: Request, phone: string) {
   });
 }
 
-export async function getPendingReset(request: Request): Promise<string | null> {
+export async function getPendingReset(
+  request: Request,
+): Promise<string | null> {
   const session = await getSession(request);
   return session.get("pendingResetPhone") ?? null;
 }
@@ -238,8 +244,19 @@ export async function requireRole(
   return user;
 }
 
+/** May you decide? Approvals, the books, the trash. */
 export function requireOffice(request: Request): Promise<AuthUser> {
   return requireRole(request, ["admin", "manager"]);
+}
+
+/**
+ * May you serve whoever is standing here? Money in and out, opening an
+ * account, registering a customer. Anything not opened to the counter stays
+ * office by default, so a screen added later is closed until somebody says
+ * otherwise.
+ */
+export function requireCounter(request: Request): Promise<AuthUser> {
+  return requireRole(request, ["admin", "manager", "teller"]);
 }
 
 export function requireAdmin(request: Request): Promise<AuthUser> {
@@ -388,7 +405,8 @@ export async function withAuth<T>(
     try {
       result = await call(tokens.accessToken, handle);
     } catch (retryError) {
-      if (isUnauthorized(retryError)) throw await loginRedirect(request, session);
+      if (isUnauthorized(retryError))
+        throw await loginRedirect(request, session);
       // A redirect thrown inside the call still has to carry the new tokens.
       if (retryError instanceof Response) {
         throw withCookie(retryError, await storage.commitSession(session));
@@ -405,7 +423,10 @@ export async function withAuth<T>(
 
 /* ------------------------------------------------------------------- end --- */
 
-export async function logout(request: Request, redirectTo: string = LOGIN_PATH) {
+export async function logout(
+  request: Request,
+  redirectTo: string = LOGIN_PATH,
+) {
   const session = await getSession(request);
   const refreshToken = session.get("refreshToken");
   if (refreshToken) {

@@ -41,7 +41,7 @@ import {
   type LineErrors,
   type SaleChannel,
 } from "~/lib/sales";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/pos";
@@ -78,7 +78,7 @@ interface Sellable {
 const SHELF_LIMIT = 100;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, (token) =>
     listItems(token, {
@@ -113,7 +113,7 @@ export async function loader({ request }: Route.LoaderArgs) {
  * `line[3][quantity]` names would be a parser to get wrong for no gain.
  */
 export async function action({ request }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
 
   const customerId = String(form.get("customerId") ?? "").trim();

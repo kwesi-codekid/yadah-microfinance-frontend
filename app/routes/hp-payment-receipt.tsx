@@ -1,6 +1,6 @@
 import { paymentReceiptPdf } from "~/api/hire-purchase";
 import { asDownload, downloadFailure } from "~/lib/download.server";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/hp-payment-receipt";
 
 /**
@@ -12,7 +12,7 @@ import type { Route } from "./+types/hp-payment-receipt";
  * Office-only, like everything under hire purchase.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   try {
     const { data: upstream, headers } = await withAuth(request, (token) =>

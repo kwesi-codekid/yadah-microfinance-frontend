@@ -18,7 +18,7 @@ import { startCharge } from "~/lib/charge.server";
 import { awaitingDeposit, isRedeemable, isRunning } from "~/lib/hire-purchase";
 import type { HpAgreement } from "~/lib/hire-purchase";
 import type { ChargeKind } from "~/lib/payments";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/hp-charge";
 
 export function meta(_: Route.MetaArgs) {
@@ -62,7 +62,7 @@ const COPY: Record<ChargeKind, { title: string; label: string; note: string }> =
 };
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
@@ -83,7 +83,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   // Read the state again rather than trusting a kind posted from the browser:
   // the agreement could have moved on since the drawer was opened.
