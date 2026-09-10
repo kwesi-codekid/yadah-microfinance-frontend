@@ -32,6 +32,11 @@ export default [
       route(":id/reassign", "routes/customers-reassign.tsx"),
     ]),
     route("customers/new", "routes/customer-new.tsx"),
+    // Bulk registration from a spreadsheet: check the sheet, correct what it
+    // flags, then write. The template is a sibling — a download should not run
+    // the page's own work to answer it.
+    route("customers/import", "routes/customer-import.tsx"),
+    route("customers/import/template", "routes/customer-import-template.tsx"),
     // Resource routes: they proxy a binary body from the API, which the
     // browser cannot fetch itself because it holds no access token.
     route("customers/export", "routes/customers-export.tsx"),
