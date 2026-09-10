@@ -7,11 +7,19 @@ import type {
   HpEligibility,
   HpItem,
   HpPayment,
+  ItemCondition,
+  ItemLabel,
   ItemStatus,
+  LabelKind,
   PaymentChannel,
   TrashedHpAgreement,
   TrashedHpItem,
 } from "~/lib/hire-purchase";
+import type {
+  ImportOutcome as ItemImportOutcome,
+  ImportPreview as ItemImportPreview,
+  ImportRow as ItemImportRow,
+} from "~/lib/inventory-import";
 
 /**
  * The `/hire-purchase` endpoints — the largest module in the API by count, and
@@ -19,7 +27,9 @@ import type {
  * agreements written against it. This module imports the API client, so it is
  * server-only. Types and display constants live in `~/lib/hire-purchase`.
  *
- * Office only throughout. Nothing here is a field errand.
+ * The counter's throughout — the shelf, the sales and the agreements — with
+ * the decisions behind an office check on the API's side. Nothing here is a
+ * field errand.
  */
 
 export type { ExportFormat, Paginated };
@@ -30,6 +40,8 @@ export interface ItemListParams {
   page?: number;
   limit?: number;
   status?: ItemStatus;
+  brandId?: string;
+  categoryId?: string;
   search?: string;
   /** Hide anything with nothing left on the shelf. */
   inStockOnly?: boolean;
@@ -79,10 +91,13 @@ export function createItem(
   accessToken: string,
   input: {
     name: string;
+    brandId?: string;
+    categoryId?: string;
     description?: string;
     quantityInStock: number;
     costPrice: number;
     sellingPrice: number;
+    condition?: ItemCondition;
   },
 ): Promise<{ item: HpItem }> {
   return apiFetch("/hire-purchase/items", {
@@ -104,6 +119,9 @@ export function updateItem(
   id: string,
   input: {
     name?: string;
+    /** Null takes the item off the label. */
+    brandId?: string | null;
+    categoryId?: string | null;
     description?: string;
     costPrice?: number;
     sellingPrice?: number;
@@ -160,6 +178,105 @@ export function adjustStock(
   return apiFetch(`/hire-purchase/items/${id}/adjust-stock`, {
     method: "POST",
     json: input,
+    accessToken,
+  });
+}
+
+/* ------------------------------------------------------ brands, categories --- */
+
+const LABEL_PATH: Record<LabelKind, string> = {
+  brand: "/hire-purchase/brands",
+  category: "/hire-purchase/categories",
+};
+
+/** GET /hire-purchase/{brands|categories} — alphabetical, with item counts. */
+export function listLabels(
+  accessToken: string,
+  kind: LabelKind,
+  params: { page?: number; limit?: number; search?: string } = {},
+): Promise<Paginated<ItemLabel>> {
+  return apiFetch(`${LABEL_PATH[kind]}${queryOf({ ...params })}`, { accessToken });
+}
+
+/** Every label of a kind, for a picker. The whole list is short. */
+export async function allLabels(
+  accessToken: string,
+  kind: LabelKind,
+): Promise<ItemLabel[]> {
+  const page = await listLabels(accessToken, kind, { page: 1, limit: 100 });
+  return page.items;
+}
+
+/** GET /hire-purchase/{brands|categories}/{id} */
+export function getLabel(
+  accessToken: string,
+  kind: LabelKind,
+  id: string,
+): Promise<{ label: ItemLabel }> {
+  return apiFetch(`${LABEL_PATH[kind]}/${id}`, { accessToken });
+}
+
+/** POST — names are unique within a kind, whatever the capitals. `LABEL_TAKEN` otherwise. */
+export function createLabel(
+  accessToken: string,
+  kind: LabelKind,
+  input: { name: string; description?: string },
+): Promise<{ label: ItemLabel }> {
+  return apiFetch(LABEL_PATH[kind], { method: "POST", json: input, accessToken });
+}
+
+/** PATCH — a rename reaches every item filed under it. `description: null` clears it. */
+export function updateLabel(
+  accessToken: string,
+  kind: LabelKind,
+  id: string,
+  input: { name?: string; description?: string | null },
+): Promise<{ label: ItemLabel }> {
+  return apiFetch(`${LABEL_PATH[kind]}/${id}`, { method: "PATCH", json: input, accessToken });
+}
+
+/** DELETE — refused with `LABEL_IN_USE` while any item is still filed under it. */
+export function deleteLabel(accessToken: string, kind: LabelKind, id: string): Promise<void> {
+  return apiFetch(`${LABEL_PATH[kind]}/${id}`, { method: "DELETE", accessToken });
+}
+
+/* ------------------------------------------------------------ bulk import --- */
+
+/** GET /hire-purchase/items/import/template — the blank sheet. Returns the raw response. */
+export function itemImportTemplate(
+  accessToken: string,
+  format: "csv" | "xlsx",
+): Promise<Response> {
+  return apiFetchRaw(`/hire-purchase/items/import/template?format=${format}`, {
+    accessToken,
+  });
+}
+
+/** POST /hire-purchase/items/import/preview — check a filled sheet. Writes nothing. */
+export function previewItemImport(
+  accessToken: string,
+  file: File,
+): Promise<ItemImportPreview> {
+  const body = new FormData();
+  body.append("file", file);
+  return apiFetch("/hire-purchase/items/import/preview", {
+    method: "POST",
+    formData: body,
+    accessToken,
+  });
+}
+
+/**
+ * POST /hire-purchase/items/import — stock the accepted rows, one at a time,
+ * so one bad row does not throw away the sheet.
+ */
+export function runItemImport(
+  accessToken: string,
+  rows: Pick<ItemImportRow, "row" | "values">[],
+): Promise<ItemImportOutcome> {
+  return apiFetch("/hire-purchase/items/import", {
+    method: "POST",
+    json: { rows },
     accessToken,
   });
 }
@@ -269,7 +386,13 @@ export function getAgreement(
  */
 export function signAgreement(
   accessToken: string,
-  input: { customerId: string; itemId: string; durationMonths: number },
+  input: {
+    customerId: string;
+    itemId: string;
+    durationMonths: number;
+    /** From POST /uploads?kind=signature. */
+    signatureUrl: string;
+  },
 ): Promise<{ agreement: HpAgreement }> {
   return apiFetch("/hire-purchase/agreements", {
     method: "POST",

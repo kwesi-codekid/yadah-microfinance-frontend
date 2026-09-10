@@ -14,10 +14,11 @@ import { data, Link, useNavigation, useSubmit } from "react-router";
 
 import { getCustomer } from "~/api/customers";
 import { listTransactions } from "~/api/reports";
-import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
 import {
   ExportMenu,
   FilterChip,
+  FilterMenu,
+  type MenuChoice,
   ModuleDot,
   PeriodFilter,
 } from "~/components/listing";
@@ -56,10 +57,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Transactions · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Transactions",
-  description: "Every movement of money, across every module, newest first.",
 };
 
 /** Ten rows, as the customer's statement pages them. */
@@ -105,7 +105,7 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
 /**
  * `GET /reports/transactions` — every money event in the business as one list.
  *
- * Office only. The whole `/reports` surface is, which is why the rail hides
+ * Office only. The whole `/reports` surface is, which is why the sidebar hides
  * this module from collectors: a collector's own day is reconciled on the susu
  * summary, which is scoped to them and which they may read.
  *
@@ -241,7 +241,7 @@ function haystack(row: Row): string {
  *
  * The two screens answer the same question at two scales — what moved, in what
  * order, through which product — so they share one table rather than each
- * inventing its own. The module rail narrows it, the search box picks through what
+ * inventing its own. The module menu narrows it, the search box picks through what
  * is on screen, and every row carries the same ⋯ menu.
  *
  * Paging is the API's here, not the table's: the ledger is unbounded, so a page
@@ -271,7 +271,7 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
 
   // Only the open view's total is ever known — the API counts what it was asked
   // for. A closed view carries no count rather than a misleading zero.
-  const items: RailItem[] = [
+  const items: MenuChoice[] = [
     {
       key: "all",
       label: "All modules",
@@ -379,16 +379,6 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
   );
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter transactions by module"
-          sections={[{ label: "Module", items }]}
-          active={filters.module || "all"}
-          horizontal={horizontal}
-        />
-      )}
-    >
     <Page className="max-w-none">
       <TotalsBand totals={totals} range={range} />
 
@@ -410,6 +400,7 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
       )}
 
       <DataTable
+        filters={<FilterMenu label="Module" items={items} active={filters.module || "all"} />}
         actions={
           <>
             {/* Mobile-money charges Paystack has not settled yet. They are rows
@@ -521,27 +512,7 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
         }
       />
 
-      {/* A dash carries a meaning in this table, and it is not "missing data".
-          The search's reach is stated for the same reason: a miss here is not
-          an absence from the ledger. */}
-      <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-        <div className="flex gap-1.5">
-          <dt className="tabular">—</dt>
-          <dd>
-            under <span className="font-medium">Commission</span>: no charge was
-            taken on that entry
-          </dd>
-        </div>
-        {rows.length > 0 && (
-          <div>
-            Search reads only the {formatCount(rows.length)}{" "}
-            {rows.length === 1 ? "transaction" : "transactions"} on this page.
-            Narrow the dates or the module to look further back.
-          </div>
-        )}
-      </dl>
     </Page>
-    </RailFrame>
   );
 }
 
@@ -597,7 +568,7 @@ function TotalsBand({
       <Stat
         label="Internal moves"
         value={formatPesewas(totals.internal.amount)}
-        note={`${formatCount(totals.internal.count)} ${totals.internal.count === 1 ? "leg" : "legs"} between a customer's own accounts. Not cash — kept out of the three beside it.`}
+        note={`${formatCount(totals.internal.count)} ${totals.internal.count === 1 ? "leg" : "legs"} between a customer's own accounts`}
         icon={ArrowLeftRightIcon}
         tone="internal"
       />

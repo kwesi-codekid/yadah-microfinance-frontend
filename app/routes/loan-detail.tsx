@@ -33,6 +33,7 @@ import {
 import { listUsers } from "~/api/users";
 import { Figure, StatusPill, Th } from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
+import { SignatureCard } from "~/components/signature-card";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
@@ -319,15 +320,13 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
         <Note tone="danger" icon={<TriangleAlertIcon className="size-4" />}>
           <span className="font-medium">
             {formatCount(overdue)} {overdue === 1 ? "day" : "days"} past due.
-          </span>{" "}
-          Interest escalates on the original principal while a loan runs late.
+          </span>
         </Note>
       )}
 
       {pending && !canDecide && (
         <Note tone="muted" icon={<LockIcon className="size-4" />}>
-          This application is waiting on a manager. The counter can take a
-          repayment once it is approved.
+          Waiting on a manager's approval.
         </Note>
       )}
 
@@ -387,6 +386,8 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
               </p>
             </div>
           </section>
+
+          {loan.signatureUrl && <SignatureCard url={loan.signatureUrl} />}
 
           <RateLadder
             current={loan.ratePercent}
@@ -521,9 +522,6 @@ function DecisionPanel({
         <h3 className="font-heading font-bold tracking-tight">
           Waiting on a decision
         </h3>
-        <p className="text-sm text-muted-foreground">
-          Nothing is disbursed and no schedule exists until this is approved.
-        </p>
       </header>
 
       <div className="space-y-5 p-4">
@@ -559,8 +557,7 @@ function DecisionPanel({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Their history could not be read. The API re-checks every condition
-            when the decision is submitted.
+            Their history could not be read.
           </p>
         )}
 
@@ -645,9 +642,8 @@ function ApproveButton({
           <AlertDialogHeader>
             <AlertDialogTitle>Approve this loan?</AlertDialogTitle>
             <AlertDialogDescription>
-              The rate and interest lock from today&rsquo;s config, the monthly
-              schedule is generated, and the customer is sent an approval SMS.
-              This cannot be undone.
+              The rate locks, the schedule is generated and the customer is sent
+              an SMS. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -687,8 +683,7 @@ function RejectButton({
           <AlertDialogHeader>
             <AlertDialogTitle>Reject this application?</AlertDialogTitle>
             <AlertDialogDescription>
-              No money moves. The reason is kept on the record and is what
-              anyone reading this later will see.
+              No money moves. The reason stays on the record.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-1.5">
@@ -743,10 +738,6 @@ function Schedule({ rows }: { rows: ScheduleRow[] }) {
     <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card">
       <header className="border-b border-border px-4 py-3">
         <h3 className="font-heading font-bold tracking-tight">Schedule</h3>
-        <p className="text-sm text-muted-foreground">
-          Monthly, with the remainder folded into the last instalment. Payments
-          fill the oldest one first.
-        </p>
       </header>
       <Table>
         <TableHeader>
@@ -1004,10 +995,8 @@ function LoanMenu({
               Move this application to the trash?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Only a pending or rejected application can be trashed — once money
-              has been disbursed the loan is part of the ledger. It can be
-              restored from Trash, and a pending one re-checks the one-open-loan
-              rule on the way back.
+              Only a pending or rejected application can be trashed. It can be
+              restored from Trash.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-1.5">

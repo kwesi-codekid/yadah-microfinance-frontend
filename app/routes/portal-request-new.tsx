@@ -114,8 +114,7 @@ export default function PortalRequestNew({ loaderData }: Route.ComponentProps) {
       <header>
         <h1 className="font-heading text-2xl font-bold tracking-tight">Request a withdrawal</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          The office reviews it, then the money is sent to your mobile-money wallet. Nothing
-          leaves your account until they approve.
+          Sent to your mobile-money wallet once the office approves.
         </p>
       </header>
 

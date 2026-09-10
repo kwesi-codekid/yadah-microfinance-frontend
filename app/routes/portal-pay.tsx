@@ -88,7 +88,7 @@ export default function PortalPay({ loaderData }: Route.ComponentProps) {
       <header>
         <h1 className="font-heading text-2xl font-bold tracking-tight">Pay in</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          By mobile money, into one of your own accounts. You approve the prompt on your phone.
+          You approve the prompt on your phone.
         </p>
       </header>
 

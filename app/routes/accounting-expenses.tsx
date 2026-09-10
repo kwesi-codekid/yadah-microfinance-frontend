@@ -85,10 +85,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Expenses · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Expenses",
-  description: "Recorded by one person, approved by another, paid from a named account.",
 };
 
 /** Ten rows, as the ledger and every other book page them. */
@@ -637,9 +636,8 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
               <AlertDialogHeader>
                 <AlertDialogTitle>Reject this expense?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {formatPesewas(rejecting.amount)} for {rejecting.description} stays on
-                  the record as rejected, with this reason beside it. Nothing moves and
-                  nothing is owed.
+                  {formatPesewas(rejecting.amount)} for {rejecting.description} is marked
+                  rejected with this reason. Nothing moves.
                 </AlertDialogDescription>
               </AlertDialogHeader>
 
@@ -689,8 +687,7 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
               <AlertDialogHeader>
                 <AlertDialogTitle>Pay {formatPesewas(paying.amount)}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {paying.description}. This is the step that moves money: the account
-                  named here drops by the amount from the day it was paid.
+                  {paying.description}. The account named here drops by the amount.
                 </AlertDialogDescription>
               </AlertDialogHeader>
 

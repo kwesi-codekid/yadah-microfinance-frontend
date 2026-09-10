@@ -37,10 +37,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Collections by staff · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Collections by staff",
-  description: "Susu and savings deposits, grouped by whoever recorded them.",
 };
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;

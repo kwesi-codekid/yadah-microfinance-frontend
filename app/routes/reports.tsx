@@ -84,10 +84,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Reports · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Reports",
-  description: "Every book the branch keeps, read over a period.",
 };
 
 /**
@@ -478,7 +477,7 @@ function OverviewTab({ r }: TabProps) {
               ]}
             />
           }
-          note="Cash arriving at the counter or in a collector's bag, month by month. Transfer legs are not counted — no cash crosses the counter. * The running month is drawn faint: it is not over yet."
+          note="* Running month, not over yet"
         >
           <StackedColumns
             points={flowPoints}
@@ -500,7 +499,6 @@ function OverviewTab({ r }: TabProps) {
         <ReportCard
           eyebrow="Position"
           title="Held for customers against lent out"
-          note="The question under every other figure: a branch is solvent while what customers have deposited covers the credit written against them. The shorter bar is the safer one."
         >
           <div className="space-y-5">
             <div>
@@ -559,7 +557,6 @@ function OverviewTab({ r }: TabProps) {
         <ReportCard
           eyebrow="Books"
           title="Each book at a glance"
-          note="The headline from every tab, in one column. Open a tab for the reading behind it."
         >
           <ul className="divide-y divide-border/60 text-xs">
             {[
@@ -674,7 +671,6 @@ function SusuTab({ r }: TabProps) {
               ]}
             />
           }
-          note="A day's collection is what the collectors recorded, whether or not the office has confirmed it yet. Payouts are cycles closed and handed back, less the first-day commission."
         >
           <PairedColumns
             points={bookPoints(r.susu.months)}
@@ -690,7 +686,6 @@ function SusuTab({ r }: TabProps) {
           <ReportCard
             eyebrow="Susu"
             title="A typical week"
-            note="Collected per weekday, averaged over the period. Saturday is a half day for most rounds; Sunday is not worked."
           >
             <WeekdayBars values={r.susu.collectedPerDay} />
           </ReportCard>
@@ -699,7 +694,7 @@ function SusuTab({ r }: TabProps) {
             title="Where the cycles are"
             detailTo="/susu"
             detailLabel="Open the book"
-            note="Every active account by how far into its 31-day cycle it is. The coral part is money the office should be ready to hand back."
+            note="Coral: due for payout"
           >
             <SegmentBar
               parts={[
@@ -781,7 +776,6 @@ function SavingsTab({ r }: TabProps) {
           title="Closing balance, month end"
           detailTo="/savings"
           detailLabel="Open savings"
-          note="What the branch owes its savers at the end of each month. It only ever moves by deposits less withdrawals; fees are taken out of the withdrawal and appear in revenue."
         >
           <AreaLine
             points={r.savings.months.map((m, i) => ({
@@ -808,7 +802,7 @@ function SavingsTab({ r }: TabProps) {
               ]}
             />
           }
-          note="* The running month is drawn faint: it is not over yet."
+          note="* Running month, not over yet"
         >
           <PairedColumns
             points={bookPoints(r.savings.months)}
@@ -881,7 +875,7 @@ function LoansTab({ r }: TabProps) {
               ]}
             />
           }
-          note="Repayments are principal and interest together, as they arrive at the counter. * The running month is drawn faint."
+          note="* Running month, not over yet"
         >
           <PairedColumns
             points={bookPoints(r.loans.months).map((p) => ({
@@ -899,7 +893,7 @@ function LoansTab({ r }: TabProps) {
         <ReportCard
           eyebrow="Loans"
           title="Portfolio at risk, 30+ days"
-          note="The whole remaining balance of any loan more than 30 days late, as a share of the open book — not just the missed instalments. The usual microfinance reading."
+          note="Balance of loans over 30 days late, as a share of the open book"
         >
           <AreaLine
             points={r.loans.months.map((m, i) => ({
@@ -921,7 +915,6 @@ function LoansTab({ r }: TabProps) {
           eyebrow="Loans"
           title="Arrears by age"
           detailTo="/reports/loans"
-          note="A position as at now, not a period. The colour deepens with age, but every bucket carries its figure and its count."
         >
           <ul className="space-y-3.5">
             {r.loans.aging.map((b, i) => (
@@ -952,7 +945,6 @@ function LoansTab({ r }: TabProps) {
           eyebrow="Loans"
           title="Longest overdue"
           detailTo="/reports/loans"
-          note="The six loans the office should be talking about this week, with the collector who signed each customer up."
         >
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
@@ -1069,7 +1061,6 @@ function HirePurchaseTab({ r }: TabProps) {
           title="Contracts by standing"
           detailTo="/hire-purchase"
           detailLabel="Open contracts"
-          note="A contract is behind after one missed instalment and defaulted after three. Settled contracts carry no balance and are listed for the count."
         >
           <SegmentBar
             parts={[
@@ -1109,7 +1100,7 @@ function HirePurchaseTab({ r }: TabProps) {
           title="Sold on hire purchase, by category"
           detailTo="/sales"
           detailLabel="Open the day book"
-          note="The full contract value on the day of sale, not what has been paid so far."
+          note="Contract value on the day of sale"
         >
           <RankedBars
             rows={[...r.sales.categories]
@@ -1181,7 +1172,7 @@ function SalesTab({ r }: TabProps) {
               ]}
             />
           }
-          note="Voided receipts are left out of every figure. Hire-purchase sales count the full contract value on the day of sale."
+          note="Voided receipts excluded"
         >
           <RankedBars
             rows={[...r.sales.categories]
@@ -1295,7 +1286,7 @@ function StaffTab({ r }: TabProps) {
               ]}
             />
           }
-          note="Susu and savings deposits grouped by whoever recorded them. The inner bar is what the office counted on handover; the gap is that person's variance over the period."
+          note="Inner bar: counted on handover"
         >
           <RankedBars
             rows={ranked.map((s) => {
@@ -1324,7 +1315,6 @@ function StaffTab({ r }: TabProps) {
         <ReportCard
           eyebrow="Staff"
           title="Days reconciled"
-          note="Collector days the office has confirmed, out of the days each person worked. An unreconciled day is cash nobody has counted yet."
         >
           <ul className="space-y-3">
             {ranked.map((s) => (
@@ -1407,7 +1397,7 @@ function HandoverTab({ r }: TabProps) {
           title="Handover variance, last 14 days"
           detailTo="/reconciliation"
           detailLabel="Open reconciliation"
-          note="One mark per collector per day: what the office counted against what was recorded. A run of coral down one column is a day the whole round went wrong; a run along one row is a collector to talk to."
+          note="Coral: a day that did not balance"
         >
           <HandoverGrid
             days={r.handover.days}
@@ -1483,7 +1473,7 @@ function CustomersTab({ r }: TabProps) {
               ]}
             />
           }
-          note="A customer is dormant after 60 days without a deposit, a repayment or a purchase. They stay on the books; a dormant account is not a closed one."
+          note="Dormant: 60 days without a deposit, repayment or purchase"
         >
           <PairedColumns
             points={points}
@@ -1499,7 +1489,6 @@ function CustomersTab({ r }: TabProps) {
         <ReportCard
           eyebrow="Customers"
           title="What customers hold"
-          note="Each customer counted once, under the most they hold."
         >
           <SegmentBar
             parts={[
@@ -1606,7 +1595,7 @@ function RevenueTab({ r }: TabProps) {
               items={parts.map((p) => ({ label: p.label, color: p.color }))}
             />
           }
-          note="Loan interest is what is earned as instalments arrive, not what is written into the schedule. * The running month is drawn faint."
+          note="* Running month, not over yet"
         >
           <StackedColumns
             points={points}

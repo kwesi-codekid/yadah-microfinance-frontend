@@ -20,10 +20,11 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { listSales, voidSale } from "~/api/sales";
-import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
 import {
   DayRangeFilter,
   ExportMenu,
+  FilterMenu,
+  type MenuChoice,
   SearchBox,
   StatusPill,
 } from "~/components/listing";
@@ -71,10 +72,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Sales · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Sales",
-  description: "Everything sold outright: stock out, money in, no agreement.",
 };
 
 /** Ten rows, as the ledger and the customer's statement page them. */
@@ -132,7 +132,7 @@ function paramsFor(f: Filters) {
 /**
  * `GET /hire-purchase/sales` — the day book. Office only.
  *
- * The rail counts are fetched the way every other listing here does it: one
+ * The status counts are fetched the way every other listing here does it: one
  * one-row request per status, scoped by the same filters as the rows, so a
  * count never contradicts the list under it.
  */
@@ -280,7 +280,7 @@ function toRow(sale: Sale, canDecide: boolean): Row {
  * The day book, drawn as the ledger and the customer's statement are drawn.
  *
  * A sale is a money event like any other, so it gets the same table: the same
- * status rail beside it, the same KPI cards over it, the same ⋯ menu on every row and
+ * status menu over it, the same KPI cards over it, the same ⋯ menu on every row and
  * the same ten-row footer. What is particular to a sale is the basket — units
  * against lines — and the void, which is the one thing here that changes a
  * record and so is the one thing behind a confirmation.
@@ -323,7 +323,7 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
       preventScrollReset: true,
     });
 
-  const items: RailItem[] = TABS.map((t) => ({
+  const items: MenuChoice[] = TABS.map((t) => ({
     key: t.key,
     label: t.label,
     count: counts[t.key],
@@ -424,183 +424,172 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
   ];
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter sales by status"
-          sections={[{ label: "Status", items }]}
-          active={filters.status}
-          horizontal={horizontal}
-        />
-      )}
-    >
-      <Page className="max-w-none">
-        <TotalsBand totals={totals} voided={counts.voided} />
+    <Page className="max-w-none">
+      <TotalsBand totals={totals} voided={counts.voided} />
 
-        <DataTable
-          actions={
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                aria-pressed={filters.walkInOnly}
-                onClick={() => apply({ walkInOnly: !filters.walkInOnly })}
-                className={cn(
-                  filters.walkInOnly && "border-primary/50 text-primary",
-                )}
-              >
-                <UserXIcon />
-                Walk-ins only
-              </Button>
-              <DayRangeFilter
-                from={filters.from}
-                to={filters.to}
-                apply={(next) => apply(next)}
-                title="Sold"
-              />
-              {canExport && (
-                <ExportMenu
-                  path="/sales/export"
-                  query={queryFor(filters).toString()}
-                  total={total}
-                  noun="sale"
-                />
+      <DataTable
+        filters={<FilterMenu label="Status" items={items} active={filters.status} />}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={filters.walkInOnly}
+              onClick={() => apply({ walkInOnly: !filters.walkInOnly })}
+              className={cn(
+                filters.walkInOnly && "border-primary/50 text-primary",
               )}
-              <Button asChild size="sm">
-                <Link to="/pos" prefetch="intent">
-                  <ShoppingCartIcon />
-                  New sale
-                </Link>
-              </Button>
-            </>
-          }
-          // This endpoint searches server-side, so the term goes through the URL
-          // rather than sifting the ten rows in hand. `SearchBox` owns the
-          // debounce and keeps working as a plain GET without JavaScript, which
-          // is why it replaces the table's own box rather than sitting beside it.
-          searchSlot={
-            <SearchBox
-              value={filters.search}
-              apply={(next) => apply({ search: next })}
-              hidden={{
-                status: filters.status === "all" ? "" : filters.status,
-                walkIn: filters.walkInOnly ? "1" : "",
-                from: filters.from,
-                to: filters.to,
-              }}
-              placeholder="Buyer, phone or receipt no."
-              label="Search sales"
-              busy={busy}
+            >
+              <UserXIcon />
+              Walk-ins only
+            </Button>
+            <DayRangeFilter
+              from={filters.from}
+              to={filters.to}
+              apply={(next) => apply(next)}
+              title="Sold"
             />
-          }
-          columns={columns}
-          rows={rows}
-          rowKey={(row) => row.id}
-          paging={{ page, pageSize: PAGE_SIZE, total, onPageChange: goToPage }}
-          loading={busy}
-          rowActions={(row) => (
+            {canExport && (
+              <ExportMenu
+                path="/sales/export"
+                query={queryFor(filters).toString()}
+                total={total}
+                noun="sale"
+              />
+            )}
+            <Button asChild size="sm">
+              <Link to="/pos" prefetch="intent">
+                <ShoppingCartIcon />
+                New sale
+              </Link>
+            </Button>
+          </>
+        }
+        // This endpoint searches server-side, so the term goes through the URL
+        // rather than sifting the ten rows in hand. `SearchBox` owns the
+        // debounce and keeps working as a plain GET without JavaScript, which
+        // is why it replaces the table's own box rather than sitting beside it.
+        searchSlot={
+          <SearchBox
+            value={filters.search}
+            apply={(next) => apply({ search: next })}
+            hidden={{
+              status: filters.status === "all" ? "" : filters.status,
+              walkIn: filters.walkInOnly ? "1" : "",
+              from: filters.from,
+              to: filters.to,
+            }}
+            placeholder="Buyer, phone or receipt no."
+            label="Search sales"
+            busy={busy}
+          />
+        }
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => row.id}
+        paging={{ page, pageSize: PAGE_SIZE, total, onPageChange: goToPage }}
+        loading={busy}
+        rowActions={(row) => (
+          <>
+            <DropdownMenuItem asChild>
+              <Link to={`/sales/${row.id}${search}`} prefetch="intent">
+                <ReceiptIcon />
+                Open the sale
+              </Link>
+            </DropdownMenuItem>
+            {/* A resource route answering with bytes — a plain anchor, so the
+              router does not try to navigate to it. A voided sale still
+              prints, which is why this is never disabled. */}
+            <DropdownMenuItem asChild>
+              <a href={`/sales/${row.id}/receipt`}>
+                <PrinterIcon />
+                Print receipt
+              </a>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={!row.voidable}
+              onSelect={(event) => {
+                event.preventDefault();
+                setReason("");
+                setVoiding(row);
+              }}
+            >
+              <XCircleIcon />
+              Void this sale
+            </DropdownMenuItem>
+          </>
+        )}
+        noun={{ one: "sale", many: "sales" }}
+        pageSize={PAGE_SIZE}
+        empty={
+          narrowed
+            ? "Nothing matches these filters. Widen them, or clear them to see every sale."
+            : filters.status === "voided"
+              ? "Nothing has been voided."
+              : "Nothing sold over the counter yet. Ring one up at the POS and it appears here with its receipt number."
+        }
+      />
+
+      <AlertDialog
+        open={voiding !== null}
+        onOpenChange={(open) => !open && setVoiding(null)}
+      >
+        <AlertDialogContent>
+          {voiding && (
             <>
-              <DropdownMenuItem asChild>
-                <Link to={`/sales/${row.id}${search}`} prefetch="intent">
-                  <ReceiptIcon />
-                  Open the sale
-                </Link>
-              </DropdownMenuItem>
-              {/* A resource route answering with bytes — a plain anchor, so the
-                router does not try to navigate to it. A voided sale still
-                prints, which is why this is never disabled. */}
-              <DropdownMenuItem asChild>
-                <a href={`/sales/${row.id}/receipt`}>
-                  <PrinterIcon />
-                  Print receipt
-                </a>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={!row.voidable}
-                onSelect={(event) => {
-                  event.preventDefault();
-                  setReason("");
-                  setVoiding(row);
-                }}
-              >
-                <XCircleIcon />
-                Void this sale
-              </DropdownMenuItem>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  Void receipt {voiding.receiptNo}?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  The {formatCount(voiding.units)} unit
+                  {voiding.units === 1 ? "" : "s"} go back on the shelf and{" "}
+                  {formatPesewas(voiding.total)} comes off revenue. There is no
+                  undo.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="void-reason"
+                  className="eyebrow text-muted-foreground"
+                >
+                  Why<span className="ml-0.5 text-destructive">*</span>
+                </Label>
+                <Input
+                  id="void-reason"
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  placeholder="Wrong item rung up"
+                  maxLength={200}
+                  autoComplete="off"
+                />
+              </div>
+
+              <AlertDialogFooter>
+                <AlertDialogCancel>Keep it</AlertDialogCancel>
+                <Button
+                  variant="destructive"
+                  disabled={!reason.trim()}
+                  onClick={() => {
+                    const id = voiding.id;
+                    setVoiding(null);
+                    fetcher.submit(
+                      { id, reason: reason.trim() },
+                      { method: "post" },
+                    );
+                  }}
+                >
+                  Void the sale
+                </Button>
+              </AlertDialogFooter>
             </>
           )}
-          noun={{ one: "sale", many: "sales" }}
-          pageSize={PAGE_SIZE}
-          empty={
-            narrowed
-              ? "Nothing matches these filters. Widen them, or clear them to see every sale."
-              : filters.status === "voided"
-                ? "Nothing has been voided."
-                : "Nothing sold over the counter yet. Ring one up at the POS and it appears here with its receipt number."
-          }
-        />
-
-        <AlertDialog
-          open={voiding !== null}
-          onOpenChange={(open) => !open && setVoiding(null)}
-        >
-          <AlertDialogContent>
-            {voiding && (
-              <>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Void receipt {voiding.receiptNo}?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    The {formatCount(voiding.units)} unit
-                    {voiding.units === 1 ? "" : "s"} go back on the shelf and
-                    the {formatPesewas(voiding.total)} stops counting toward
-                    revenue. The sale itself stays on the record, stamped with
-                    your name and this reason. There is no undo.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-
-                <div className="space-y-1.5">
-                  <Label
-                    htmlFor="void-reason"
-                    className="eyebrow text-muted-foreground"
-                  >
-                    Why<span className="ml-0.5 text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="void-reason"
-                    value={reason}
-                    onChange={(event) => setReason(event.target.value)}
-                    placeholder="Wrong item rung up"
-                    maxLength={200}
-                    autoComplete="off"
-                  />
-                </div>
-
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Keep it</AlertDialogCancel>
-                  <Button
-                    variant="destructive"
-                    disabled={!reason.trim()}
-                    onClick={() => {
-                      const id = voiding.id;
-                      setVoiding(null);
-                      fetcher.submit(
-                        { id, reason: reason.trim() },
-                        { method: "post" },
-                      );
-                    }}
-                  >
-                    Void the sale
-                  </Button>
-                </AlertDialogFooter>
-              </>
-            )}
-          </AlertDialogContent>
-        </AlertDialog>
-      </Page>
-    </RailFrame>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Page>
   );
 }
 
@@ -633,21 +622,21 @@ function TotalsBand({
       <Stat
         label="Revenue"
         value={formatPesewas(totals.revenue)}
-        note="Taken at the till. Voided sales excluded."
+        note="Voided sales excluded"
         icon={BanknoteIcon}
         tone="in"
       />
       <Stat
         label="Profit"
         value={formatPesewas(totals.profit)}
-        note="Margin over cost — an office figure, never on a receipt."
+        note="Margin over cost"
         icon={CoinsIcon}
         tone="revenue"
       />
       <Stat
         label="Voided"
         value={formatCount(voided)}
-        note="Reversed after the fact. Stock went back on the shelf."
+        note="Reversed after the fact"
         icon={XCircleIcon}
         tone="out"
       />

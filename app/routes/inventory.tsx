@@ -9,6 +9,7 @@ import {
   ReceiptTextIcon,
   ScalingIcon,
   Trash2Icon,
+  UploadIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -23,11 +24,13 @@ import {
 import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
-import { listItems, trashItem } from "~/api/hire-purchase";
+import { allLabels, listItems, trashItem } from "~/api/hire-purchase";
 import {
+  ChoiceFilter,
   ExportMenu,
   FilterBar,
   FilterChip,
+  FilterMenu,
   ListingCard,
   ListingFooter,
   ListingToolbar,
@@ -35,7 +38,6 @@ import {
   StatusPill,
   Th,
 } from "~/components/listing";
-import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -81,7 +83,8 @@ import {
   type HpItem,
   type ItemStatus,
 } from "~/lib/hire-purchase";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { isOffice } from "~/lib/auth";
+import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/inventory";
 
@@ -89,10 +92,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Inventory · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Inventory",
-  description: "What is on the shelf, and what a unit of it costs a customer.",
 };
 
 const PAGE_SIZE = 20;
@@ -110,6 +112,9 @@ interface Filters {
   status: Tab;
   search: string;
   inStockOnly: boolean;
+  /** A label id, or empty for every brand / category. */
+  brandId: string;
+  categoryId: string;
 }
 
 function readFilters(url: URL): Filters {
@@ -118,6 +123,8 @@ function readFilters(url: URL): Filters {
     status: statusParam && STATUSES.includes(statusParam) ? statusParam : "all",
     search: url.searchParams.get("search")?.trim() ?? "",
     inStockOnly: url.searchParams.get("inStock") === "1",
+    brandId: url.searchParams.get("brand")?.trim() ?? "",
+    categoryId: url.searchParams.get("category")?.trim() ?? "",
   };
 }
 
@@ -126,6 +133,8 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
   if (f.status !== "all") p.set("status", f.status);
   if (f.search) p.set("search", f.search);
   if (f.inStockOnly) p.set("inStock", "1");
+  if (f.brandId) p.set("brand", f.brandId);
+  if (f.categoryId) p.set("category", f.categoryId);
   if (page > 1) p.set("page", String(page));
   return p;
 }
@@ -136,14 +145,15 @@ function hrefFor(f: Filters, page = 1): string {
 }
 
 /**
- * `GET /hire-purchase/items` — the shelf. Office only.
+ * `GET /hire-purchase/items` — the shelf. The counter keeps it; only taking an
+ * item out of the listings stays with the office.
  *
  * Stock is what decides whether an agreement can be signed at all, so the count
  * is a column rather than something to go looking for, and "in stock only" is
  * one press away.
  */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  const viewer = await requireCounter(request);
   const url = new URL(request.url);
 
   const filters = readFilters(url);
@@ -153,19 +163,23 @@ export async function loader({ request }: Route.LoaderArgs) {
     const scope = {
       search: filters.search || undefined,
       inStockOnly: filters.inStockOnly || undefined,
+      brandId: filters.brandId || undefined,
+      categoryId: filters.categoryId || undefined,
     };
-    const [list, ...counts] = await Promise.all([
+    const [list, brands, categories, ...counts] = await Promise.all([
       listItems(token, {
         ...scope,
         page,
         limit: PAGE_SIZE,
         status: filters.status === "all" ? undefined : filters.status,
       }),
+      allLabels(token, "brand"),
+      allLabels(token, "category"),
       ...STATUSES.map((status) =>
         listItems(token, { ...scope, page: 1, limit: 1, status }),
       ),
     ]);
-    return { list, counts };
+    return { list, brands, categories, counts };
   });
 
   const byStatus = Object.fromEntries(
@@ -174,7 +188,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return data(
     {
+      canTrash: isOffice(viewer),
       filters,
+      // The two pickers' options, and the names behind an applied filter.
+      brands: result.brands.map((b) => ({ value: b.id, label: b.name })),
+      categories: result.categories.map((c) => ({ value: c.id, label: c.name })),
       page,
       total: result.list.total,
       counts: {
@@ -226,6 +244,8 @@ export async function action({ request }: Route.ActionArgs) {
 interface Row {
   id: string;
   name: string;
+  /** Brand, category and condition, joined for the line under the name. */
+  detail: string;
   description: string;
   condition: string;
   quantityInStock: number;
@@ -242,6 +262,9 @@ function toRow(item: HpItem): Row {
   return {
     id: item.id,
     name: item.name,
+    detail: [item.brand?.name, item.category?.name, item.condition === "used" ? "Used" : ""]
+      .filter(Boolean)
+      .join(" · "),
     description: item.description ?? "",
     condition: CONDITION_LABELS[item.condition],
     quantityInStock: item.quantityInStock,
@@ -256,7 +279,7 @@ function toRow(item: HpItem): Row {
 }
 
 export default function Inventory({ loaderData }: Route.ComponentProps) {
-  const { filters, page, total, counts, rows } = loaderData;
+  const { canTrash, filters, brands, categories, page, total, counts, rows } = loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
   const { search } = useLocation();
@@ -278,7 +301,9 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
       preventScrollReset: true,
     });
 
-  const narrowed = Boolean(filters.search || filters.inStockOnly);
+  const narrowed = Boolean(
+    filters.search || filters.inStockOnly || filters.brandId || filters.categoryId,
+  );
 
   const railItems = TABS.map((t) => ({
     key: t.key,
@@ -288,29 +313,37 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
   }));
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter items by status"
-          sections={[{ label: "Status", items: railItems }]}
-          active={filters.status}
-          horizontal={horizontal}
-        />
-      )}
-    >
     <Page className="max-w-none">
       <ListingCard>
-        <ListingToolbar>
+        <ListingToolbar
+          tabs={<FilterMenu label="Status" items={railItems} active={filters.status} />}
+        >
           <SearchBox
             value={filters.search}
             apply={(next) => apply({ search: next })}
             hidden={{
               status: filters.status === "all" ? "" : filters.status,
               inStock: filters.inStockOnly ? "1" : "",
+              brand: filters.brandId,
+              category: filters.categoryId,
             }}
-            placeholder="Search item name"
+            placeholder="Search item, brand or category"
             label="Search inventory"
             busy={busy}
+          />
+          <ChoiceFilter
+            value={filters.categoryId}
+            options={categories}
+            apply={(next) => apply({ categoryId: next })}
+            title="Category"
+            allLabel="Every category"
+          />
+          <ChoiceFilter
+            value={filters.brandId}
+            options={brands}
+            apply={(next) => apply({ brandId: next })}
+            title="Brand"
+            allLabel="Every brand"
           />
           <Button
             variant="outline"
@@ -343,6 +376,12 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
             total={total}
             noun="item"
           />
+          <Button asChild size="sm" variant="outline">
+            <Link to="/inventory/import">
+              <UploadIcon />
+              Import
+            </Link>
+          </Button>
           <Button asChild size="sm">
             <Link to={`/inventory/new${search}`} prefetch="intent" preventScrollReset>
               <PlusIcon />
@@ -363,6 +402,18 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
               <FilterChip
                 onDrop={() => apply({ inStockOnly: false })}
                 label="In stock only"
+              />
+            )}
+            {filters.categoryId && (
+              <FilterChip
+                onDrop={() => apply({ categoryId: "" })}
+                label={categories.find((c) => c.value === filters.categoryId)?.label ?? "Category"}
+              />
+            )}
+            {filters.brandId && (
+              <FilterChip
+                onDrop={() => apply({ brandId: "" })}
+                label={brands.find((b) => b.value === filters.brandId)?.label ?? "Brand"}
               />
             )}
           </FilterBar>
@@ -399,7 +450,7 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
               </TableHeader>
               <TableBody>
                 {rows.map((row) => (
-                  <ItemRow key={row.id} row={row} showCost={showCost} />
+                  <ItemRow key={row.id} row={row} showCost={showCost} canTrash={canTrash} />
                 ))}
               </TableBody>
             </Table>
@@ -417,11 +468,19 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
       {/* Add, edit and adjust-stock render here, over the shelf. */}
       <Outlet />
     </Page>
-    </RailFrame>
   );
 }
 
-function ItemRow({ row, showCost }: { row: Row; showCost: boolean }) {
+function ItemRow({
+  row,
+  showCost,
+  canTrash,
+}: {
+  row: Row;
+  showCost: boolean;
+  /** Taking an item off the listings is the office's, not the counter's. */
+  canTrash: boolean;
+}) {
   const fetcher = useFetcher<ActionResult>();
   const [confirmTrash, setConfirmTrash] = useState(false);
 
@@ -439,8 +498,7 @@ function ItemRow({ row, showCost }: { row: Row; showCost: boolean }) {
         <TableCell className="px-4 py-3">
           <p className="truncate font-medium text-foreground">{row.name}</p>
           <p className="truncate text-xs text-muted-foreground">
-            {row.condition}
-            {row.description ? ` · ${row.description}` : ""}
+            {[row.detail, row.description].filter(Boolean).join(" · ") || row.condition}
           </p>
         </TableCell>
 
@@ -528,17 +586,21 @@ function ItemRow({ row, showCost }: { row: Row; showCost: boolean }) {
                   Adjust stock
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onSelect={(event) => {
-                  event.preventDefault();
-                  setConfirmTrash(true);
-                }}
-              >
-                <Trash2Icon />
-                Move to trash
-              </DropdownMenuItem>
+              {canTrash && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      setConfirmTrash(true);
+                    }}
+                  >
+                    <Trash2Icon />
+                    Move to trash
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </TableCell>
@@ -549,11 +611,8 @@ function ItemRow({ row, showCost }: { row: Row; showCost: boolean }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Move {row.name} to the trash?</AlertDialogTitle>
             <AlertDialogDescription>
-              Only an item no agreement has ever used can be trashed — anything
-              that has been sold on hire purchase stays, because the agreements
-              that reference it stay. It can be restored from Trash. To stop
-              selling something that has been sold before, mark it discontinued
-              instead.
+              Only an item no agreement has used can be trashed. It can be
+              restored from Trash.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -601,7 +660,9 @@ function InventoryEmpty({
       </EmptyHeader>
       {narrowed ? (
         <Button asChild variant="outline" size="sm">
-          <Link to={hrefFor({ ...filters, search: "", inStockOnly: false })}>
+          <Link
+            to={hrefFor({ ...filters, search: "", inStockOnly: false, brandId: "", categoryId: "" })}
+          >
             Clear filters
           </Link>
         </Button>

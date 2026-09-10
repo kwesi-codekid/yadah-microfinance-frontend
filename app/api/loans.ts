@@ -137,7 +137,13 @@ export function getLoan(
  */
 export function apply(
   accessToken: string,
-  input: { customerId: string; principal: number; durationMonths: number },
+  input: {
+    customerId: string;
+    principal: number;
+    durationMonths: number;
+    /** From POST /uploads?kind=signature. */
+    signatureUrl: string;
+  },
 ): Promise<{ loan: Loan }> {
   return apiFetch("/loans/applications", {
     method: "POST",

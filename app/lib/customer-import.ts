@@ -12,11 +12,19 @@
  */
 
 import {
+  normalizePhone,
+  type SheetColumnSpec,
+  type SheetIssue,
+  type SheetRow,
+} from "~/components/import-sheet";
+import {
   ID_NUMBER_RULES,
   PHONE_RE,
   checkIdNumber,
   type IdType,
 } from "~/lib/customers";
+
+export { normalizePhone };
 
 export const IMPORT_FIELDS = [
   "fullName",
@@ -38,38 +46,53 @@ export const IMPORT_FIELDS = [
 ] as const;
 
 export type ImportField = (typeof IMPORT_FIELDS)[number];
+export type ImportColumn = SheetColumnSpec<ImportField>;
+export type RowIssue = SheetIssue<ImportField>;
 
-/** How the preview edits one cell. */
-export type CellInput =
-  | "text"
-  | "phone"
-  | "date"
-  | "collector"
-  | "gender"
-  | "maritalStatus"
-  | "idType";
-
-export interface ImportColumn {
-  field: ImportField;
-  header: string;
-  required?: boolean;
-  input: CellInput;
-  /** Cells are as wide as their content needs, no wider. */
-  width: string;
-}
+const ID_TYPE_OPTIONS = (Object.keys(ID_NUMBER_RULES) as IdType[]).map((value) => ({
+  value,
+  label:
+    value === "ghana-card"
+      ? "Ghana Card"
+      : value === "drivers-license"
+        ? "Driver's licence"
+        : value === "voter-id"
+          ? "Voter ID"
+          : "Passport",
+}));
 
 export const IMPORT_COLUMNS: readonly ImportColumn[] = [
   { field: "fullName", header: "Full name", required: true, input: "text", width: "w-52" },
   { field: "phone", header: "Phone", required: true, input: "phone", width: "w-36" },
-  { field: "collector", header: "Collector", required: true, input: "collector", width: "w-44" },
+  /** Drawn by the page: a picker over the collectors the API offered. */
+  { field: "collector", header: "Collector", required: true, input: "custom", width: "w-44" },
   { field: "dateOfBirth", header: "Date of birth", input: "date", width: "w-36" },
-  { field: "gender", header: "Gender", input: "gender", width: "w-28" },
-  { field: "maritalStatus", header: "Marital status", input: "maritalStatus", width: "w-32" },
+  {
+    field: "gender",
+    header: "Gender",
+    input: "select",
+    options: [
+      { value: "male", label: "Male" },
+      { value: "female", label: "Female" },
+    ],
+    width: "w-28",
+  },
+  {
+    field: "maritalStatus",
+    header: "Marital status",
+    input: "select",
+    options: [
+      { value: "single", label: "Single" },
+      { value: "married", label: "Married" },
+      { value: "other", label: "Other" },
+    ],
+    width: "w-32",
+  },
   { field: "nationality", header: "Nationality", input: "text", width: "w-32" },
   { field: "occupation", header: "Occupation", input: "text", width: "w-40" },
   { field: "residentialAddress", header: "Residential address", input: "text", width: "w-56" },
   { field: "altPhone", header: "Secondary phone", input: "phone", width: "w-36" },
-  { field: "idType", header: "ID type", input: "idType", width: "w-36" },
+  { field: "idType", header: "ID type", input: "select", options: ID_TYPE_OPTIONS, width: "w-36" },
   { field: "idNumber", header: "ID number", input: "text", width: "w-44" },
   { field: "kinFullName", header: "Next of kin name", input: "text", width: "w-48" },
   { field: "kinRelationship", header: "Next of kin relationship", input: "text", width: "w-40" },
@@ -77,22 +100,8 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
   { field: "kinAddress", header: "Next of kin address", input: "text", width: "w-48" },
 ];
 
-export const COLUMN_BY_FIELD = new Map(IMPORT_COLUMNS.map((c) => [c.field, c]));
-
-export interface RowIssue {
-  /** The column to flag, or null when the fault is the row as a whole. */
-  field: ImportField | null;
-  message: string;
-  /** Only the API can re-answer this one; a client edit clears it. */
-  fromServer?: boolean;
-}
-
-export interface ImportRow {
-  /** The line in the original sheet, so a message can name it. */
-  row: number;
-  values: Record<ImportField, string>;
+export interface ImportRow extends SheetRow<ImportField> {
   assignedCollectorId: string;
-  issues: RowIssue[];
 }
 
 export interface Collector {
@@ -102,7 +111,12 @@ export interface Collector {
 
 /** `POST /customers/import/preview` */
 export interface ImportPreview {
-  rows: ImportRow[];
+  rows: {
+    row: number;
+    values: Partial<Record<ImportField, string>>;
+    assignedCollectorId: string;
+    issues: RowIssue[];
+  }[];
   unknownHeaders: string[];
   collectors: Collector[];
   counts: { total: number; ready: number; blocked: number };
@@ -123,13 +137,6 @@ export function blankValues(): Record<ImportField, string> {
 }
 
 /* --------------------------------------------------------------- the checks --- */
-
-/** The one canonical form of a Ghanaian number, as the API stores it. */
-export function normalizePhone(raw: string): string {
-  const compact = raw.replace(/[\s().-]/g, "");
-  const local = compact.replace(/^(?:\+233|233)/, "");
-  return local.startsWith("0") ? local : local ? `0${local}` : "";
-}
 
 const GENDERS = new Set(["male", "female"]);
 const MARITAL = new Set(["single", "married", "other"]);
@@ -261,61 +268,4 @@ export function checkRows(rows: ImportRow[], collectorIds: Set<string>): ImportR
     );
     return { ...row, issues: [...issues, ...kept] };
   });
-}
-
-/** The message to show against one cell, if any. */
-export function issueFor(row: ImportRow, field: ImportField): string | undefined {
-  return row.issues.find((i) => i.field === field)?.message;
-}
-
-/** Issues that belong to no single column, so the row shows them on its own line. */
-export function rowLevelIssues(row: ImportRow): string[] {
-  return row.issues.filter((i) => i.field === null).map((i) => i.message);
-}
-
-export function isReady(row: ImportRow): boolean {
-  return row.issues.length === 0;
-}
-
-/**
- * Which columns the table shows: the ones the sheet actually carried, plus the
- * three every customer needs. A four-column sheet should not be reviewed
- * through sixteen mostly-empty columns.
- */
-export function visibleColumns(rows: ImportRow[]): ImportColumn[] {
-  return IMPORT_COLUMNS.filter(
-    (column) =>
-      column.required || rows.some((r) => r.values[column.field].trim() !== ""),
-  );
-}
-
-/** The options a cell of this kind offers, or null when it is free text. */
-export function optionsFor(input: CellInput): { value: string; label: string }[] | null {
-  if (input === "gender") {
-    return [
-      { value: "male", label: "Male" },
-      { value: "female", label: "Female" },
-    ];
-  }
-  if (input === "maritalStatus") {
-    return [
-      { value: "single", label: "Single" },
-      { value: "married", label: "Married" },
-      { value: "other", label: "Other" },
-    ];
-  }
-  if (input === "idType") {
-    return (Object.keys(ID_NUMBER_RULES) as IdType[]).map((value) => ({
-      value,
-      label:
-        value === "ghana-card"
-          ? "Ghana Card"
-          : value === "drivers-license"
-            ? "Driver's licence"
-            : value === "voter-id"
-              ? "Voter ID"
-              : "Passport",
-    }));
-  }
-  return null;
 }

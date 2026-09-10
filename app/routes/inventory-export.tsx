@@ -2,21 +2,21 @@ import { exportItems, type ExportFormat } from "~/api/hire-purchase";
 import { asDownload, downloadFailure } from "~/lib/download.server";
 import { accraDay } from "~/lib/format";
 import type { ItemStatus } from "~/lib/hire-purchase";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/inventory-export";
 
 /**
  * `GET /inventory/export?format=csv|xlsx&…` — the shelf as a spreadsheet,
  * proxied with the session's bearer token, which the browser cannot supply.
  *
- * The file carries the cost price, which the on-screen listing keeps covered.
- * That is the API's own export and there is no way to ask it for a version
- * without — so treat the file the way the column is treated: office only.
+ * The file carries the cost price, which the on-screen listing keeps covered
+ * until asked. The shelf is the counter's, and so is its export — but it is a
+ * file with Yadah's figures in it and should be handled as one.
  */
 const STATUSES = ["active", "discontinued"];
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const url = new URL(request.url);
 
   const format: ExportFormat =
@@ -33,6 +33,8 @@ export async function loader({ request }: Route.LoaderArgs) {
             : undefined,
           search: url.searchParams.get("search")?.trim() || undefined,
           inStockOnly: url.searchParams.get("inStock") === "1" || undefined,
+          brandId: url.searchParams.get("brand")?.trim() || undefined,
+          categoryId: url.searchParams.get("category")?.trim() || undefined,
         },
         format,
       ),

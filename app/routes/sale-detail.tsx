@@ -278,9 +278,8 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
             <AlertDialogTitle>Void receipt {sale.receiptNo}?</AlertDialogTitle>
             <AlertDialogDescription>
               The {formatCount(units)} unit{units === 1 ? "" : "s"} go back on
-              the shelf and the {formatPesewas(sale.total)} stops counting
-              toward revenue. The sale stays on the record, stamped with your
-              name and this reason. There is no undo.
+              the shelf and {formatPesewas(sale.total)} comes off revenue. There
+              is no undo.
             </AlertDialogDescription>
           </AlertDialogHeader>
 

@@ -142,8 +142,7 @@ export default function ReconciliationDeclare({ loaderData }: Route.ComponentPro
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               Across {formatCount(expected.entries)} cash deposit
-              {expected.entries === 1 ? "" : "s"}. Mobile money and transfers are
-              not in this figure — that cash never passed through your hands.
+              {expected.entries === 1 ? "" : "s"}.
             </p>
             <dl className="mt-3 grid grid-cols-2 gap-3">
               <Figure label="Susu" value={formatPesewas(expected.susu)} />

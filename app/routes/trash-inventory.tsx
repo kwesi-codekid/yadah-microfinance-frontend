@@ -16,8 +16,6 @@ export function meta(_: Route.MetaArgs) {
 
 export const handle = {
   title: "Trash",
-  description:
-    "Items taken off the shelf. Restoring one puts it back in the inventory with its stock and prices.",
 };
 
 const PAGE_SIZE = 20;

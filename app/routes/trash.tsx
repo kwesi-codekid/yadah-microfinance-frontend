@@ -11,11 +11,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Trash · Customers · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Trash",
-  description:
-    "Records removed from the listings. Nothing here is deleted for good — restore one and it reappears everywhere.",
 };
 
 const PAGE_SIZE = 20;

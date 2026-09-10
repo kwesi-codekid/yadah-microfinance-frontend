@@ -57,9 +57,6 @@ export default function PortalHome({ loaderData }: Route.ComponentProps) {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-heading text-2xl font-bold tracking-tight">Hello, {firstName}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            What you hold with us, as of {formatAccraDate(new Date().toISOString())}.
-          </p>
         </div>
         <div className="flex gap-2">
           <Button asChild>

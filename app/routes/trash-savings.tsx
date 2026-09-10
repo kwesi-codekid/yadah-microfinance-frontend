@@ -16,8 +16,6 @@ export function meta(_: Route.MetaArgs) {
 
 export const handle = {
   title: "Trash",
-  description:
-    "Savings accounts removed from the book. Restoring one brings its balance and statement back with it.",
 };
 
 const PAGE_SIZE = 20;

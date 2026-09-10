@@ -250,10 +250,31 @@ export default [
     route("sales", "routes/sales.tsx"),
 
     route("inventory/export", "routes/inventory-export.tsx"),
-    route("inventory", "routes/inventory.tsx", [
-      route("new", "routes/inventory-new.tsx"),
-      route(":id/edit", "routes/inventory-edit.tsx"),
-      route(":id/stock", "routes/inventory-stock.tsx"),
+    // Stocking the shelf from a spreadsheet: check the sheet, correct what it
+    // flags, then write. The template is a sibling — a download should not run
+    // the page's own work to answer it.
+    route("inventory/import", "routes/inventory-import.tsx"),
+    route("inventory/import/template", "routes/inventory-import-template.tsx"),
+    /* The shelf and the two lists it is filed under, behind one rail. The
+       add and rename drawers are children of the page they open over. */
+    layout("routes/inventory-layout.tsx", [
+      route("inventory", "routes/inventory.tsx", [
+        route("new", "routes/inventory-new.tsx"),
+        route(":id/edit", "routes/inventory-edit.tsx"),
+        route(":id/stock", "routes/inventory-stock.tsx"),
+      ]),
+      route("inventory/brands", "routes/inventory-brands.tsx", [
+        route("new", "routes/inventory-brand-new.tsx"),
+      ]),
+      route("inventory/brands/:id", "routes/inventory-brand.tsx", [
+        route("edit", "routes/inventory-brand-edit.tsx"),
+      ]),
+      route("inventory/categories", "routes/inventory-categories.tsx", [
+        route("new", "routes/inventory-category-new.tsx"),
+      ]),
+      route("inventory/categories/:id", "routes/inventory-category.tsx", [
+        route("edit", "routes/inventory-category-edit.tsx"),
+      ]),
     ]),
     // Resource route: it proxies a binary body from the API, which the browser
     // cannot fetch itself because it holds no access token. A sibling of the

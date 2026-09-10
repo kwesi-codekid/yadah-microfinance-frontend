@@ -1,4 +1,4 @@
-import { GraduationCapIcon, InfoIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { GraduationCapIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { data, Form, useActionData, useNavigation } from "react-router";
 import { toast } from "sonner";
@@ -171,10 +171,6 @@ export default function SavingsNew() {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              A label on the record. The deposit, withdrawal and fee rules are
-              the same either way.
-            </p>
           </div>
 
           {/* The part of a student account that is procedure rather than API:
@@ -242,23 +238,12 @@ export default function SavingsNew() {
             </div>
           )}
 
-          {/* The two rules that surprise people at the counter later. Said now,
-              while the customer is still standing there. */}
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>
-              GH₵ {formatAmount(MIN_BALANCE)} stays in the account until it is
-              closed, and every withdrawal costs a flat GH₵{" "}
-              {formatAmount(WITHDRAWAL_FEE)} on top of the cash handed over.
-              {belowMinimum && (
-                <>
-                  {" "}
-                  A first deposit of GH₵ {formatAmount(pesewas!)} leaves nothing
-                  withdrawable yet.
-                </>
-              )}
-            </span>
-          </div>
+          {/* The two rules that surprise people at the counter later. */}
+          <p className="text-xs text-muted-foreground">
+            GH₵ {formatAmount(MIN_BALANCE)} stays in until closing; each
+            withdrawal costs GH₵ {formatAmount(WITHDRAWAL_FEE)}.
+            {belowMinimum && " Nothing is withdrawable from this first deposit."}
+          </p>
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">

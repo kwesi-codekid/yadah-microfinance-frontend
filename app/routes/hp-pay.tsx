@@ -1,4 +1,4 @@
-import { InfoIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { data, Form, useActionData, useNavigation } from "react-router";
 import { toast } from "sonner";
@@ -311,14 +311,6 @@ export default function HpPay({ loaderData }: Route.ComponentProps) {
             </Select>
           </div>
 
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>
-              {isDeposit
-                ? "The customer is sent an SMS receipt and the item is released. Anything other than the exact deposit is refused."
-                : "Interest is flat and was applied once at activation, so paying early costs the same as paying to term. Clearing every month-overdue instalment lifts an arrears flag on its own."}
-            </span>
-          </div>
         </div>
 
         <SheetActions>

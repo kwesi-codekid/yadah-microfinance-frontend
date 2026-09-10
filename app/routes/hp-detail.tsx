@@ -31,6 +31,7 @@ import {
 } from "~/api/hire-purchase";
 import { Figure, StatusPill, Th } from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
+import { SignatureCard } from "~/components/signature-card";
 import { LifecycleStrip, RedemptionCountdown } from "~/components/redemption";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -370,16 +371,14 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
       {agreement.status === "in-arrears" && (
         <Note tone="warning">
           <span className="font-medium">Behind on instalments.</span> Clearing
-          every month-overdue instalment lifts this flag on its own.
-          Repossession is the step after it.
+          the overdue ones lifts this.
         </Note>
       )}
 
       {unapproved && (
         <Note tone="warning">
-          <span className="font-medium">Signed at the counter.</span> The unit
-          is reserved, but no deposit can be taken until a manager approves it —
-          and the customer has not been sent the terms yet.
+          <span className="font-medium">Signed at the counter.</span> A manager
+          has to approve it before a deposit can be taken.
         </Note>
       )}
 
@@ -388,8 +387,7 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
           <span className="font-medium">
             Waiting on {formatPesewas(agreement.depositRequired)}.
           </span>{" "}
-          The unit is reserved but stays in the shop until the deposit is paid
-          in full — it has to match to the pesewa.
+          The item stays in the shop until it is paid.
         </Note>
       )}
 
@@ -444,13 +442,13 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              {Math.round(progress * 100)}% of the financed half paid. The
-              deposit is not counted in this — it bought the release of the
-              item.
+              {Math.round(progress * 100)}% of the financed half paid.
             </p>
           </div>
         ) : null}
       </section>
+
+      {agreement.signatureUrl && <SignatureCard url={agreement.signatureUrl} />}
 
       <Payments agreementId={agreement.id} rows={payments} />
 
@@ -491,7 +489,7 @@ function ApproveButton({ customerName }: { customerName: string }) {
         open={open}
         onOpenChange={setOpen}
         title="Approve this agreement?"
-        description={`${customerName} is sent the terms by SMS and the deposit can be taken from that moment. Approving cannot be undone — an agreement you have let stand can only be rejected while it is still unpaid.`}
+        description={`${customerName} is sent the terms by SMS and the deposit can be taken. This cannot be undone.`}
         confirmLabel="Approve"
         onConfirm={() =>
           fetcher.submit({ intent: "approve" }, { method: "post" })
@@ -715,7 +713,7 @@ function AgreementMenu({
         open={dialog === "reject"}
         onOpenChange={(next) => setDialog(next ? "reject" : null)}
         title="Reject this agreement?"
-        description="No money has moved. The unit goes straight back on the shelf and the reason stays on the record."
+        description="No money has moved. The unit goes back on the shelf."
         placeholder="Customer changed their mind."
         confirmLabel="Reject"
         destructive
@@ -728,7 +726,7 @@ function AgreementMenu({
         open={dialog === "arrears"}
         onOpenChange={(next) => setDialog(next ? "arrears" : null)}
         title="Flag this agreement as in arrears?"
-        description={`${customerName} is sent an arrears-warning SMS. Clearing every month-overdue instalment lifts the flag automatically — you do not have to come back and unset it.`}
+        description={`${customerName} is sent an arrears-warning SMS.`}
         confirmLabel="Flag as in arrears"
         onConfirm={() =>
           fetcher.submit({ intent: "mark-arrears" }, { method: "post" })
@@ -739,7 +737,7 @@ function AgreementMenu({
         open={dialog === "repossess"}
         onOpenChange={(next) => setDialog(next ? "repossess" : null)}
         title="Record a repossession?"
-        description="Everything paid so far is kept. This starts a redemption window of exactly one month, during which the customer can have the item back by paying the full remaining balance."
+        description="Payments so far are kept. The customer has one month to redeem it by paying the full balance."
         placeholder="Three instalments missed; item collected."
         confirmLabel="Record repossession"
         destructive
@@ -774,7 +772,7 @@ function AgreementMenu({
         open={dialog === "trash"}
         onOpenChange={(next) => setDialog(next ? "trash" : null)}
         title="Move this agreement to the trash?"
-        description="Only an unpaid pending or rejected agreement can be trashed. Trashing a pending one puts its unit back on the shelf. It can be restored from Trash, and a pending one re-reserves a unit on the way back."
+        description="The unit goes back on the shelf. It can be restored from Trash."
         placeholder="Signed in error."
         confirmLabel="Move to trash"
         optional
@@ -925,14 +923,12 @@ function RedeemDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Redeem this item?</AlertDialogTitle>
           <AlertDialogDescription>
-            Redemption is the full remaining balance, computed by the server —
-            there is no partial redemption. Take the cash before confirming.
+            The full remaining balance. Take the cash before confirming.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <Figure
           label="To collect"
           value={formatPesewas(remaining)}
-          hint="The item becomes the customer's on payment."
         />
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -993,8 +989,8 @@ function ForfeitDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Close as forfeited?</AlertDialogTitle>
           <AlertDialogDescription>
-            The redemption window has passed. The item and everything paid
-            towards it stay with Yadah for good, and this cannot be undone.
+            The item and everything paid towards it stay with Yadah. This
+            cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
 

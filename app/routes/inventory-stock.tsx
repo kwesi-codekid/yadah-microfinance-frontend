@@ -13,7 +13,7 @@ import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
 import { formatCount } from "~/lib/format";
 import { stockAfter } from "~/lib/hire-purchase";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/inventory-stock";
@@ -25,7 +25,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   const { data: item, headers } = await withAuth(request, async (token) => {
     try {
@@ -42,7 +42,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const delta = Number(form.get("delta") ?? 0);
   const reason = String(form.get("reason") ?? "").trim();
@@ -203,10 +203,6 @@ export default function InventoryStock({ loaderData }: Route.ComponentProps) {
                 direction > 0 ? "Delivery from supplier." : "Damaged in storage."
               }
             />
-            <p className="text-xs text-muted-foreground">
-              Recorded against the item and kept. A stock count that can be
-              changed silently is not a stock count.
-            </p>
           </div>
         </div>
 
