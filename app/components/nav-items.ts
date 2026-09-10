@@ -31,6 +31,12 @@ export type NavItem = {
   end?: boolean;
   /** Roles that may see this item; omit for everyone. */
   roles?: Role[];
+  /**
+   * Keep the module out of the sidebar without taking it out of the app. The
+   * routes still work for anyone who knows the address, and the header still
+   * knows what to call the page — this only stops the link being drawn.
+   */
+  hidden?: boolean;
 };
 
 /** Admin and manager. Collector is field-only. */
@@ -169,6 +175,7 @@ export const NAV: NavItem[] = [
     icon: BookOpenTextIcon,
     blurb: "Cash, expenses, assets, capital and the two statements.",
     roles: OFFICE,
+    hidden: true,
   },
   {
     to: "/staff",
@@ -189,7 +196,9 @@ export const NAV: NavItem[] = [
 
 export function visibleNavItems(user: AuthUser | null): NavItem[] {
   return NAV.filter(
-    (item) => !item.roles || (user != null && item.roles.includes(user.role)),
+    (item) =>
+      !item.hidden &&
+      (!item.roles || (user != null && item.roles.includes(user.role))),
   );
 }
 
