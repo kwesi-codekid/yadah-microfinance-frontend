@@ -31,7 +31,7 @@ import {
   type LoanDuration,
   type LoanEligibility,
 } from "~/lib/loans";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/loan-new";
@@ -46,7 +46,7 @@ export function meta(_: Route.MetaArgs) {
  * in force then, and that is the figure that counts.
  */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const { data: result, headers } = await withAuth(request, (token) =>
     getConfig(token).catch(() => ({ config: null })),
   );
@@ -54,7 +54,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const customerId = String(form.get("customerId") ?? "").trim();
   const durationMonths = Number(form.get("durationMonths") ?? 0);

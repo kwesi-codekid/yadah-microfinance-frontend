@@ -228,9 +228,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return data(
     {
-      // Registering is counter work; switching a record off, importing a whole
-      // book and the row menu are not.
-      canRegister: isCounter(user),
+      // Serving whoever is at the counter — registering them, correcting the
+      // record, reading their statement. Switching a record off, importing a
+      // whole book and moving somebody between rounds are not that.
+      canServe: isCounter(user),
       canManage: isOffice(user),
       canReassign,
       // Everything the reassign drawer needs to open without asking for it.
@@ -372,7 +373,7 @@ function shortId(id: string): string {
 
 export default function Customers({ loaderData }: Route.ComponentProps) {
   const {
-    canRegister,
+    canServe,
     canManage,
     canReassign,
     filters,
@@ -435,7 +436,7 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
                   </Link>
                 </Button>
               )}
-              {canRegister && (
+              {canServe && (
                 <Button asChild size="sm">
                   <Link to="/customers/new">
                     <UserPlusIcon />
@@ -469,6 +470,7 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
                     <CustomerRow
                       key={row.id}
                       row={row}
+                      canServe={canServe}
                       canManage={canManage}
                       canReassign={canReassign}
                       search={search}
@@ -838,11 +840,13 @@ function ExportMenu({ filters, total }: { filters: Filters; total: number }) {
 
 function CustomerRow({
   row,
+  canServe,
   canManage,
   canReassign,
   search,
 }: {
   row: Row;
+  canServe: boolean;
   canManage: boolean;
   canReassign: boolean;
   search: string;
@@ -928,6 +932,7 @@ function CustomerRow({
       <TableCell className="px-4 py-3">
         <RowActions
           row={row}
+          canServe={canServe}
           canManage={canManage}
           canReassign={canReassign}
           search={search}
@@ -937,14 +942,23 @@ function CustomerRow({
   );
 }
 
-/** View · Statement · Print · Edit · Reassign · Deactivate · Move to trash. */
+/**
+ * View · Statement · Print · Edit · Reassign · Deactivate · Move to trash.
+ *
+ * Two halves. The counter serves the person — reads their statement, prints
+ * their form, corrects their record — and `canServe` covers those. Taking them
+ * out of the listings, moving them between rounds and stopping their account
+ * are the office's, under `canManage`.
+ */
 function RowActions({
   row,
+  canServe,
   canManage,
   canReassign,
   search,
 }: {
   row: Row;
+  canServe: boolean;
   canManage: boolean;
   canReassign: boolean;
   search: string;
@@ -997,7 +1011,7 @@ function RowActions({
               View
             </Link>
           </DropdownMenuItem>
-          {canManage && (
+          {canServe && (
             <>
               <DropdownMenuItem asChild>
                 <Link to={`/customers/${row.id}/statement`}>
@@ -1021,7 +1035,11 @@ function RowActions({
                   Edit
                 </Link>
               </DropdownMenuItem>
-              {/* Drawn for everyone who can reach this menu and disabled for a
+            </>
+          )}
+          {canManage && (
+            <>
+              {/* Drawn for everyone who can reach this half and disabled for a
                   manager, rather than hidden — the same way every other row menu
                   in this app says "not yours to do". */}
               <DropdownMenuItem asChild disabled={!canReassign}>

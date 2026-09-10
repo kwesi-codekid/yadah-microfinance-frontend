@@ -42,9 +42,9 @@ export interface AuthTokens {
 }
 
 /**
- * True when this user may decide: approve a loan, sign a hire purchase, move
- * money between a customer's products, read the company's books, or take
- * something out of the listings.
+ * True when this user may decide: approve a loan or a counter-signed hire
+ * purchase, move money between a customer's products, read the company's books,
+ * or take something out of the listings.
  */
 export function isOffice(user: Pick<AuthUser, "role"> | null): boolean {
   return user?.role === "admin" || user?.role === "manager";

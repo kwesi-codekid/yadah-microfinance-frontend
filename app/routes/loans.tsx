@@ -64,7 +64,9 @@ import {
   type LoanStatus,
 } from "~/lib/loans";
 import { amountOf } from "~/lib/reports";
+import { isOffice } from "~/lib/auth";
 import { requireCounter, withAuth } from "~/lib/session.server";
+import { useCurrentUser } from "~/lib/use-current-user";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/loans";
 
@@ -394,6 +396,9 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
   const navigation = useNavigation();
   const submit = useSubmit();
   const { search } = useLocation();
+  // The counter takes applications and takes repayments. Downloading the book
+  // and setting the rates it lends at are the office's.
+  const office = isOffice(useCurrentUser());
 
   const busy =
     navigation.state === "loading" && navigation.location?.pathname === "/loans";
@@ -487,24 +492,28 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
           <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-4 sm:px-5">
             <h3 className="text-[15px] font-bold tracking-tight">Loan Application Table</h3>
             <div className="flex items-center gap-2">
-              <ExportMenu
-                path="/loans/export"
-                query={(() => {
-                  const p = queryFor(filters);
-                  p.delete("page");
-                  return p.toString();
-                })()}
-                total={total}
-                noun="loan"
-              />
+              {office && (
+                <ExportMenu
+                  path="/loans/export"
+                  query={(() => {
+                    const p = queryFor(filters);
+                    p.delete("page");
+                    return p.toString();
+                  })()}
+                  total={total}
+                  noun="loan"
+                />
+              )}
               {/* The rates and limits new lending runs on. A drawer, so the
                   book stays underneath while they are changed. */}
-              <Button asChild variant="outline" size="sm">
-                <Link to={`/loans/config${search}`} prefetch="intent" preventScrollReset>
-                  <SettingsIcon />
-                  Settings
-                </Link>
-              </Button>
+              {office && (
+                <Button asChild variant="outline" size="sm">
+                  <Link to={`/loans/config${search}`} prefetch="intent" preventScrollReset>
+                    <SettingsIcon />
+                    Settings
+                  </Link>
+                </Button>
+              )}
               <Button asChild size="sm">
                 <Link to={`/loans/new${search}`} prefetch="intent" preventScrollReset>
                   <PlusIcon />
@@ -609,7 +618,13 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
 
 /* --------------------------------------------------------------- chrome bits --- */
 
-/** The white card every block sits in, with the reference header row. */
+/**
+ * The white card every block sits in, with the reference header row.
+ *
+ * Both ways out of the header land in the portfolio report, which is the
+ * office's. The counter reads the same book — it is what they lend against —
+ * without being shown a door that would turn them around.
+ */
 function Card({
   title,
   detailTo,
@@ -619,34 +634,38 @@ function Card({
   detailTo: string;
   children: ReactNode;
 }) {
+  const office = isOffice(useCurrentUser());
+
   return (
     <section className="rounded-2xl bg-card p-4 text-card-foreground sm:p-5">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-[15px] font-bold tracking-tight">{title}</h3>
-        <div className="flex items-center gap-1.5">
-          <Link
-            to={detailTo}
-            className="rounded-full border border-border bg-card px-3 py-1 text-[10.5px] font-medium"
-          >
-            See Detail
-          </Link>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              aria-label={`More options for ${title}`}
-              className="flex size-6 items-center justify-center rounded-full border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        {office && (
+          <div className="flex items-center gap-1.5">
+            <Link
+              to={detailTo}
+              className="rounded-full border border-border bg-card px-3 py-1 text-[10.5px] font-medium"
             >
-              <EllipsisIcon className="size-3.5" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link to={detailTo}>Open loan portfolio report</Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link to="/reports/loans/export?format=csv">Download as CSV</Link>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+              See Detail
+            </Link>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                aria-label={`More options for ${title}`}
+                className="flex size-6 items-center justify-center rounded-full border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              >
+                <EllipsisIcon className="size-3.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link to={detailTo}>Open loan portfolio report</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/reports/loans/export?format=csv">Download as CSV</Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
       </header>
       {children}
     </section>
@@ -941,6 +960,7 @@ function Attention({
   agingRead: boolean;
   filters: Filters;
 }) {
+  const office = isOffice(useCurrentUser());
   const items: { accent: string; title: string; body: string; to: string; cta: string }[] = [];
 
   if (pending > 0) {
@@ -972,7 +992,9 @@ function Attention({
       accent: NAVY,
       title: `${formatCount(fallingDue.count)} loan${fallingDue.count === 1 ? "" : "s"} due within ${DUE_SOON_DAYS} days`,
       body: `${formatPesewas(fallingDue.amount)} still owed against them. A reminder before the date costs less than an escalation after it.`,
-      to: "/reports/loans",
+      // The report says which; the counter, who cannot open it, is sent to the
+      // running loans instead — the same loans, one filter short.
+      to: office ? "/reports/loans" : hrefFor({ ...filters, status: "active" }),
       cta: "See what is due",
     });
   }
@@ -1024,6 +1046,8 @@ function DueSoon({
   }[];
   more: number;
 }) {
+  const office = isOffice(useCurrentUser());
+
   if (!read) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -1068,14 +1092,21 @@ function DueSoon({
           />
         </Link>
       ))}
-      {more > 0 && (
-        <Link
-          to="/reports/loans"
-          className="block pt-1 text-center text-xs font-medium text-muted-foreground hover:text-foreground"
-        >
-          {formatCount(more)} more in the portfolio report
-        </Link>
-      )}
+      {/* The tail of the list lives in the report, so it is only a link for
+          somebody who can open one. The count is worth saying either way. */}
+      {more > 0 &&
+        (office ? (
+          <Link
+            to="/reports/loans"
+            className="block pt-1 text-center text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            {formatCount(more)} more in the portfolio report
+          </Link>
+        ) : (
+          <p className="block pt-1 text-center text-xs font-medium text-muted-foreground">
+            {formatCount(more)} more falling due
+          </p>
+        ))}
     </div>
   );
 }

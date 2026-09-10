@@ -158,6 +158,10 @@ function positionOf(status: AgreementStatus): {
   endingLabel: string;
 } {
   switch (status) {
+    // Both waiting rooms sit on "Signed": the agreement exists and a unit is
+    // held against it, and nothing further has happened.
+    case "awaiting-approval":
+      return { reached: 0, ending: "none", endingLabel: "Closed" };
     case "pending":
       return { reached: 0, ending: "none", endingLabel: "Closed" };
     case "rejected":

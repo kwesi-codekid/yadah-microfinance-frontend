@@ -73,12 +73,15 @@ import {
   STATUS_TONE,
   VARIANCE_LABELS,
   VARIANCE_TONE,
+  canConfirm,
   isPending,
   varianceKind,
   type Reconciliation,
   type ReconciliationStatus,
   type VarianceRow,
 } from "~/lib/reconciliation";
+import type { Role } from "~/lib/auth";
+import { useCurrentUser } from "~/lib/use-current-user";
 import { requireUser, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/reconciliation";
@@ -150,7 +153,8 @@ const HISTORY_PAGES = 5;
  * Every role, and the API does the scoping: a collector sees only their own
  * days whatever this asks for, so the year of history the charts are drawn
  * from is *their* year and the figures are theirs. What the role decides is
- * the shape of the screen — the office gets the collector filter and export.
+ * the shape of the screen — the office gets the collector filter and export,
+ * and only the two ranks that carry cash are offered the declaration.
  */
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireUser(request);
@@ -215,6 +219,19 @@ export async function loader({ request }: Route.LoaderArgs) {
   return data(
     {
       office,
+      /**
+       * Who hands cash over at the end of a day: a collector from the round,
+       * a teller from the drawer. A manager receives one and is never on the
+       * other side of it, so the button is not theirs.
+       */
+      canDeclare: user.role === "collector" || user.role === "teller",
+      /**
+       * Whether the book in front of them holds anybody else's days. A
+       * collector's is theirs alone, so naming the collector on every row says
+       * nothing; everyone else is looking at other people's, and a teller
+       * about to count one in has to see whose it is.
+       */
+      showsOthers: user.role !== "collector",
       filters,
       page,
       total: result.list.total,
@@ -251,6 +268,8 @@ interface Row {
   id: string;
   accraDay: string;
   collectorName: string;
+  /** Whose day it is, which decides who may count it in. */
+  collectorRole?: Role;
   expected: number;
   declared: number;
   received: number | null;
@@ -265,6 +284,7 @@ function toRow(r: Reconciliation): Row {
     id: r.id,
     accraDay: r.accraDay,
     collectorName: r.collectorName ?? "Collector",
+    ...(r.collectorRole ? { collectorRole: r.collectorRole } : {}),
     expected: r.expectedAmount,
     declared: r.declaredAmount,
     received: r.receivedAmount ?? null,
@@ -319,6 +339,8 @@ function bucketByWeekday(items: Reconciliation[]): WeekdayPoint[] {
 export default function ReconciliationBook({ loaderData }: Route.ComponentProps) {
   const {
     office,
+    canDeclare,
+    showsOthers,
     filters,
     page,
     total,
@@ -459,12 +481,14 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
                     noun="day"
                   />
                 )}
-                <Button asChild size="sm">
-                  <Link to={`/reconciliation/declare${search}`} prefetch="intent" preventScrollReset>
-                    <HandCoinsIcon />
-                    Declare cash
-                  </Link>
-                </Button>
+                {canDeclare && (
+                  <Button asChild size="sm">
+                    <Link to={`/reconciliation/declare${search}`} prefetch="intent" preventScrollReset>
+                      <HandCoinsIcon />
+                      Declare cash
+                    </Link>
+                  </Button>
+                )}
               </>
             }
           >
@@ -510,7 +534,7 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
                 <TableHeader>
                   <TableRow>
                     <Th>Day</Th>
-                    {office && <Th>Collector</Th>}
+                    {showsOthers && <Th>Collector</Th>}
                     <Th className="text-right">Expected</Th>
                     <Th className="text-right">Counted</Th>
                     <Th>Result</Th>
@@ -532,7 +556,7 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
                           {formatAccraDate(`${row.accraDay}T12:00:00Z`)}
                         </Link>
                       </TableCell>
-                      {office && (
+                      {showsOthers && (
                         <TableCell className="px-4 py-3 whitespace-nowrap">{row.collectorName}</TableCell>
                       )}
                       <TableCell className="tabular px-4 py-3 text-right text-muted-foreground">
@@ -556,7 +580,7 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
                         )}
                       </TableCell>
                       <TableCell className="px-4 py-3 text-right">
-                        <RowMenu row={row} office={office} />
+                        <RowMenu row={row} />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -880,7 +904,11 @@ function CollectorRow({ row, filters }: { row: VarianceRow; filters: Filters }) 
   );
 }
 
-function RowMenu({ row, office }: { row: Row; office: boolean }) {
+function RowMenu({ row }: { row: Row }) {
+  // One rank at a time: a teller counts in a collector's day, a manager counts
+  // in a teller's. Asking the same question the API will ask.
+  const mine = canConfirm(useCurrentUser(), row);
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -898,10 +926,10 @@ function RowMenu({ row, office }: { row: Row; office: boolean }) {
             Open the day
           </Link>
         </DropdownMenuItem>
-        {/* Counting is the office's half, and a collector may not confirm
+        {/* Counting is the receiving half of the handover, and nobody counts in
             their own cash — drawn and disabled rather than hidden, which is how
             every row menu in this app says "not for you". */}
-        <DropdownMenuItem asChild disabled={!office || !row.pending}>
+        <DropdownMenuItem asChild disabled={!mine || !row.pending}>
           <Link to={`/reconciliation/${row.id}`} prefetch="intent">
             <HandCoinsIcon />
             Count and confirm

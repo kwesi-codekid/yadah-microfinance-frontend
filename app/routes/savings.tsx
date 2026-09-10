@@ -65,7 +65,7 @@ import {
   TableHeader,
   TableRow,
 } from "~/components/ui/table";
-import { isOffice } from "~/lib/auth";
+import { isCounter } from "~/lib/auth";
 import {
   formatCount,
   formatDayRange,
@@ -150,8 +150,9 @@ function hrefFor(f: Filters, page = 1): string {
 
 /**
  * Every role reads the savings book — a collector needs to find the account
- * they are about to pay into. Only the office may open one, withdraw from it or
- * close it, which the API enforces and each action route re-checks.
+ * they are about to pay into. Opening one, withdrawing from it and closing it
+ * belong to the counter, which is the office and the teller; the API enforces
+ * that and each action route re-checks it.
  */
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireUser(request);
@@ -190,7 +191,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const now = new Date();
   return data(
     {
-      canManage: isOffice(user),
+      // Opening an account and paying a withdrawal are counter work.
+      canManage: isCounter(user),
       filters,
       page,
       total: result.list.total,

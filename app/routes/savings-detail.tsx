@@ -77,7 +77,7 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
-import { isOffice } from "~/lib/auth";
+import { isCounter, isOffice } from "~/lib/auth";
 import {
   accraDay,
   formatAccraDate,
@@ -171,7 +171,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   return data(
     {
+      /** Correcting a transaction, and the trashed view. Office only. */
       canManage: office,
+      /** Closing, paying out and withdrawing — counter work. */
+      canServe: isCounter(user),
       account: {
         ...result.account,
         // The detail endpoint omits it; the customer record is the only source.
@@ -246,8 +249,10 @@ interface ActionResult {
 }
 
 /**
- * Everything that changes the account or its transactions. All office-only, and
- * all of it moves money or rewrites a record, so each one confirms first.
+ * Everything that changes the account or its transactions. Closing and paying
+ * out are counter work; trashing an account or a transaction is the office's,
+ * which the API enforces. All of it moves money or rewrites a record, so each
+ * one confirms first.
  */
 export async function action({ request, params }: Route.ActionArgs) {
   await requireCounter(request);
@@ -332,6 +337,7 @@ function trimmedReason(value: FormDataEntryValue | null): string | undefined {
 export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
   const {
     canManage,
+    canServe,
     account,
     showTrashed,
     page,
@@ -429,14 +435,14 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
               range={range}
               total={txns.total}
             />
-            {canManage && (
-              <AccountActions
-                account={account}
-                neverUsed={neverUsed}
-                fetcher={fetcher}
-              />
-            )}
-            {open && canManage && (
+            <AccountActions
+              account={account}
+              neverUsed={neverUsed}
+              canServe={canServe}
+              canManage={canManage}
+              fetcher={fetcher}
+            />
+            {open && canServe && (
               <Button asChild variant="outline" size="sm">
                 <Link to={`/savings/${account.id}/withdraw`} prefetch="intent" preventScrollReset>
                   <BanknoteArrowUpIcon />
@@ -596,21 +602,27 @@ type Fetcher = ReturnType<typeof useFetcher<ActionResult>>;
 function AccountActions({
   account,
   neverUsed,
+  canServe,
+  canManage,
   fetcher,
 }: {
   account: SavingsAccount;
   /** Nothing has ever moved through it, so the API will accept a trash. */
   neverUsed: boolean;
+  /** Paying a customer out is the counter's, teller included. */
+  canServe: boolean;
+  /** Taking the account out of the book is not. */
+  canManage: boolean;
   fetcher: Fetcher;
 }) {
   const [confirm, setConfirm] = useState<"close" | "trash" | null>(null);
   const [reason, setReason] = useState("");
 
   const open = account.status === "active";
-  const canClose = open;
+  const canClose = open && canServe;
   // The API refuses anything else: a balance, a transaction ever recorded, or
   // an account already closed.
-  const canTrash = open && neverUsed && account.balance === 0;
+  const canTrash = open && canManage && neverUsed && account.balance === 0;
 
   if (!canClose && !canTrash) return null;
 

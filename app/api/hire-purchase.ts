@@ -80,7 +80,6 @@ export function createItem(
   input: {
     name: string;
     description?: string;
-    barcode?: string;
     quantityInStock: number;
     costPrice: number;
     sellingPrice: number;
@@ -106,7 +105,6 @@ export function updateItem(
   input: {
     name?: string;
     description?: string;
-    barcode?: string;
     costPrice?: number;
     sellingPrice?: number;
     status?: ItemStatus;
@@ -296,6 +294,26 @@ export function recordDeposit(
   return apiFetch(`/hire-purchase/agreements/${id}/deposit`, {
     method: "POST",
     json: input,
+    accessToken,
+  });
+}
+
+/**
+ * POST /hire-purchase/agreements/{id}/approve — a manager lets a counter-signed
+ * agreement stand.
+ *
+ * Only an agreement a teller raised is ever in `awaiting-approval`; approving
+ * moves it to `pending`, which is where an agreement signed by the office starts,
+ * and only then may its deposit be taken. The signing SMS goes out here rather
+ * than at signing, so the customer is not told to bring 50% of something a
+ * manager has yet to see.
+ */
+export function approveAgreement(
+  accessToken: string,
+  id: string,
+): Promise<{ agreement: HpAgreement }> {
+  return apiFetch(`/hire-purchase/agreements/${id}/approve`, {
+    method: "POST",
     accessToken,
   });
 }

@@ -28,8 +28,6 @@ export interface HpItem {
   costPrice: number;
   /** What the customer pays. The figure every agreement is built from. */
   sellingPrice: number;
-  /** What the label carries. Optional — not every shelf is labelled. */
-  barcode?: string;
   /** Forfeited repossessions come back onto the shelf as `used`. */
   condition: ItemCondition;
   status: ItemStatus;
@@ -50,6 +48,8 @@ export interface TrashedHpItem extends HpItem {
  * item coming back.
  */
 export type AgreementStatus =
+  /** Signed at the counter by a teller; a manager has yet to let it stand. */
+  | "awaiting-approval"
   | "pending"
   | "rejected"
   | "active"
@@ -155,6 +155,7 @@ export function financedFor(sellingPrice: number): number {
 /* ------------------------------------------------------------------ labels --- */
 
 export const AGREEMENT_STATUS_LABELS: Record<AgreementStatus, string> = {
+  "awaiting-approval": "Awaiting approval",
   pending: "Awaiting deposit",
   rejected: "Rejected",
   active: "Active",
@@ -171,6 +172,8 @@ export const AGREEMENT_STATUS_LABELS: Record<AgreementStatus, string> = {
  * asks about an agreement after it is over.
  */
 export const AGREEMENT_STATUS_BLURBS: Record<AgreementStatus, string> = {
+  "awaiting-approval":
+    "Signed at the counter. A manager has to approve it before a deposit can be taken.",
   pending: "Signed. The item stays in the shop until the deposit is paid.",
   rejected: "Turned down. The unit went back on the shelf.",
   active: "Item released and instalments running.",
@@ -185,6 +188,7 @@ export const AGREEMENT_STATUS_TONE: Record<
   AgreementStatus,
   "success" | "info" | "warning" | "danger" | "muted"
 > = {
+  "awaiting-approval": "warning",
   pending: "info",
   rejected: "muted",
   active: "success",
@@ -229,6 +233,15 @@ export const CHANNEL_OPTIONS: { value: PaymentChannel; label: string }[] = [
 /** Waiting on its 50% deposit. The item is still on the shelf, reserved. */
 export function awaitingDeposit(a: Pick<HpAgreement, "status">): boolean {
   return a.status === "pending";
+}
+
+/**
+ * Signed at the counter and waiting on a manager. The unit is reserved just as
+ * it is for a pending one, so nothing can be sold out from under it — but no
+ * deposit may be taken until somebody senior lets it stand.
+ */
+export function awaitingApproval(a: Pick<HpAgreement, "status">): boolean {
+  return a.status === "awaiting-approval";
 }
 
 /** Running: the item is out and instalments are due. */
@@ -277,14 +290,18 @@ export function redemptionTimeLeft(
 }
 
 /**
- * Only an unpaid pending or rejected agreement may be trashed. Trashing a
- * pending one puts its unit back on the shelf — the item never left the shop.
+ * Only an unpaid agreement that never got going may be trashed. Trashing one
+ * that was still reserving a unit puts it back on the shelf — the item never
+ * left the shop.
  */
 export function canTrashAgreement(
   a: Pick<HpAgreement, "status" | "totalPaid">,
 ): boolean {
   return (
-    (a.status === "pending" || a.status === "rejected") && a.totalPaid === 0
+    (a.status === "pending" ||
+      a.status === "awaiting-approval" ||
+      a.status === "rejected") &&
+    a.totalPaid === 0
   );
 }
 

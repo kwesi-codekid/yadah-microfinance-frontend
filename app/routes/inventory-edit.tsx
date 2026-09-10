@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
 import { listItems, updateItem } from "~/api/hire-purchase";
-import { BarcodeField } from "~/components/barcode-field";
 import { Figure } from "~/components/listing";
 import {
   RouteSheet,
@@ -67,7 +66,6 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
   const description = String(form.get("description") ?? "").trim();
-  const barcode = String(form.get("barcode") ?? "").trim();
   const status = String(form.get("status") ?? "active") as ItemStatus;
   const costPrice = parseCedis(String(form.get("costPrice") ?? "").trim());
   const sellingPrice = parseCedis(
@@ -88,7 +86,6 @@ export async function action({ request, params }: Route.ActionArgs) {
       updateItem(token, params.id, {
         name,
         description,
-        barcode,
         costPrice,
         sellingPrice,
         status,
@@ -153,7 +150,6 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
             />
           </div>
 
-          <BarcodeField defaultValue={item.barcode ?? ""} />
 
           <div className="space-y-1.5">
             <Label
