@@ -1,6 +1,11 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
 import type {
+  ImportOutcome,
+  ImportPreview,
+  ImportRow,
+} from "~/lib/customer-import";
+import type {
   CreateCustomerInput,
   Customer,
   CustomerStatement,
@@ -220,6 +225,59 @@ export function exportCustomerStatement(
   format: ExportFormat,
 ): Promise<Response> {
   return apiFetchRaw(`/customers/${id}/statement${queryOf({ ...params }, format)}`, {
+    accessToken,
+  });
+}
+
+/* ---------------------------------------------------------- bulk import --- */
+
+/**
+ * GET /customers/import/template — the blank sheet, as csv or xlsx.
+ *
+ * Returns the raw response: the browser holds no access token, so the download
+ * is proxied through a resource route rather than linked to directly.
+ */
+export function importTemplate(
+  accessToken: string,
+  format: "csv" | "xlsx",
+): Promise<Response> {
+  return apiFetchRaw(`/customers/import/template?format=${format}`, { accessToken });
+}
+
+/**
+ * POST /customers/import/preview — check a filled sheet. Writes nothing.
+ *
+ * Every row is held to the rules a single registration is held to, and the
+ * answer comes back cell by cell. It also catches the two things only the API
+ * can see: a number already on a customer, and one used twice in the sheet.
+ */
+export function previewImport(
+  accessToken: string,
+  file: File,
+): Promise<ImportPreview> {
+  const body = new FormData();
+  body.append("file", file);
+  return apiFetch("/customers/import/preview", {
+    method: "POST",
+    formData: body,
+    accessToken,
+  });
+}
+
+/**
+ * POST /customers/import — register the rows the office accepted.
+ *
+ * Row by row, so one bad row does not throw away the sheet. What failed comes
+ * back with its reason and can be corrected and sent again; what succeeded is
+ * simply absent from the retry.
+ */
+export function runImport(
+  accessToken: string,
+  rows: Pick<ImportRow, "row" | "values">[],
+): Promise<ImportOutcome> {
+  return apiFetch("/customers/import", {
+    method: "POST",
+    json: { rows },
     accessToken,
   });
 }

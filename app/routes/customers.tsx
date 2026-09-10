@@ -10,6 +10,7 @@ import {
   Loader2Icon,
   MoreHorizontalIcon,
   PencilIcon,
+  UploadIcon,
   PrinterIcon,
   SearchIcon,
   SlidersHorizontalIcon,
@@ -401,12 +402,22 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
             <DateRangeFilter filters={filters} />
             <ExportMenu filters={filters} total={total} />
             {canManage && (
-              <Button asChild size="sm">
-                <Link to="/customers/new">
-                  <UserPlusIcon />
-                  Register customer
-                </Link>
-              </Button>
+              <>
+                {/* A whole book at once, for when the office is loading the
+                    branch rather than signing one person up at the counter. */}
+                <Button asChild size="sm" variant="outline">
+                  <Link to="/customers/import">
+                    <UploadIcon />
+                    Import
+                  </Link>
+                </Button>
+                <Button asChild size="sm">
+                  <Link to="/customers/new">
+                    <UserPlusIcon />
+                    Register customer
+                  </Link>
+                </Button>
+              </>
             )}
           </div>
         </div>
