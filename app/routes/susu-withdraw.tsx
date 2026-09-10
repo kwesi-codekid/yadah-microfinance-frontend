@@ -18,7 +18,7 @@ import { Label } from "~/components/ui/label";
 import { formatAmount, parseCedis, toCedisInput } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import { balanceAfterWithdrawal, checkWithdrawalAmount } from "~/lib/susu";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { loader as detailLoader } from "./susu-detail";
@@ -43,12 +43,12 @@ export function meta(_: Route.MetaArgs) {
  * would put a loading bar over figures that are on screen.
  */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   return null;
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const amount = parseCedis(String(form.get("amount") ?? ""));
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");

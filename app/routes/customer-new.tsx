@@ -6,7 +6,7 @@ import { listUsers } from "~/api/users";
 import { CustomerForm } from "~/components/customer-form";
 import { Page } from "~/components/page";
 import { missingRequired, parseCustomerForm } from "~/lib/customer-form";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import type { Route } from "./+types/customer-new";
 
@@ -23,7 +23,7 @@ export function meta(_: Route.MetaArgs) {
   * reached. Active only — a disabled collector has no round to join.
   */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const { data: result, headers } = await withAuth(request, (token) =>
     listUsers(token, { role: "collector", status: "active", limit: 100 }),
   );
@@ -34,7 +34,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const input = parseCustomerForm(await request.formData());
 
   if (missingRequired(input)) {

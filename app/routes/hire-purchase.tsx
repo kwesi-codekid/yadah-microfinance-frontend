@@ -69,7 +69,7 @@ import {
   type AgreementStatus,
   type HpAgreement,
 } from "~/lib/hire-purchase";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { useCurrentUser } from "~/lib/use-current-user";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/hire-purchase";
@@ -165,7 +165,7 @@ function hrefFor(f: Filters, page = 1): string {
  * four more calls to answer a question nobody is asking.
  */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const url = new URL(request.url);
 
   const filters = readFilters(url);

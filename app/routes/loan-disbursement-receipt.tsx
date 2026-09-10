@@ -1,6 +1,6 @@
 import { disbursementReceiptPdf } from "~/api/loans";
 import { asDownload, downloadFailure } from "~/lib/download.server";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/loan-disbursement-receipt";
 
 /**
@@ -13,7 +13,7 @@ import type { Route } from "./+types/loan-disbursement-receipt";
  * counter, never on a round.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   try {
     const { data: upstream, headers } = await withAuth(request, (token) =>

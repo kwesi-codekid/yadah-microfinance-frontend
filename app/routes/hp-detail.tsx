@@ -81,7 +81,8 @@ import {
   windowLapsed,
 } from "~/lib/hire-purchase";
 import { newIdempotencyKey } from "~/lib/idempotency";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { isOffice } from "~/lib/auth";
+import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/hp-detail";
@@ -91,8 +92,10 @@ export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: `${name} · Hire purchase · Yadah Dynamic Enterprise` }];
 }
 
+// The counter reads an agreement to take a payment against it. Rejecting,
+// repossessing and forfeiting live in the action below, which stays office.
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  const viewer = await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
@@ -111,12 +114,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   return data(
     {
       agreement,
+      /** Rejecting, repossessing and forfeiting are the office's, not the counter's. */
+      canDecide: isOffice(viewer),
       customerName:
         result.customer?.fullName ?? agreement.customerName ?? "Customer",
       payments: (result.detail.payments ?? []).map((payment) => ({
         id: payment.id,
         amount: payment.amount,
-        what: payment.type ? (PAYMENT_TYPE_LABELS[payment.type] ?? payment.type) : "Payment",
+        what: payment.type
+          ? (PAYMENT_TYPE_LABELS[payment.type] ?? payment.type)
+          : "Payment",
         how: payment.channel
           ? (CHANNEL_LABELS[payment.channel] ?? payment.channel)
           : (payment.source ?? "—"),
@@ -161,16 +168,24 @@ export async function action({ request, params }: Route.ActionArgs) {
     const { data: result, headers } = await withAuth(request, async (token) => {
       if (intent === "reject") {
         await rejectAgreement(token, params.id, reason);
-        return { message: "Agreement rejected. The unit is back on the shelf.", gone: false };
+        return {
+          message: "Agreement rejected. The unit is back on the shelf.",
+          gone: false,
+        };
       }
       if (intent === "mark-arrears") {
         await markArrears(token, params.id);
-        return { message: "Flagged as in arrears. The customer has been warned by SMS.", gone: false };
+        return {
+          message:
+            "Flagged as in arrears. The customer has been warned by SMS.",
+          gone: false,
+        };
       }
       if (intent === "repossess") {
         await repossess(token, params.id, reason);
         return {
-          message: "Repossession recorded. The one-month redemption window is open.",
+          message:
+            "Repossession recorded. The one-month redemption window is open.",
           gone: false,
         };
       }
@@ -184,10 +199,16 @@ export async function action({ request, params }: Route.ActionArgs) {
         };
       }
       if (intent === "forfeit") {
-        const costPrice = parseCedis(String(form.get("costPrice") ?? "").trim());
-        const sellingPrice = parseCedis(String(form.get("sellingPrice") ?? "").trim());
+        const costPrice = parseCedis(
+          String(form.get("costPrice") ?? "").trim(),
+        );
+        const sellingPrice = parseCedis(
+          String(form.get("sellingPrice") ?? "").trim(),
+        );
         const restock =
-          form.get("restock") === "1" && costPrice != null && sellingPrice != null
+          form.get("restock") === "1" &&
+          costPrice != null &&
+          sellingPrice != null
             ? {
                 costPrice,
                 sellingPrice,
@@ -216,7 +237,10 @@ export async function action({ request, params }: Route.ActionArgs) {
         headers,
       );
     }
-    return data<ActionResult>({ ok: true, message: result.message }, { headers });
+    return data<ActionResult>(
+      { ok: true, message: result.message },
+      { headers },
+    );
   } catch (error) {
     if (error instanceof ApiError) {
       return data<ActionResult>(
@@ -229,7 +253,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function HpDetail({ loaderData }: Route.ComponentProps) {
-  const { agreement, customerName, payments } = loaderData;
+  const { agreement, canDecide, customerName, payments } = loaderData;
 
   const awaiting = awaitingDeposit(agreement);
   const running = isRunning(agreement);
@@ -292,7 +316,11 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
               </Link>
             </Button>
           )}
-          <AgreementMenu agreement={agreement} customerName={customerName} />
+          {/* Every item in it decides something, so the counter is not shown a
+              menu whose every entry would be refused. */}
+          {canDecide && (
+            <AgreementMenu agreement={agreement} customerName={customerName} />
+          )}
         </div>
       </header>
 
@@ -302,7 +330,10 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
           under the strip because it is what decides which of the two
           irreversible endings is available today. */}
       {repossessed && agreement.redemptionDeadline && (
-        <RedemptionCountdown deadline={agreement.redemptionDeadline} className="mb-6" />
+        <RedemptionCountdown
+          deadline={agreement.redemptionDeadline}
+          className="mb-6"
+        />
       )}
 
       {agreement.repossessionReason && (
@@ -314,15 +345,16 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
 
       {agreement.rejectionReason && (
         <Note tone="muted">
-          <span className="font-medium">Rejected:</span> {agreement.rejectionReason}
+          <span className="font-medium">Rejected:</span>{" "}
+          {agreement.rejectionReason}
         </Note>
       )}
 
       {agreement.status === "in-arrears" && (
         <Note tone="warning">
           <span className="font-medium">Behind on instalments.</span> Clearing
-          every month-overdue instalment lifts this flag on its own. Repossession
-          is the step after it.
+          every month-overdue instalment lifts this flag on its own.
+          Repossession is the step after it.
         </Note>
       )}
 
@@ -331,8 +363,8 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
           <span className="font-medium">
             Waiting on {formatPesewas(agreement.depositRequired)}.
           </span>{" "}
-          The unit is reserved but stays in the shop until the deposit is paid in
-          full — it has to match to the pesewa.
+          The unit is reserved but stays in the shop until the deposit is paid
+          in full — it has to match to the pesewa.
         </Note>
       )}
 
@@ -379,14 +411,17 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
               <div
                 className={cn(
                   "h-full transition-[width]",
-                  agreement.status === "in-arrears" ? "bg-warning" : "bg-primary",
+                  agreement.status === "in-arrears"
+                    ? "bg-warning"
+                    : "bg-primary",
                 )}
                 style={{ width: `${progress * 100}%` }}
               />
             </div>
             <p className="text-xs text-muted-foreground">
               {Math.round(progress * 100)}% of the financed half paid. The
-              deposit is not counted in this — it bought the release of the item.
+              deposit is not counted in this — it bought the release of the
+              item.
             </p>
           </div>
         ) : null}
@@ -439,7 +474,9 @@ function Payments({
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.id}>
-                <TableCell className="px-4 py-3 whitespace-nowrap">{row.at}</TableCell>
+                <TableCell className="px-4 py-3 whitespace-nowrap">
+                  {row.at}
+                </TableCell>
                 <TableCell className="px-4 py-3">{row.what}</TableCell>
                 <TableCell className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
                   {row.how}
@@ -624,7 +661,9 @@ function AgreementMenu({
         title="Flag this agreement as in arrears?"
         description={`${customerName} is sent an arrears-warning SMS. Clearing every month-overdue instalment lifts the flag automatically — you do not have to come back and unset it.`}
         confirmLabel="Flag as in arrears"
-        onConfirm={() => fetcher.submit({ intent: "mark-arrears" }, { method: "post" })}
+        onConfirm={() =>
+          fetcher.submit({ intent: "mark-arrears" }, { method: "post" })
+        }
       />
 
       <ReasonDialog
@@ -645,7 +684,10 @@ function AgreementMenu({
         onOpenChange={(next) => setDialog(next ? "redeem" : null)}
         remaining={agreement.remaining}
         onConfirm={(idempotencyKey) =>
-          fetcher.submit({ intent: "redeem", idempotencyKey }, { method: "post" })
+          fetcher.submit(
+            { intent: "redeem", idempotencyKey },
+            { method: "post" },
+          )
         }
       />
 
@@ -758,7 +800,9 @@ function ReasonDialog({
         <div className="space-y-1.5">
           <Label htmlFor="dialog-reason" className="text-sm font-medium">
             Reason{" "}
-            {optional && <span className="text-muted-foreground">(optional)</span>}
+            {optional && (
+              <span className="text-muted-foreground">(optional)</span>
+            )}
           </Label>
           <Textarea
             id="dialog-reason"
@@ -859,7 +903,10 @@ function ForfeitDialog({
   const sellingPesewas = parseCedis(selling);
   const ready =
     !restock ||
-    (costPesewas != null && costPesewas >= 0 && sellingPesewas != null && sellingPesewas > 0);
+    (costPesewas != null &&
+      costPesewas >= 0 &&
+      sellingPesewas != null &&
+      sellingPesewas > 0);
 
   return (
     <AlertDialog

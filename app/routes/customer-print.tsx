@@ -1,6 +1,6 @@
 import { registrationFormPdf } from "~/api/customers";
 import { asDownload, downloadFailure } from "~/lib/download.server";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/customer-print";
 
 /**
@@ -9,7 +9,7 @@ import type { Route } from "./+types/customer-print";
  * rather than going through the JSON layer. This is the row's "Print".
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   try {
     const { data: upstream, headers } = await withAuth(request, (token) =>

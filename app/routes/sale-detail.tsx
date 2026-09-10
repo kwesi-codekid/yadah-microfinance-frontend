@@ -37,7 +37,8 @@ import {
   isWalkIn,
   unitCount,
 } from "~/lib/sales";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { isOffice } from "~/lib/auth";
+import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/sale-detail";
 
@@ -47,7 +48,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  const viewer = await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
@@ -57,7 +58,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     }
   });
 
-  return data({ sale: result.sale }, { headers });
+  // Ringing a sale up is counter work; unpicking one is not.
+  return data({ sale: result.sale, canDecide: isOffice(viewer) }, { headers });
 }
 
 interface ActionResult {
@@ -82,7 +84,10 @@ export async function action({ request, params }: Route.ActionArgs) {
       voidSale(token, params.id, reason),
     );
     return data<ActionResult>(
-      { ok: true, message: `Receipt ${result.sale.receiptNo} voided. Stock went back.` },
+      {
+        ok: true,
+        message: `Receipt ${result.sale.receiptNo} voided. Stock went back.`,
+      },
       { headers },
     );
   } catch (error) {
@@ -97,7 +102,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function SaleDetail({ loaderData }: Route.ComponentProps) {
-  const { sale } = loaderData;
+  const { sale, canDecide } = loaderData;
   const fetcher = useFetcher<ActionResult>();
   const [confirmVoid, setConfirmVoid] = useState(false);
   const [reason, setReason] = useState("");
@@ -139,9 +144,10 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
           <XCircleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
           <span>
             <span className="font-medium">This sale was voided</span>
-            {sale.voidedAt ? ` on ${formatAccraDateTime(sale.voidedAt)}` : ""}.{" "}
-            {sale.voidReason || "No reason was recorded."} The stock went back and
-            it no longer counts toward revenue.
+            {sale.voidedAt
+              ? ` on ${formatAccraDateTime(sale.voidedAt)}`
+              : ""}. {sale.voidReason || "No reason was recorded."} The stock
+            went back and it no longer counts toward revenue.
           </span>
         </p>
       )}
@@ -161,7 +167,9 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
           <p className="font-medium">{sale.buyerName}</p>
         )}
         <p className="mt-0.5 text-sm text-muted-foreground">
-          {isWalkIn(sale) ? "Walk-in — not on the books" : "Registered customer"}
+          {isWalkIn(sale)
+            ? "Walk-in — not on the books"
+            : "Registered customer"}
           {sale.buyerPhone ? ` · ${sale.buyerPhone}` : ""}
         </p>
       </section>
@@ -181,7 +189,7 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
                 Print receipt
               </a>
             </Button>
-            {canVoid(sale) && (
+            {canDecide && canVoid(sale) && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -213,7 +221,9 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
               const cut = line.unitPrice < line.listPrice;
               return (
                 <TableRow key={`${line.itemId}-${i}`}>
-                  <TableCell className="px-4 py-3 font-medium">{line.name}</TableCell>
+                  <TableCell className="px-4 py-3 font-medium">
+                    {line.name}
+                  </TableCell>
                   <TableCell className="tabular px-4 py-3 text-right">
                     {formatCount(line.quantity)}
                   </TableCell>
@@ -245,7 +255,11 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
 
       <dl className="grid gap-3 sm:grid-cols-4">
         <Figure label="Units" value={formatCount(units)} />
-        <Figure label="Subtotal" value={formatPesewas(sale.subtotal)} tone="muted" />
+        <Figure
+          label="Subtotal"
+          value={formatPesewas(sale.subtotal)}
+          tone="muted"
+        />
         <Figure
           label="Discount"
           value={sale.discount > 0 ? `−${formatPesewas(sale.discount)}` : "—"}
@@ -263,10 +277,10 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Void receipt {sale.receiptNo}?</AlertDialogTitle>
             <AlertDialogDescription>
-              The {formatCount(units)} unit{units === 1 ? "" : "s"} go back on the
-              shelf and the {formatPesewas(sale.total)} stops counting toward
-              revenue. The sale stays on the record, stamped with your name and
-              this reason. There is no undo.
+              The {formatCount(units)} unit{units === 1 ? "" : "s"} go back on
+              the shelf and the {formatPesewas(sale.total)} stops counting
+              toward revenue. The sale stays on the record, stamped with your
+              name and this reason. There is no undo.
             </AlertDialogDescription>
           </AlertDialogHeader>
 

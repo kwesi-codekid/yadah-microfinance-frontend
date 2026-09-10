@@ -64,7 +64,7 @@ import {
   type LoanStatus,
 } from "~/lib/loans";
 import { amountOf } from "~/lib/reports";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/loans";
 
@@ -152,7 +152,7 @@ const DUE_SOON_DAYS = 7;
  * them failing must not take the book down with it.
  */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const url = new URL(request.url);
 
   const filters = readFilters(url);

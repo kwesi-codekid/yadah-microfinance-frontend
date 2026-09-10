@@ -10,7 +10,7 @@ import { TransactionAdvice } from "~/components/transaction-advice";
 import { Button } from "~/components/ui/button";
 import { TX_TYPE_LABELS } from "~/lib/customers";
 import { accraDay, accraDaysAgo, formatAccraDate } from "~/lib/format";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/transaction-advice";
 
 export function meta({ loaderData }: Route.MetaArgs) {
@@ -32,7 +32,7 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
  * which is what keeps the row findable.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const url = new URL(request.url);
   const day = (key: string, fallback: string) => {
     const v = url.searchParams.get(key) ?? "";

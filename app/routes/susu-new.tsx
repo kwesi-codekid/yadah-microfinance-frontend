@@ -11,7 +11,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { formatAmount, parseCedis } from "~/lib/format";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { CYCLE_TARGET, MIN_DAILY_AMOUNT } from "~/lib/susu";
 import type { Route } from "./+types/susu-new";
@@ -22,12 +22,12 @@ export function meta(_: Route.MetaArgs) {
 
 /** Opening an account is office-only — enforced here, not just by hiding it. */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   return null;
 }
 
 export async function action({ request, params: _ }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const customerId = String(form.get("customerId") ?? "").trim();
   const dailyAmount = parseCedis(String(form.get("dailyAmount") ?? ""));

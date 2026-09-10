@@ -21,7 +21,7 @@ import { formatAmount, formatPesewas } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import { isOpen, type ExcessDestination } from "~/lib/loans";
 import { commissionOf, payoutIfClosedNow } from "~/lib/susu";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/loan-repay-susu";
@@ -40,7 +40,7 @@ export function meta(_: Route.MetaArgs) {
  * has to go somewhere the office chose on purpose.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
@@ -108,7 +108,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const susuAccountId = String(form.get("susuAccountId") ?? "").trim();
   const excessTo = String(form.get("excessTo") ?? "pending-withdrawal") as ExcessDestination;

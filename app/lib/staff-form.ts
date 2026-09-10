@@ -6,13 +6,18 @@
  * Client-safe: it touches `FormData` and nothing else.
  */
 
-import type { Role } from "~/lib/auth";
+import { ROLES, type Role } from "~/lib/auth";
 import type { CreateStaffInput, Staff, UpdateStaffInput } from "~/lib/staff";
 
-const ROLES = new Set<Role>(["admin", "manager", "collector"]);
+/**
+ * Built from the one list of roles rather than a second copy of it. A copy
+ * here once went stale, and because an unrecognised role used to fall back to
+ * "collector", picking the new role saved the old one without a word.
+ */
+const KNOWN_ROLES = new Set<Role>(ROLES);
 
 function asRole(value?: string): Role | undefined {
-  return value && ROLES.has(value as Role) ? (value as Role) : undefined;
+  return value && KNOWN_ROLES.has(value as Role) ? (value as Role) : undefined;
 }
 
 /**
@@ -34,7 +39,10 @@ export function parseStaffForm(form: FormData): CreateStaffInput {
     name: get("name") ?? "",
     username: get("username")?.toLowerCase() ?? "",
     phone: get("phone") ?? "",
-    role: asRole(get("role")) ?? ("collector" as Role),
+    // Left empty when it is not a role we know, the way the text fields above
+    // are: `missingRequired` then refuses the form instead of quietly saving
+    // somebody as something they were not chosen to be.
+    role: asRole(get("role")) as Role,
     password: get("password") ?? "",
     email: get("email"),
   };

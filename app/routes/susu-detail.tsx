@@ -85,7 +85,7 @@ import {
 } from "~/components/ui/select";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
-import { isOffice } from "~/lib/auth";
+import { isCounter, isOffice } from "~/lib/auth";
 import {
   formatAccraDate,
   formatAccraDateTime,
@@ -96,7 +96,7 @@ import {
   toCedisInput,
 } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
-import { requireOffice, requireUser, withAuth } from "~/lib/session.server";
+import { requireCounter, requireUser, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import {
   CHANNEL_LABELS,
@@ -174,7 +174,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   return data(
     {
+      /** Correcting a deposit, and the trashed view. Office only. */
       canManage: office,
+      /** Closing, paying out and withdrawing — counter work. */
+      canServe: isCounter(user),
       account: {
         ...result.account,
         // The detail endpoint omits it; the customer record is the only source.
@@ -205,7 +208,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export const shouldRevalidate = drawerParentShouldRevalidate;
 
 function shortId(id: string): string {
-  return id.replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase() || id.toUpperCase();
+  return (
+    id
+      .replace(/[^a-z0-9]/gi, "")
+      .slice(-6)
+      .toUpperCase() || id.toUpperCase()
+  );
 }
 
 interface DepositRow {
@@ -251,7 +259,7 @@ interface ActionResult {
  * all of it moves money or rewrites a record, so each one confirms first.
  */
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const depositId = String(form.get("depositId") ?? "");
@@ -320,7 +328,10 @@ export async function action({ request, params }: Route.ActionArgs) {
         headers,
       );
     }
-    return data<ActionResult>({ ok: true, message: result.message }, { headers });
+    return data<ActionResult>(
+      { ok: true, message: result.message },
+      { headers },
+    );
   } catch (error) {
     if (error instanceof ApiError) {
       return data<ActionResult>(
@@ -348,7 +359,8 @@ function trimmedReason(value: FormDataEntryValue | null): string | undefined {
 /* -------------------------------------------------------------------- page --- */
 
 export default function SusuDetail({ loaderData }: Route.ComponentProps) {
-  const { canManage, account, showTrashed, deposits, trashed } = loaderData;
+  const { canManage, canServe, account, showTrashed, deposits, trashed } =
+    loaderData;
   // `?payout=1` arrives from the listing's row button, so paying out is one
   // click from the list rather than a page and then a menu.
   const [searchParams] = useSearchParams();
@@ -371,7 +383,9 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
     if (fetcher.data.ok) {
       toast.success(fetcher.data.message);
     } else {
-      toast.error(fetcher.data.message, { description: describe(fetcher.data.details) });
+      toast.error(fetcher.data.message, {
+        description: describe(fetcher.data.details),
+      });
     }
   }, [fetcher.state, fetcher.data]);
 
@@ -420,7 +434,9 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
             : undefined
         }
         held={
-          account.withdrawnAmount > 0 ? formatPesewas(account.balance) : undefined
+          account.withdrawnAmount > 0
+            ? formatPesewas(account.balance)
+            : undefined
         }
       />
 
@@ -444,7 +460,11 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" disabled={deposits.total === 0}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={deposits.total === 0}
+                >
                   <DownloadIcon />
                   Export
                 </Button>
@@ -469,10 +489,11 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            {canManage && (
+            {canServe && (
               <AccountActions
                 account={account}
                 fetcher={fetcher}
+                canDecide={canManage}
                 openPayout={openPayout}
               />
             )}
@@ -489,7 +510,7 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
             {/* Part of the balance back, cycle left running — the rule the API
                 changed in August 2026. Office only, and pointless to offer when
                 the reserved day is all that is left. */}
-            {canManage &&
+            {canServe &&
               (account.status === "active" || account.status === "completed") &&
               account.availableToWithdraw > 0 && (
                 <Button asChild variant="outline" size="sm">
@@ -536,7 +557,11 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
                   setPage(1);
                 }}
               >
-                <SelectTrigger size="sm" className="w-20" aria-label="Rows per page">
+                <SelectTrigger
+                  size="sm"
+                  className="w-20"
+                  aria-label="Rows per page"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -549,8 +574,14 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
               </Select>
               <p>
                 Showing{" "}
-                <span className="tabular font-medium text-foreground">{first}</span>–
-                <span className="tabular font-medium text-foreground">{last}</span> of{" "}
+                <span className="tabular font-medium text-foreground">
+                  {first}
+                </span>
+                –
+                <span className="tabular font-medium text-foreground">
+                  {last}
+                </span>{" "}
+                of{" "}
                 <span className="tabular font-medium text-foreground">
                   {formatCount(deposits.items.length)}
                 </span>
@@ -597,7 +628,8 @@ function Notices({ account }: { account: SusuAccount }) {
   if (account.status === "pending-payout") {
     return (
       <Note tone="warning">
-        GH₵ {formatAmount(account.payoutRemaining)} is still owed to the customer.
+        GH₵ {formatAmount(account.payoutRemaining)} is still owed to the
+        customer.
       </Note>
     );
   }
@@ -612,7 +644,13 @@ function Notices({ account }: { account: SusuAccount }) {
   return null;
 }
 
-function Note({ tone, children }: { tone: "info" | "warning"; children: ReactNode }) {
+function Note({
+  tone,
+  children,
+}: {
+  tone: "info" | "warning";
+  children: ReactNode;
+}) {
   return (
     <p
       className={cn(
@@ -645,24 +683,34 @@ type Fetcher = ReturnType<typeof useFetcher<ActionResult>>;
 function AccountActions({
   account,
   fetcher,
+  canDecide,
   openPayout = false,
 }: {
   account: SusuAccount;
   fetcher: Fetcher;
+  /**
+   * Terminating a cycle and trashing an account are corrections, not counter
+   * work, so a teller closes and pays out but does neither.
+   */
+  canDecide: boolean;
   /** Arrived from the listing asking to pay this one out. */
   openPayout?: boolean;
 }) {
-  const [confirm, setConfirm] = useState<"close" | "terminate" | "trash" | null>(null);
+  const [confirm, setConfirm] = useState<
+    "close" | "terminate" | "trash" | null
+  >(null);
   const [payout, setPayout] = useState(openPayout);
   const [reason, setReason] = useState("");
 
   const stopped =
     account.status === "closed" || account.status === "terminated";
   const canClose = !stopped && !commissionUncovered(account);
-  const canTerminate = !stopped && commissionUncovered(account);
-  const canPayout = account.status === "pending-payout" && account.payoutRemaining > 0;
+  const canTerminate = canDecide && !stopped && commissionUncovered(account);
+  const canPayout =
+    account.status === "pending-payout" && account.payoutRemaining > 0;
   // Only a never-used account can be trashed; the API refuses the rest.
-  const canTrash = account.status === "active" && account.depositsCount === 0;
+  const canTrash =
+    canDecide && account.status === "active" && account.depositsCount === 0;
 
   const submit = (intent: string, extra: Record<string, string> = {}) =>
     fetcher.submit({ intent, ...extra }, { method: "post" });
@@ -725,7 +773,10 @@ function AccountActions({
         </Button>
       )}
 
-      <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>
+      <AlertDialog
+        open={confirm !== null}
+        onOpenChange={(o) => !o && setConfirm(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -739,15 +790,15 @@ function AccountActions({
               {confirm === "close" ? (
                 <>
                   The customer receives GH₵{" "}
-                  {formatAmount(Math.max(0, payoutIfClosedNow(account)))} in cash.
-                  GH₵ {formatAmount(commissionOf(account))} — one day — is kept as
-                  commission. The disbursement appears in the ledger.
+                  {formatAmount(Math.max(0, payoutIfClosedNow(account)))} in
+                  cash. GH₵ {formatAmount(commissionOf(account))} — one day — is
+                  kept as commission. The disbursement appears in the ledger.
                 </>
               ) : confirm === "terminate" ? (
                 <>
                   What the account still holds — GH₵{" "}
-                  {formatAmount(account.balance)} — is refunded and no commission
-                  is taken.
+                  {formatAmount(account.balance)} — is refunded and no
+                  commission is taken.
                   {account.withdrawnAmount > 0 && (
                     <>
                       {" "}
@@ -790,7 +841,8 @@ function AccountActions({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className={cn(
-                confirm !== "close" && "bg-destructive text-white hover:bg-destructive/90",
+                confirm !== "close" &&
+                  "bg-destructive text-white hover:bg-destructive/90",
               )}
               onClick={() =>
                 confirm === "trash"
@@ -955,7 +1007,9 @@ function DepositTable({
                   : `Days ${row.seqStart}–${row.seqEnd}`}
               </p>
             </TableCell>
-            <TableCell className="tabular px-4 py-3">{row.daysCovered}</TableCell>
+            <TableCell className="tabular px-4 py-3">
+              {row.daysCovered}
+            </TableCell>
             <TableCell className="tabular px-4 py-3 text-right font-medium whitespace-nowrap">
               {formatPesewas(row.amount)}
             </TableCell>
@@ -1033,7 +1087,10 @@ function DepositActions({
     pesewas == null
       ? "Enter an amount."
       : checkDepositAmount(
-          { ...account, depositsCount: account.depositsCount - row.daysCovered },
+          {
+            ...account,
+            depositsCount: account.depositsCount - row.daysCovered,
+          },
           pesewas,
         );
 
@@ -1122,7 +1179,12 @@ function DepositActions({
               aria-invalid={issue ? true : undefined}
               className="tabular"
             />
-            <p className={cn("text-xs", issue ? "text-destructive" : "text-muted-foreground")}>
+            <p
+              className={cn(
+                "text-xs",
+                issue ? "text-destructive" : "text-muted-foreground",
+              )}
+            >
               {issue ??
                 `${pesewas! / account.dailyAmount} day${pesewas! / account.dailyAmount === 1 ? "" : "s"} at GH₵ ${formatAmount(account.dailyAmount)}.`}
             </p>
@@ -1199,7 +1261,10 @@ function TrashedDeposits({
 }: {
   // No running balance: a trashed deposit has been taken back out of the
   // account, so there is no position after it to state.
-  rows: (Omit<DepositRow, "balance"> & { deletedAt: string; reason: string | null })[];
+  rows: (Omit<DepositRow, "balance"> & {
+    deletedAt: string;
+    reason: string | null;
+  })[];
   fetcher: Fetcher;
 }) {
   if (rows.length === 0) {
@@ -1277,7 +1342,9 @@ function TrashedDeposits({
 function describe(details?: Record<string, unknown>): string | undefined {
   if (!details) return undefined;
   const money = (k: string) =>
-    typeof details[k] === "number" ? `GH₵ ${formatAmount(details[k] as number)}` : null;
+    typeof details[k] === "number"
+      ? `GH₵ ${formatAmount(details[k] as number)}`
+      : null;
 
   const parts = [
     money("required") && `required ${money("required")}`,

@@ -1,6 +1,6 @@
 import { withdrawalReceiptPdf } from "~/api/susu";
 import { asDownload, downloadFailure } from "~/lib/download.server";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/susu-withdrawal-receipt";
 
 /**
@@ -11,7 +11,7 @@ import type { Route } from "./+types/susu-withdrawal-receipt";
  * Office-only, because both are: handing susu money back is not a field errand.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   try {
     const { data: upstream, headers } = await withAuth(request, (token) =>

@@ -28,7 +28,7 @@ import {
   type PaymentChannel,
 } from "~/lib/hire-purchase";
 import { newIdempotencyKey } from "~/lib/idempotency";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/hp-pay";
@@ -48,7 +48,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
  * exactly, and an instalment may be anything up to the balance.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
   const { data: agreement, headers } = await withAuth(request, async (token) => {
     try {
@@ -84,7 +84,7 @@ interface ActionResult {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const kind = String(form.get("kind") ?? "payment");
   const amount = parseCedis(String(form.get("amount") ?? "").trim());

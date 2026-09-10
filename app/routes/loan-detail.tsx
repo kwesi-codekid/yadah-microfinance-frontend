@@ -61,6 +61,7 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
+import { isOffice } from "~/lib/auth";
 import { hasIdDocument } from "~/lib/customers";
 import {
   accraDay,
@@ -87,7 +88,7 @@ import {
   withDefaults,
   type LoanEligibility,
 } from "~/lib/loans";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/loan-detail";
@@ -97,8 +98,10 @@ export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: `${name}'s loan · Yadah Dynamic Enterprise` }];
 }
 
+// The counter reads a loan to take a repayment against it. Approving and
+// rejecting live in the action below, which stays office.
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  const viewer = await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
@@ -136,12 +139,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   return data(
     {
       loan,
-      customerName: result.customer?.fullName ?? loan.customerName ?? "Customer",
+      /** Approving and rejecting are the office's, not the counter's. */
+      canDecide: isOffice(viewer),
+      customerName:
+        result.customer?.fullName ?? loan.customerName ?? "Customer",
       customerHasCard: result.customer?.identification?.idType === "ghana-card",
       // Fallbacks for when the eligibility read fails: the record itself says
       // whether the scans are there. An unreadable record does not block — the
       // API refuses approval without them either way.
-      customerHasIdDocument: result.customer ? hasIdDocument(result.customer) : true,
+      customerHasIdDocument: result.customer
+        ? hasIdDocument(result.customer)
+        : true,
       eligibility: result.eligibility,
       /** The rate this duration carries under today's config. */
       standardRate: rateFor(config, loan.durationMonths),
@@ -159,7 +167,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         amount: r.amount,
         source: SOURCE_LABELS[r.source] ?? r.source,
         at: r.createdAt ? formatAccraDateTime(r.createdAt) : "—",
-        recordedBy: r.recordedById ? (names.get(r.recordedById) ?? "Staff") : "System",
+        recordedBy: r.recordedById
+          ? (names.get(r.recordedById) ?? "Staff")
+          : "System",
       })),
     },
     { headers },
@@ -217,7 +227,10 @@ export async function action({ request, params }: Route.ActionArgs) {
         headers,
       );
     }
-    return data<ActionResult>({ ok: true, message: result.message }, { headers });
+    return data<ActionResult>(
+      { ok: true, message: result.message },
+      { headers },
+    );
   } catch (error) {
     if (error instanceof ApiError) {
       return data<ActionResult>(
@@ -232,6 +245,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 export default function LoanDetail({ loaderData }: Route.ComponentProps) {
   const {
     loan,
+    canDecide,
     customerName,
     customerHasCard,
     customerHasIdDocument,
@@ -273,7 +287,11 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
         <div className="flex items-center gap-2">
           {open && (
             <Button asChild>
-              <Link to={`/loans/${loan.id}/repay`} prefetch="intent" preventScrollReset>
+              <Link
+                to={`/loans/${loan.id}/repay`}
+                prefetch="intent"
+                preventScrollReset
+              >
                 <BanknoteArrowDownIcon />
                 Record repayment
               </Link>
@@ -304,7 +322,14 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
         </Note>
       )}
 
-      {pending ? (
+      {pending && !canDecide && (
+        <Note tone="muted" icon={<LockIcon className="size-4" />}>
+          This application is waiting on a manager. The counter can take a
+          repayment once it is approved.
+        </Note>
+      )}
+
+      {pending && canDecide ? (
         <DecisionPanel
           eligibility={eligibility}
           customerHasCard={customerHasCard}
@@ -324,7 +349,11 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
                 value={formatPesewas(loan.interestAmount)}
                 hint={`${loan.ratePercent}% flat`}
               />
-              <Figure label="Repaid" value={formatPesewas(loan.totalRepaid)} tone="success" />
+              <Figure
+                label="Repaid"
+                value={formatPesewas(loan.totalRepaid)}
+                tone="success"
+              />
               <Figure
                 label="Remaining"
                 value={formatPesewas(loan.remaining)}
@@ -350,7 +379,9 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
               <p className="text-xs text-muted-foreground">
                 {Math.round(progress * 100)}% repaid
                 {loan.dueDate ? ` · due ${formatAccraDate(loan.dueDate)}` : ""}
-                {loan.repaidOnTime ? " · repaid on time — big tier unlocked" : ""}
+                {loan.repaidOnTime
+                  ? " · repaid on time — big tier unlocked"
+                  : ""}
               </p>
             </div>
           </section>
@@ -414,9 +445,13 @@ function RateLadder({
     <section className="mb-6 rounded-xl border border-warning/40 bg-warning/10 px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <span className="eyebrow text-muted-foreground">Rate</span>
-        <span className="tabular text-muted-foreground line-through">{standard}%</span>
+        <span className="tabular text-muted-foreground line-through">
+          {standard}%
+        </span>
         <TrendingUpIcon aria-hidden className="size-4 text-warning" />
-        <span className="tabular font-semibold text-warning">{current}% flat</span>
+        <span className="tabular font-semibold text-warning">
+          {current}% flat
+        </span>
         {frozen && (
           <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-xs font-medium">
             <SnowflakeIcon className="size-3" />
@@ -425,9 +460,10 @@ function RateLadder({
         )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Escalated {escalatedAt ? `on ${formatAccraDate(escalatedAt)}` : "while overdue"}.
-        Interest is recomputed on the original principal each time the rate moves
-        up
+        Escalated{" "}
+        {escalatedAt ? `on ${formatAccraDate(escalatedAt)}` : "while overdue"}.
+        Interest is recomputed on the original principal each time the rate
+        moves up
         {frozen
           ? ", and the ladder is now spent — it can rise no further."
           : ", and it will move again if the loan stays late."}
@@ -636,7 +672,11 @@ function RejectButton({
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="outline" disabled={disabled} onClick={() => setOpen(true)}>
+      <Button
+        variant="outline"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+      >
         <XIcon />
         Reject
       </Button>
@@ -784,7 +824,13 @@ function Repayments({
   rows,
 }: {
   loanId: string;
-  rows: { id: string; amount: number; source: string; at: string; recordedBy: string }[];
+  rows: {
+    id: string;
+    amount: number;
+    source: string;
+    at: string;
+    recordedBy: string;
+  }[];
 }) {
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card">
@@ -811,7 +857,9 @@ function Repayments({
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.id}>
-                <TableCell className="px-4 py-3 whitespace-nowrap">{row.at}</TableCell>
+                <TableCell className="px-4 py-3 whitespace-nowrap">
+                  {row.at}
+                </TableCell>
                 <TableCell className="px-4 py-3 text-muted-foreground">
                   {row.source}
                 </TableCell>
@@ -950,7 +998,9 @@ function LoanMenu({
       <AlertDialog open={confirmTrash} onOpenChange={setConfirmTrash}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Move this application to the trash?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Move this application to the trash?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               Only a pending or rejected application can be trashed — once money
               has been disbursed the loan is part of the ledger. It can be
