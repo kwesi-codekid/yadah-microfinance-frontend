@@ -1,5 +1,6 @@
 import {
   CheckIcon,
+  FileImageIcon,
   IdCardIcon,
   Loader2Icon,
   LockIcon,
@@ -130,12 +131,15 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
       ? null
       : checkPrincipal(config, pesewas, eligibility?.bigTierUnlocked ?? false);
 
-  // Two conditions the API refuses outright. Blocking the button on them saves
-  // a round trip and, more to the point, saves telling a customer their
+  // Three conditions the API refuses outright. Blocking the button on them
+  // saves a round trip and, more to the point, saves telling a customer their
   // application went in when it did not.
   const noCard = eligibility != null && !eligibility.customer.hasGhanaCard;
+  // Only an explicit `false` blocks: an API that predates the field must not
+  // stop every application, and it re-checks the scans itself on submit.
+  const noScans = eligibility?.customer.hasIdDocument === false;
   const alreadyOpen = eligibility?.openLoan != null;
-  const blocked = noCard || alreadyOpen;
+  const blocked = noCard || noScans || alreadyOpen;
 
   useEffect(() => {
     if (actionData?.error) toast.error(actionData.error);
@@ -296,10 +300,11 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
 /* ----------------------------------------------------------------- history --- */
 
 /**
- * The decision aid. Four months of the customer's own record, plus the two
- * conditions that stop an application dead — no Ghana Card on the profile, and
- * a loan already open. Both are refusals the API would make anyway; saying them
- * here means nobody promises a customer something that cannot happen.
+ * The decision aid. Four months of the customer's own record, plus the three
+ * conditions that stop an application dead — no Ghana Card on the profile, no
+ * ID document uploaded, and a loan already open. All are refusals the API
+ * would make anyway; saying them here means nobody promises a customer
+ * something that cannot happen.
  */
 function HistoryPanel({
   loading,
@@ -332,6 +337,7 @@ function HistoryPanel({
   }
 
   const noCard = !eligibility.customer.hasGhanaCard;
+  const noScans = eligibility.customer.hasIdDocument === false;
   const alreadyOpen = eligibility.openLoan != null;
 
   return (
@@ -361,6 +367,11 @@ function HistoryPanel({
           {noCard
             ? "No Ghana Card on the profile. Add it before applying."
             : "Ghana Card on file."}
+        </Condition>
+        <Condition met={!noScans} icon={<FileImageIcon className="size-4" />}>
+          {noScans
+            ? "ID document not uploaded. Add the front and back to the profile before applying."
+            : "ID document uploaded, both sides."}
         </Condition>
         <Condition met={!alreadyOpen}>
           {alreadyOpen

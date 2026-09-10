@@ -40,8 +40,7 @@ export async function action({ request }: Route.ActionArgs) {
   if (missingRequired(input)) {
     return data(
       {
-        error:
-          "Add the full name, phone, the photo, both sides of the ID document and a collector.",
+        error: "Add the full name, phone, the photo and a collector.",
       },
       { status: 400 },
     );

@@ -95,8 +95,10 @@ export function createCustomer(
 
 /**
  * PATCH /customers/{id} — update the profile (office). Only the keys you send
- * are touched. Rejected with `CUSTOMER_INACTIVE` while the customer is
- * deactivated, so reactivate before editing.
+ * are touched; `null` clears an ID scan. Rejected with `CUSTOMER_INACTIVE`
+ * while the customer is deactivated, so reactivate before editing, and with
+ * `ID_DOCUMENT_IN_USE` when a scan would come off a customer who has a loan
+ * or hire-purchase agreement open.
  */
 export function updateCustomer(
   accessToken: string,

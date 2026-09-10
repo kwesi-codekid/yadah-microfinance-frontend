@@ -24,7 +24,6 @@ import { cn } from "~/lib/utils";
 export interface AdviceCustomer {
   fullName: string;
   phone: string;
-  email?: string | null;
   residentialAddress?: string | null;
 }
 
@@ -96,7 +95,6 @@ export function TransactionAdvice({
             rows={[
               ["Full Name", customer.fullName],
               ["Phone", customer.phone],
-              ["Email", customer.email || "n/a"],
               ["Address", customer.residentialAddress || "n/a"],
             ]}
           />

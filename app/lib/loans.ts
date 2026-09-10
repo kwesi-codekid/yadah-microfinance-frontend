@@ -118,7 +118,13 @@ export interface LoanConfig {
 
 /** What the API says about a customer, for the person making the decision. */
 export interface LoanEligibility {
-  customer: { id: string; fullName: string; hasGhanaCard: boolean };
+  customer: {
+    id: string;
+    fullName: string;
+    hasGhanaCard: boolean;
+    /** Both sides of the ID document uploaded. Refused with `ID_DOCUMENT_REQUIRED` without. */
+    hasIdDocument: boolean;
+  };
   /** Null when they have never paid anything in. */
   firstActivityAt: string | null;
   monthsOfHistory: number;

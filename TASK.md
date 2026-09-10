@@ -40,7 +40,7 @@ AMOUNT_MISMATCH  AMOUNT_TOO_SMALL  DEPOSIT_MISMATCH  COMMISSION_NOT_COVERED
 CANNOT_TERMINATE  NO_ACTIVE_ACCOUNTS  NO_PAYOUT  NOT_PENDING_PAYOUT
 EXCEEDS_PAYOUT  PAYOUT_EXCEEDS_BALANCE  EXCEEDS_BALANCE  EXCEEDS_AVAILABLE
 EXCEEDS_REMAINING  WITHDRAWAL_LIMIT  ACCOUNT_NOT_ACTIVE  ALREADY_CLOSED
-GHANA_CARD_REQUIRED  LOAN_EXISTS  LOAN_NOT_OPEN  BIG_TIER_LOCKED
+GHANA_CARD_REQUIRED  ID_DOCUMENT_REQUIRED  ID_DOCUMENT_IN_USE  LOAN_EXISTS  LOAN_NOT_OPEN  BIG_TIER_LOCKED
 PRINCIPAL_OUT_OF_RANGE  NOT_ELIGIBLE  NOT_PENDING  INVALID_TRANSITION
 OUT_OF_STOCK  STOCK_UNDERFLOW  AGREEMENT_NOT_OPEN  AGREEMENT_NOT_PENDING
 NOT_REDEEMABLE  NOTHING_TO_REDEEM  REDEMPTION_WINDOW_OPEN  REDEMPTION_WINDOW_LAPSED
@@ -134,7 +134,7 @@ Login (username+password), **phone OTP login** (`request` → `verify`), refresh
 
 Registration is office-only and is **the heaviest form in the app**:
 
-- Personal (full name as on ID, DOB, gender, nationality, marital status, mother's maiden name), contact (residential address, GhanaPost GPS, postal, phone, alt phone, email), identification, occupation/employer, purpose of account, next of kin.
+- Personal (full name as on ID, DOB, gender, nationality, marital status), contact (residential address, phone, alt phone), identification (type and number), occupation, next of kin.
 - **Required images**: customer photo + ID front + ID back. Flow is `POST /uploads/images` first (multipart, field `image`, JPEG/PNG/WebP, max 5 MB, `kind=document` for ID scans), then submit the returned URLs. **Nothing is attached to a record by the upload call** — so abandoned or replaced uploads must be cleaned up via `DELETE /uploads/images`. Build this cleanup or the bucket fills with orphans.
 - **Validation to mirror client-side**: phone, alt phone and next-of-kin phone must all be different (`PHONES_NOT_DISTINCT`); ID formats are checked per type — Ghana Card `GHA-123456789-0`, voter ID 8 digits, passport `G12345678`, driver's licence 10–20 alphanumerics; **minimum age 10**.
 - Detail page aggregates every product the customer holds.
@@ -167,7 +167,7 @@ Account numbers are 10-digit randomized. Types `standard` | `student` — **labe
 
 ### 4.5 Loans — 13 endpoints
 
-Tiers: **small GHS 1,000–20,000**, **big up to 50,000**. Durations 3/6/12 months, flat rate per duration (config-driven, documented as 10/20/30%). **Requires a Ghana Card on the profile** (`GHANA_CARD_REQUIRED`). **One open loan per customer** (`LOAN_EXISTS`). **Big tier requires a previous small loan repaid on time** (`BIG_TIER_LOCKED`).
+Tiers: **small GHS 1,000–20,000**, **big up to 50,000**. Durations 3/6/12 months, flat rate per duration (config-driven, documented as 10/20/30%). **Requires a Ghana Card on the profile** (`GHANA_CARD_REQUIRED`) **and both sides of the ID document uploaded** (`ID_DOCUMENT_REQUIRED`; the same applies to hire purchase via `NOT_ELIGIBLE`, and the scans cannot be removed from a profile while a loan or agreement is open — `ID_DOCUMENT_IN_USE`). **One open loan per customer** (`LOAN_EXISTS`). **Big tier requires a previous small loan repaid on time** (`BIG_TIER_LOCKED`).
 
 Statuses: `pending` · `active` · `repaid` · `rejected` · `arrears`. Plus a `frozen` flag once rate escalation is exhausted.
 

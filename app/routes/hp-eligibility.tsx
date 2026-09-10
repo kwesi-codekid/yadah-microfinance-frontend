@@ -8,9 +8,10 @@ import type { Route } from "./+types/hp-eligibility";
  * the session, so the signing form can check the conditions as soon as a
  * customer is picked.
  *
- * Four conditions: an active susu or savings account, three months of saving
- * history, no active loan, and no agreement already open. Loans and hire
- * purchase block each other, which is the one people forget.
+ * Five conditions: both sides of the ID document on the profile, an active
+ * susu or savings account, three months of saving history, no active loan, and
+ * no agreement already open. Loans and hire purchase block each other, which is
+ * the one people forget.
  *
  * The spec leaves this response open, so what comes back is read defensively
  * and the form never treats a missing field as a refusal — the API re-checks

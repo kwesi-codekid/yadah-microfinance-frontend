@@ -33,7 +33,8 @@ export function toDay(iso?: string): string | undefined {
 /**
  * Every field the form submits, as one object. Blank fields become `undefined`
  * so they are omitted from the body — the API rejects empty strings against its
- * `minLength` rules, and there is no documented way to clear an optional field.
+ * `minLength` rules. The ID scans are the exception on an edit: `diffCustomer`
+ * turns an emptied slot into an explicit clear.
  *
  * Free-text branch data is recorded in capitals, matching how the entry form
  * shows it and how v1 stored it. Email and phone numbers keep their case.
@@ -49,33 +50,23 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
     fullName: up("fullName") ?? "",
     phone: get("phone") ?? "",
     photoUrl: get("photoUrl") ?? "",
-    idDocumentFrontUrl: get("idDocumentFrontUrl") ?? "",
-    idDocumentBackUrl: get("idDocumentBackUrl") ?? "",
+    // Optional: an empty slot is simply not sent.
+    idDocumentFrontUrl: get("idDocumentFrontUrl"),
+    idDocumentBackUrl: get("idDocumentBackUrl"),
     assignedCollectorId: get("assignedCollectorId") ?? "",
     dateOfBirth: toIso(get("dateOfBirth")),
     gender: get("gender") as Gender | undefined,
     nationality: up("nationality"),
     maritalStatus: get("maritalStatus") as MaritalStatus | undefined,
-    mothersMaidenName: up("mothersMaidenName"),
     residentialAddress: up("residentialAddress"),
-    ghanaPostGps: up("ghanaPostGps"),
-    postalAddress: up("postalAddress"),
     altPhone: get("altPhone"),
-    email: get("email"),
     occupation: up("occupation"),
-    employerOrBusiness: up("employerOrBusiness"),
-    purposeOfAccount: up("purposeOfAccount"),
   };
 
   const idType = get("idType") as IdType | undefined;
   const idNumber = up("idNumber");
   if (idType && idNumber) {
-    input.identification = {
-      idType,
-      idNumber,
-      idExpiryDate: toIso(get("idExpiryDate")),
-      idPlaceOfIssue: up("idPlaceOfIssue"),
-    };
+    input.identification = { idType, idNumber };
   }
 
   const kinName = up("kinFullName");
@@ -91,20 +82,18 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
   return input;
 }
 
-/** The five the record cannot be without, whether it is being made or edited. */
+/**
+ * The three the record cannot be without, whether it is being made or edited.
+ * The ID scans are not among them: the profile saves without them, and it is
+ * the loan and hire-purchase screens that insist on them.
+ */
 function missingProfile(input: CreateCustomerInput): boolean {
-  return (
-    !input.fullName ||
-    !input.phone ||
-    !input.photoUrl ||
-    !input.idDocumentFrontUrl ||
-    !input.idDocumentBackUrl
-  );
+  return !input.fullName || !input.phone || !input.photoUrl;
 }
 
 /**
- * The six fields `POST /customers` insists on, in the order the form shows
- * them. The sixth is the collector: every customer joins somebody's round at
+ * The four fields `POST /customers` insists on, in the order the form shows
+ * them. The fourth is the collector: every customer joins somebody's round at
  * registration, and the API refuses the record without one.
  */
 export function missingRequired(input: CreateCustomerInput): boolean {
@@ -128,20 +117,16 @@ const SCALARS = [
   "gender",
   "nationality",
   "maritalStatus",
-  "mothersMaidenName",
   "residentialAddress",
-  "ghanaPostGps",
-  "postalAddress",
   "phone",
   "altPhone",
-  "email",
   "occupation",
-  "employerOrBusiness",
-  "purposeOfAccount",
   "photoUrl",
   "idDocumentFrontUrl",
   "idDocumentBackUrl",
 ] as const satisfies readonly (keyof CreateCustomerInput)[];
+
+const ID_DOCUMENT_KEYS = ["idDocumentFrontUrl", "idDocumentBackUrl"] as const;
 
 /** Dates come back with a time on them; compare the day, not the timestamp. */
 function sameDate(a?: string, b?: string): boolean {
@@ -171,14 +156,19 @@ export function diffCustomer(
     if (changed) patch[key] = value;
   }
 
+  // The ID scans are the one pair the form can take away as well as change:
+  // an emptied slot on a record that had one is sent as `null`, which the API
+  // reads as "clear it" — and refuses while a loan or agreement is open.
+  for (const key of ID_DOCUMENT_KEYS) {
+    if (next[key] === undefined && current[key]) patch[key] = null;
+  }
+
   if (next.identification) {
     const was = current.identification;
     const changed =
       !was ||
       was.idType !== next.identification.idType ||
-      was.idNumber !== next.identification.idNumber ||
-      was.idPlaceOfIssue !== next.identification.idPlaceOfIssue ||
-      !sameDate(next.identification.idExpiryDate, was.idExpiryDate);
+      was.idNumber !== next.identification.idNumber;
     // The API returns the whole block, so every field of it can be compared.
     // It is still sent whole: it has no partial update of its own.
     if (changed) patch.identification = next.identification;

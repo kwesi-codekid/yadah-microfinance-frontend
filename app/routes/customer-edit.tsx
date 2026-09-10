@@ -4,6 +4,7 @@ import { data, Link, useActionData } from "react-router";
 import { throwAsRouteError } from "~/api/client";
 import { getCustomer, updateCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
+import { getEligibility as getHpEligibility } from "~/api/hire-purchase";
 import { CustomerForm } from "~/components/customer-form";
 import { BackLink, Page } from "~/components/page";
 import {
@@ -11,6 +12,7 @@ import {
   missingRequiredForEdit,
   parseCustomerForm,
 } from "~/lib/customer-form";
+import type { HpEligibility } from "~/lib/hire-purchase";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import type { Route } from "./+types/customer-edit";
@@ -24,12 +26,34 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   await requireOffice(request);
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
-      return await getCustomer(token, params.id);
+      const [{ customer }, credit] = await Promise.all([
+        getCustomer(token, params.id),
+        // Whether a loan or an agreement is open on this customer, so the form
+        // can say up front that the ID scans stay. The hire-purchase
+        // eligibility read is the one call that answers both. If it cannot be
+        // read the form simply does not lock — the API refuses the removal
+        // itself either way.
+        getHpEligibility(token, params.id).catch(() => null),
+      ]);
+      return { customer, credit };
     } catch (error) {
       throwAsRouteError(error);
     }
   });
-  return data({ customer: result.customer }, { headers });
+  return data(
+    { customer: result.customer, idDocumentHeldBy: heldBy(result.credit) },
+    { headers },
+  );
+}
+
+/** What holds the ID scans on the record, as the form's note ends — or null. */
+function heldBy(credit: HpEligibility | null): string | null {
+  const loan = credit?.openLoan === true;
+  const agreement = credit?.openHpAgreement === true;
+  if (loan && agreement) return "an open loan and a hire-purchase agreement";
+  if (loan) return "an open loan";
+  if (agreement) return "an open hire-purchase agreement";
+  return null;
 }
 
 /**
@@ -43,7 +67,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (missingRequiredForEdit(input)) {
     return data(
-      { error: "The full name, phone, photo and both sides of the ID document are required." },
+      { error: "The full name, phone and photo are required." },
       { status: 400 },
     );
   }
@@ -77,7 +101,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function CustomerEdit({ loaderData }: Route.ComponentProps) {
-  const { customer } = loaderData;
+  const { customer, idDocumentHeldBy } = loaderData;
   const actionData = useActionData<typeof action>();
   const inactive = customer.status === "inactive";
 
@@ -109,6 +133,7 @@ export default function CustomerEdit({ loaderData }: Route.ComponentProps) {
       <CustomerForm
         mode="edit"
         customer={customer}
+        idDocumentHeldBy={idDocumentHeldBy}
         error={actionData?.error}
         details={actionData && "details" in actionData ? actionData.details : undefined}
         cancelTo={`/customers/${customer.id}`}

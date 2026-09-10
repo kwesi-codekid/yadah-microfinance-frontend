@@ -183,9 +183,11 @@ export function updateConfig(
 
 /**
  * GET /hire-purchase/eligibility/{customerId} — whether an agreement can be
- * signed at all: an active susu or savings account, three months of saving
- * history, no active loan, and no agreement already open. Loans and hire
- * purchase block each other, which is the condition people forget.
+ * signed at all: both sides of the ID document on the profile, an active susu
+ * or savings account, three months of saving history, no active loan, and no
+ * agreement already open. Loans and hire purchase block each other, which is
+ * the condition people forget. The customer edit screen reads the same answer
+ * to know when the ID scans must stay on the record.
  */
 export function getEligibility(
   accessToken: string,

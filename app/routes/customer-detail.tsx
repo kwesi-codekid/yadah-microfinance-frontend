@@ -45,6 +45,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { isOffice } from "~/lib/auth";
 import {
   ID_TYPE_LABELS,
+  idDocumentState,
   type Customer,
   type CustomerStatus,
 } from "~/lib/customers";
@@ -203,6 +204,7 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
   const registered = `${relativeDayLabel(customer.createdAt)} · ${formatAccraDate(customer.createdAt)}`;
   const kin = customer.nextOfKin;
   const id = customer.identification;
+  const scans = idDocumentState(customer);
 
   return (
     <Page className="max-w-none">
@@ -238,16 +240,22 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
       )}
 
       <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
-        {/* Left rail: the two ID document scans. */}
-        <div className="space-y-4">
-          <DocScan label="ID document — front" url={customer.idDocumentFrontUrl} />
-          <DocScan label="ID document — back" url={customer.idDocumentBackUrl} />
+        {/* Left rail: the face on the record, beside the details it belongs to.
+            The ID scans sit at the foot of the record instead, as they do on
+            the form. */}
+        <div>
+          <Scan
+            label="Photo"
+            url={customer.photoUrl}
+            alt={customer.fullName}
+            frame="aspect-[4/5]"
+          />
         </div>
 
         {/* Right: the record. */}
         <div className="space-y-6">
           <Section title="Identity">
-            <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))_auto]">
+            <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
               <Fld label="Full name" value={customer.fullName} />
               <Fld
                 label="Date of birth"
@@ -256,15 +264,11 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
                 }
               />
               <Fld label="Gender" value={customer.gender} capitalize />
-
-              {/* Photo occupies the fourth column across both rows. */}
-              <div className="sm:col-span-2 xl:col-span-1 xl:col-start-4 xl:row-start-1 xl:row-span-2">
-                <PhotoScan url={customer.photoUrl} name={customer.fullName} />
-              </div>
-
               <Fld label="Marital status" value={customer.maritalStatus} capitalize />
               <Fld label="Nationality" value={customer.nationality} />
-              <Fld label="Mother's maiden name" value={customer.mothersMaidenName} />
+              <Fld label="Occupation" value={customer.occupation} />
+              <Fld label="ID type" value={id?.idType ? ID_TYPE_LABELS[id.idType] : undefined} />
+              <Fld label="ID number" value={id?.idNumber} tabular />
             </div>
           </Section>
 
@@ -272,32 +276,25 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
             <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
               <Fld label="Phone" value={customer.phone} tabular />
               <Fld label="Alternate phone" value={customer.altPhone} tabular />
-              <Fld label="Email" value={customer.email} />
-              <Fld label="GhanaPost GPS" value={customer.ghanaPostGps} tabular />
-              <Fld label="Residential address" value={customer.residentialAddress} />
-              <Fld label="Postal address" value={customer.postalAddress} />
-            </div>
-          </Section>
-
-          <Section title="Identification">
-            <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Fld label="ID type" value={id?.idType ? ID_TYPE_LABELS[id.idType] : undefined} />
-              <Fld label="ID number" value={id?.idNumber} tabular />
               <Fld
-                label="Expiry date"
-                value={id?.idExpiryDate ? formatAccraDate(id.idExpiryDate) : undefined}
+                label="Residential address"
+                value={customer.residentialAddress}
+                className="sm:col-span-2 xl:col-span-2"
               />
-              {/* Write-only on the API: it accepts a place of issue on the way
-                  in and never returns one, so there is nothing to show. */}
-              <Fld label="Place of issue" value={undefined} />
             </div>
           </Section>
 
-          <Section title="Work">
+          <Section title="Assigned collector">
             <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Fld label="Occupation" value={customer.occupation} />
-              <Fld label="Employer or business" value={customer.employerOrBusiness} />
-              <Fld label="Purpose of account" value={customer.purposeOfAccount} />
+              <Fld
+                label="Collector"
+                value={collectorName ?? undefined}
+                fallback={
+                  customer.assignedCollectorId
+                    ? `Staff #${shortId(customer.assignedCollectorId)}`
+                    : "Nobody"
+                }
+              />
             </div>
           </Section>
 
@@ -310,21 +307,53 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
             </div>
           </Section>
 
+          {/* Both sides of one card, side by side, as the form captures them.
+              An incomplete ID costs the customer credit, so the gap is named
+              here rather than left to be noticed. */}
+          <Section title="ID document">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Scan
+                label="Front"
+                url={customer.idDocumentFrontUrl}
+                alt="ID document, front"
+                frame="h-36"
+              />
+              <Scan
+                label="Back"
+                url={customer.idDocumentBackUrl}
+                alt="ID document, back"
+                frame="h-36"
+              />
+            </div>
+            {scans !== "complete" && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                {scans === "partial"
+                  ? "One side of the ID is missing. "
+                  : "No ID document on file. "}
+                A loan or hire purchase cannot be opened until both sides are
+                here.
+                {canEdit && customer.status === "active" && (
+                  <>
+                    {" "}
+                    <Link
+                      to={`/customers/${customer.id}/edit`}
+                      className="font-medium text-foreground underline underline-offset-4"
+                    >
+                      Add it
+                    </Link>
+                    .
+                  </>
+                )}
+              </p>
+            )}
+          </Section>
+
           <Section title="Record">
             <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
               <Fld
                 label="Registered by"
                 value={registeredBy ?? undefined}
                 fallback={`Staff #${shortId(customer.registeredById)}`}
-              />
-              <Fld
-                label="Collector"
-                value={collectorName ?? undefined}
-                fallback={
-                  customer.assignedCollectorId
-                    ? `Staff #${shortId(customer.assignedCollectorId)}`
-                    : "Nobody"
-                }
               />
             </div>
           </Section>
@@ -523,10 +552,10 @@ function HeaderActions({
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <h3 className="mb-3 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+      <h3 className="mb-1.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
         {title}
       </h3>
-      <div className="border-t border-border pt-4">{children}</div>
+      <div className="border-t border-border/60 pt-3">{children}</div>
     </section>
   );
 }
@@ -538,6 +567,7 @@ function Fld({
   fallback,
   tabular,
   capitalize,
+  className,
 }: {
   label: string;
   value?: string | null;
@@ -545,9 +575,10 @@ function Fld({
   fallback?: string;
   tabular?: boolean;
   capitalize?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="min-w-0 space-y-1.5">
+    <div className={cn("min-w-0 space-y-1.5", className)}>
       <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {label}
       </p>
@@ -565,8 +596,19 @@ function Fld({
   );
 }
 
-/** One ID scan, in the slot the form's dropzone occupies. */
-function DocScan({ label, url }: { label: string; url?: string }) {
+/** One picture from the record, in the slot the form's dropzone occupies. */
+function Scan({
+  label,
+  url,
+  alt,
+  frame,
+}: {
+  label: string;
+  url?: string;
+  alt: string;
+  /** Matches the form's frame, so reading and editing show the same crop. */
+  frame: string;
+}) {
   return (
     <div>
       <p className="mb-2 text-sm font-medium">{label}</p>
@@ -575,42 +617,21 @@ function DocScan({ label, url }: { label: string; url?: string }) {
           href={url}
           target="_blank"
           rel="noreferrer"
-          className="group relative block overflow-hidden rounded-lg border border-border focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className={cn(
+            "group relative block overflow-hidden rounded-lg border border-border focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+            frame,
+          )}
         >
-          <img src={url} alt={label} className="h-40 w-full object-cover" />
+          <img src={url} alt={alt} className="size-full object-cover" />
           <span className="absolute inset-0 flex items-center justify-center gap-1.5 bg-foreground/50 text-xs font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
             <ExternalLinkIcon className="size-3.5" />
             Open full size
           </span>
         </a>
       ) : (
-        <Missing className="h-40" />
-      )}
-    </div>
-  );
-}
-
-/** The customer photo, in the slot the form's photo uploader occupies. */
-function PhotoScan({ url, name }: { url?: string; name: string }) {
-  return (
-    <div className="flex h-full w-full flex-col space-y-1.5 sm:w-44">
-      <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Photo
-      </p>
-      {url ? (
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="group relative block min-h-32 w-full flex-1 overflow-hidden rounded-lg border border-border focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <img src={url} alt={name} className="size-full object-cover" />
-          <span className="absolute inset-0 flex items-center justify-center bg-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
-            <ExternalLinkIcon className="size-4 text-white" />
-          </span>
-        </a>
-      ) : (
-        <Missing className="min-h-32 flex-1" />
+        // A blank keeps a fixed height rather than the frame's aspect, so an
+        // empty slot never takes more room than the picture it waits for.
+        <Missing className="h-36" />
       )}
     </div>
   );
