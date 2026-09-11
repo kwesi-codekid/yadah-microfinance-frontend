@@ -5,6 +5,7 @@ import { getCustomer, reassignCustomerCollector } from "~/api/customers";
 import { ApiError } from "~/api/error";
 import { listUsers } from "~/api/users";
 import { ReassignCollectorSheet } from "~/components/reassign-collector-sheet";
+import { NO_COLLECTOR } from "~/lib/customer-form";
 import { requireAdmin, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import type { Route } from "./+types/customer-collector";
@@ -52,7 +53,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 export async function action({ request, params }: Route.ActionArgs) {
   await requireAdmin(request);
   const form = await request.formData();
-  const collectorId = String(form.get("collectorId") ?? "").trim();
+  // The select posts a sentinel for "nobody": the API takes null to mean the
+  // customer is on no round and pays at the counter.
+  const picked = String(form.get("collectorId") ?? "").trim();
+  const collectorId = picked === NO_COLLECTOR ? null : picked;
   const reason = String(form.get("reason") ?? "").trim();
 
   // Where the drawer opened from, and the filters that were on the page
@@ -74,7 +78,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       ? `/customers${search.startsWith("?") ? search : ""}`
       : `/customers/${params.id}`;
 
-  if (!collectorId) {
+  if (collectorId === "") {
     return data({ error: "Pick who takes them on." }, { status: 400 });
   }
 
@@ -90,8 +94,12 @@ export async function action({ request, params }: Route.ActionArgs) {
       backTo,
       {
         tone: "success",
-        message: `${result.customer.fullName} moved to another round.`,
-        description: "The change is recorded against the customer.",
+        message: collectorId
+          ? `${result.customer.fullName} moved to another round.`
+          : `${result.customer.fullName} now pays at the office.`,
+        description: collectorId
+          ? "The change is recorded against the customer."
+          : "They are on nobody's round. The change is recorded against them.",
       },
       headers,
     );
