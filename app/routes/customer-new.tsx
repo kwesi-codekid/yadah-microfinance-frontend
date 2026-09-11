@@ -1,8 +1,8 @@
 import { data, useActionData } from "react-router";
 
+import { listCollectors } from "~/api/collectors";
 import { createCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
-import { listUsers } from "~/api/users";
 import { CustomerForm } from "~/components/customer-form";
 import { Page } from "~/components/page";
 import { missingRequired, parseCustomerForm } from "~/lib/customer-form";
@@ -15,22 +15,24 @@ export function meta(_: Route.MetaArgs) {
 }
 
 /**
-  * Registration is office-only — enforced here, not just by hiding the button.
-  *
-  * The collectors come with it because the API now insists a new customer joins
-  * somebody's round: without a list to choose from the form cannot be completed
-  * at all, so it is loaded up front rather than fetched when the field is
-  * reached. Active only — a disabled collector has no round to join.
-  */
+ * Registration is counter work — enforced here, not just by hiding the button.
+ *
+ * The collectors come with it because the API insists a new customer joins
+ * somebody's round: without a list to choose from the form cannot be completed
+ * at all, so it is loaded up front rather than fetched when the field is
+ * reached. Active only — a disabled collector has no round to join.
+ *
+ * Read from the roster rather than the staff directory. `GET /users` is
+ * office-only, so asking it here meant a teller passed the guard above and
+ * then hit a 403 they could not act on — the screen died on a question it
+ * should never have asked.
+ */
 export async function loader({ request }: Route.LoaderArgs) {
   await requireCounter(request);
   const { data: result, headers } = await withAuth(request, (token) =>
-    listUsers(token, { role: "collector", status: "active", limit: 100 }),
+    listCollectors(token),
   );
-  return data(
-    { collectors: result.items.map(({ id, name }) => ({ id, name })) },
-    { headers },
-  );
+  return data({ collectors: result.collectors }, { headers });
 }
 
 export async function action({ request }: Route.ActionArgs) {
