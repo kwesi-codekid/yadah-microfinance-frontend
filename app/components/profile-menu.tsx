@@ -1,7 +1,8 @@
-import { KeyRoundIcon, LogOutIcon } from "lucide-react";
+import { DownloadIcon, KeyRoundIcon, LogOutIcon } from "lucide-react";
 import { useState } from "react";
 import { Form, Link } from "react-router";
 
+import { InstallInstructions, useInstallApp } from "~/components/install-app";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +35,8 @@ export function ProfileMenu({
   compact?: boolean;
 }) {
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [showingInstall, setShowingInstall] = useState(false);
+  const install = useInstallApp();
 
   return (
     <DropdownMenu>
@@ -79,6 +82,24 @@ export function ProfileMenu({
           </Link>
         </DropdownMenuItem>
 
+        {install.offered && (
+          <DropdownMenuItem
+            onSelect={(event) => {
+              // Directions need the dialog to outlive the menu; the prompt is
+              // the browser's own window, so that one can let the menu close.
+              if (install.manual) {
+                event.preventDefault();
+                setShowingInstall(true);
+                return;
+              }
+              void install.install();
+            }}
+          >
+            <DownloadIcon />
+            Install app
+          </DropdownMenuItem>
+        )}
+
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
@@ -93,6 +114,8 @@ export function ProfileMenu({
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
+
+      <InstallInstructions open={showingInstall} onOpenChange={setShowingInstall} />
 
       <AlertDialog
         open={confirmingSignOut}
