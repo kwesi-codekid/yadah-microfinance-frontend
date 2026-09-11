@@ -51,6 +51,17 @@ export interface Tally {
   amount: number;
 }
 
+export const RECORDED_BY_KINDS = ["staff", "customer", "system", "unknown"] as const;
+export type RecordedByKind = (typeof RECORDED_BY_KINDS)[number];
+
+/** How each kind is named on screen, where the name alone is not enough. */
+export const RECORDED_BY_LABELS: Record<RecordedByKind, string> = {
+  staff: "Staff",
+  customer: "Customer",
+  system: "Automated",
+  unknown: "Not recorded",
+};
+
 export interface UnifiedTransaction {
   id: string;
   module: TxnModule;
@@ -58,7 +69,12 @@ export interface UnifiedTransaction {
   direction: Direction;
   /** Pesewas. */
   amount: number;
-  /** Pesewas — a savings withdrawal or transfer fee. */
+  /**
+   * Pesewas — the charge taken on this row: a savings withdrawal or closure
+   * fee, or the one-day commission charged when a susu account was stopped.
+   * A staged susu payout carries it on the instalment that stopped the
+   * account and zero on every later one, so it is never counted twice.
+   */
   fee: number;
   /**
    * Every ledger row is `completed` — the modules only write once money has
@@ -87,8 +103,14 @@ export interface UnifiedTransaction {
   /** Savings rows only: the running balance after this row. */
   balanceAfter?: number;
   recordedById: string | null;
-  /** `System` for the automated debt-recovery moves. */
+  /** `System` for automated moves; null when the record named nobody. */
   recordedByName: string | null;
+  /**
+   * Which directory `recordedById` belongs to, and so how to read the name:
+   * a member of staff, the customer themselves paying through the portal, an
+   * automated move, or a record that never named an actor at all.
+   */
+  recordedByKind: RecordedByKind;
   createdAt: string;
 }
 
@@ -97,7 +119,7 @@ export interface TransactionTotals {
   out: Tally;
   /** Transfer legs. Shown, never summed into cash. */
   internal: Tally;
-  /** Savings withdrawal and closure fees inside the range. */
+  /** Charges kept inside the range: savings fees plus susu closing commissions. */
   feesCollected: number;
 }
 

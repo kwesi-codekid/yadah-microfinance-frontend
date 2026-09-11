@@ -53,7 +53,7 @@ import {
   formatCount,
   formatDayRange,
 } from "~/lib/format";
-import { receiptPathFor } from "~/lib/reports";
+import { RECORDED_BY_LABELS, receiptPathFor } from "~/lib/reports";
 import { requireCounter, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/customer-statement";
@@ -115,6 +115,7 @@ function haystack(tx: UnifiedTransaction): string {
     channelLabel(tx.channel),
     tx.ref.accountNumber,
     tx.recordedByName,
+    tx.recordedByKind,
   ]
     .filter(Boolean)
     .join(" ")
@@ -213,8 +214,15 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
       key: "by",
       header: "Recorded by",
       className: "hidden text-muted-foreground lg:table-cell",
-      // 'System' on the automated debt-recovery moves, per the API.
-      cell: (tx) => tx.recordedByName ?? "—",
+      // A staff row is named; the rest are described. On a customer's own
+      // statement, "You" is the honest word for a payment they made
+      // themselves through the portal.
+      cell: (tx) =>
+        tx.recordedByKind === "staff"
+          ? (tx.recordedByName ?? "Staff")
+          : tx.recordedByKind === "customer"
+            ? "You"
+            : RECORDED_BY_LABELS[tx.recordedByKind],
     },
     {
       key: "amount",

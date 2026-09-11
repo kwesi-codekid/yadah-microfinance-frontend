@@ -1,4 +1,4 @@
-import { BanknoteArrowDownIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { ArrowRightIcon, BanknoteArrowDownIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { data, Form, useActionData, useNavigation } from "react-router";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ import { redirectWithToast } from "~/lib/toast.server";
 import {
   CHANNEL_OPTIONS,
   CYCLE_TARGET,
+  carryNotice,
   checkDepositAmount,
   daysCovered,
   type DepositChannel,
@@ -78,13 +79,23 @@ export async function action({ request, params }: Route.ActionArgs) {
       );
     }
     const days = result.deposit.daysCovered;
+    const [opened] = result.openedAccounts;
+    // A payment that ran past the end of the cycle finished this one and
+    // started the next. The collector is standing in front of the customer,
+    // so the new account number is the thing they need to read out.
     await redirectWithToast(
       `/susu/${params.id}`,
-      {
-        tone: "success",
-        message: `GH₵ ${formatAmount(amount)} received.`,
-        description: `${days} day${days === 1 ? "" : "s"} · ${result.account.depositsCount} of ${result.account.cycleTarget} in the cycle.`,
-      },
+      opened
+        ? {
+            tone: "success",
+            message: `GH₵ ${formatAmount(result.totalAmount)} received — cycle complete.`,
+            description: `${days} day${days === 1 ? "" : "s"} finished this cycle; the balance opened ${opened.accountNumber}.`,
+          }
+        : {
+            tone: "success",
+            message: `GH₵ ${formatAmount(amount)} received.`,
+            description: `${days} day${days === 1 ? "" : "s"} · ${result.account.depositsCount} of ${result.account.cycleTarget} in the cycle.`,
+          },
       headers,
     );
   } catch (error) {
@@ -115,6 +126,10 @@ export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
   const pesewas = parseCedis(amount);
   const issue = pesewas == null ? null : checkDepositAmount(account, pesewas);
   const days = pesewas != null && !issue ? daysCovered(account, pesewas) : 0;
+  // Money that runs past the end of the cycle is no longer refused — it
+  // finishes this one and starts the next. Said before the collector takes
+  // the cash, not after.
+  const carry = pesewas != null && !issue ? carryNotice(account, pesewas) : null;
   const target = account.cycleTarget || CYCLE_TARGET;
   const left = target - account.depositsCount;
 
@@ -175,12 +190,20 @@ export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
                   ? `Covers ${days} day${days === 1 ? "" : "s"}.`
                   : "A whole number of days.")}
             </p>
+            {carry && (
+              <p className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-xs text-info-foreground">
+                <ArrowRightIcon className="mt-0.5 size-3.5 shrink-0" />
+                <span>{carry}</span>
+              </p>
+            )}
           </div>
 
           {/* Catching up costs more than one day, so the quick buttons say how
-              many days each is rather than making anyone do the multiplication. */}
+              many days each is rather than making anyone do the multiplication.
+              Capped at what is left: a deliberate overflow is typed, not
+              tapped by accident. */}
           <div className="flex flex-wrap gap-2">
-            {[1, 2, 3, 7].filter((n) => n <= left).map((n) => (
+            {[1, 2, 3, 7, left].filter((n, i, all) => n <= left && all.indexOf(n) === i && n > 0).map((n) => (
               <Button
                 key={n}
                 type="button"

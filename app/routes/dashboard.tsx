@@ -519,6 +519,7 @@ function searchText(tx: UnifiedTransaction): string {
     tx.status,
     tx.detail ?? "",
     tx.recordedByName ?? "",
+    tx.recordedByKind,
   ]
     .join(" ")
     .toLowerCase();
@@ -528,7 +529,7 @@ function searchText(tx: UnifiedTransaction): string {
 function exportCsv(rows: UnifiedTransaction[]) {
   const cell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
   const lines = [
-    "Reference,Recorded,Customer,Account,Type,Direction,Amount (GHS),Fee (GHS),Status,Recorded by",
+    "Reference,Recorded,Customer,Account,Type,Direction,Amount (GHS),Fee (GHS),Status,Recorded by,Recorded by type",
     ...rows.map((tx) =>
       [
         tx.id,
@@ -541,6 +542,8 @@ function exportCsv(rows: UnifiedTransaction[]) {
         (tx.fee / 100).toFixed(2),
         tx.status,
         tx.recordedByName ?? "",
+        // Appended, never inserted: the office reads these by column.
+        tx.recordedByKind,
       ]
         .map(cell)
         .join(","),

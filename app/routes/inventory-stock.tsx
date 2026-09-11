@@ -1,6 +1,6 @@
 import { Loader2Icon, MinusIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useState } from "react";
-import { data, Form, useActionData, useNavigation } from "react-router";
+import { data, Form, Link, useActionData, useNavigation } from "react-router";
 import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
@@ -20,9 +20,20 @@ import type { Route } from "./+types/inventory-stock";
 
 export function meta({ loaderData }: Route.MetaArgs) {
   return [
-    { title: `Adjust stock · ${loaderData?.item.name ?? "Item"} · Yadah Dynamic Enterprise` },
+    {
+      title: `Correct the count · ${loaderData?.item.name ?? "Item"} · Yadah Dynamic Enterprise`,
+    },
   ];
 }
+
+/**
+ * A plain count correction — the shelf says five and there are four.
+ *
+ * Deliveries and write-offs each have their own door now, and both record
+ * things this cannot: a delivery carries an invoice price, and a damage
+ * carries a cause, a photograph and somebody's approval. What is left here is
+ * the genuine miscount, which is real and has nowhere else to go.
+ */
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   await requireCounter(request);
@@ -72,8 +83,8 @@ export async function action({ request, params }: Route.ActionArgs) {
       tone: "success",
       message:
         delta > 0
-          ? `${formatCount(delta)} added to stock.`
-          : `${formatCount(Math.abs(delta))} removed from stock.`,
+          ? `Count corrected up by ${formatCount(delta)}.`
+          : `Count corrected down by ${formatCount(Math.abs(delta))}.`,
       description: reason,
     },
     headers,
@@ -102,7 +113,7 @@ export default function InventoryStock({ loaderData }: Route.ComponentProps) {
   return (
     <RouteSheet
       backTo="/inventory"
-      title="Adjust stock"
+      title="Correct the count"
       description={item.name}
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
@@ -200,9 +211,28 @@ export default function InventoryStock({ loaderData }: Route.ComponentProps) {
               autoFocus
               maxLength={300}
               placeholder={
-                direction > 0 ? "Delivery from supplier." : "Damaged in storage."
+                direction > 0
+                  ? "Two were found behind the counter at stock-take."
+                  : "Counted five on the shelf, the system said six."
               }
             />
+            {/* Steering, not blocking: a miscount is real, but most reasons
+                somebody reaches for this belong somewhere that records more. */}
+            <p className="text-xs text-muted-foreground">
+              A delivery goes through{" "}
+              <Link
+                to={`/inventory/${item.id}/receive`}
+                className="underline underline-offset-4"
+              >
+                Receive stock
+              </Link>{" "}
+              so the invoice price is kept. Something broken or missing goes
+              through{" "}
+              <Link to="/inventory/damages/new" className="underline underline-offset-4">
+                Report damage
+              </Link>{" "}
+              so the loss is booked.
+            </p>
           </div>
         </div>
 
@@ -210,7 +240,7 @@ export default function InventoryStock({ loaderData }: Route.ComponentProps) {
           <SheetCancel />
           <Button type="submit" disabled={submitting || !valid || underflow}>
             {submitting && <Loader2Icon className="animate-spin" />}
-            {direction > 0 ? "Add to stock" : "Remove from stock"}
+            {direction > 0 ? "Correct up" : "Correct down"}
           </Button>
         </SheetActions>
       </Form>

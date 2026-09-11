@@ -5,7 +5,7 @@ import { getCollections } from "~/api/reports";
 import { listUsers } from "~/api/users";
 import {
   DayRangeChip,
-  DayRangeFilter,
+  PeriodFilter,
   ExportMenu,
   Figure,
   FilterBar,
@@ -30,6 +30,12 @@ import {
 } from "~/components/ui/table";
 import { formatCount, formatPesewas } from "~/lib/format";
 import { amountOf } from "~/lib/reports";
+import {
+  PERIOD_PRESETS,
+  rangeQuery,
+  readDay,
+  resolveReportRange,
+} from "~/lib/period";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/report-collections";
 
@@ -62,12 +68,11 @@ export async function loader({ request }: Route.LoaderArgs) {
   await requireOffice(request);
   const url = new URL(request.url);
 
-  const day = (key: string) => {
-    const v = url.searchParams.get(key) ?? "";
-    return DAY_RE.test(v) ? v : "";
-  };
-  const from = day("from");
-  const to = day("to");
+  const from = readDay(url.searchParams, "from");
+  const to = readDay(url.searchParams, "to");
+  // A report with no dates is not showing everything — the API answers with
+  // the last thirty days — so the period is resolved here and printed.
+  const period = resolveReportRange(from, to);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     const [report, staff] = await Promise.all([
@@ -129,15 +134,15 @@ export async function loader({ request }: Route.LoaderArgs) {
       totals,
       // What the API settled on, which is what the chip echoes — nobody should
       // have to guess what "no filter" covered.
-      range: { from: result.report.from ?? from, to: result.report.to ?? to },
-      filters: { from, to },
+      range: { from: result.report.from ?? period.from, to: result.report.to ?? period.to },
+      period,
     },
     { headers },
   );
 }
 
 export default function ReportCollections({ loaderData }: Route.ComponentProps) {
-  const { rows, totals, range, filters } = loaderData;
+  const { rows, totals, range, period } = loaderData;
   const submit = useSubmit();
   const navigation = useNavigation();
   const busy = navigation.state === "loading";
@@ -149,9 +154,10 @@ export default function ReportCollections({ loaderData }: Route.ComponentProps) 
     submit(params, { method: "get", action: "/reports/collections" });
   };
 
-  const query = new URLSearchParams();
-  if (filters.from) query.set("from", filters.from);
-  if (filters.to) query.set("to", filters.to);
+  // The RESOLVED period, not the chosen one: a download with no dates would
+  // be re-defaulted by the API, and a file that quietly covers a different
+  // period from the screen it came off is worse than no file.
+  const query = new URLSearchParams(rangeQuery(period.from, period.to));
 
   return (
     <Page className="max-w-none">
@@ -185,11 +191,13 @@ export default function ReportCollections({ loaderData }: Route.ComponentProps) 
 
       <ListingCard>
         <ListingToolbar>
-          <DayRangeFilter
-            from={filters.from}
-            to={filters.to}
+          <PeriodFilter
+            from={period.from}
+            to={period.to}
+            active={period.active}
             apply={apply}
             title="Collected"
+            presets={PERIOD_PRESETS}
           />
           <ExportMenu
             path="/reports/collections/export"
