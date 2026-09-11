@@ -101,11 +101,11 @@ export interface CreateCustomerInput {
   idDocumentFrontUrl?: string;
   idDocumentBackUrl?: string;
   /**
-   * Required. Every customer joins somebody's round at registration — the API
-   * refuses the record without it, because an unassigned customer is one nobody
-   * is due to visit.
+   * Whose round this customer joins, if anyone's. Optional: a customer who
+   * brings their deposits to the counter is collected from by nobody, and the
+   * API reads a missing collector as exactly that.
    */
-  assignedCollectorId: string;
+  assignedCollectorId?: string;
   dateOfBirth?: string;
   gender?: Gender;
   nationality?: string;

@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { Textarea } from "~/components/ui/textarea";
+import { NO_COLLECTOR } from "~/lib/customer-form";
 
 /** A collector a customer can be moved to: an id and a name, nothing more. */
 export interface CollectorOption {
@@ -61,14 +62,18 @@ export function ReassignCollectorSheet({
   const submitting = fetcher.state !== "idle";
   const error = fetcher.data?.error;
 
-  const [collectorId, setCollectorId] = useState(assignedCollectorId);
+  // The sentinel stands for "on nobody's round" — Radix cannot carry an empty
+  // value, and the action turns it back into null.
+  const [collectorId, setCollectorId] = useState(
+    assignedCollectorId || NO_COLLECTOR,
+  );
 
   useEffect(() => {
     if (error) toast.error(error);
   }, [error]);
 
   const current = collectors.find((c) => c.id === assignedCollectorId);
-  const unchanged = collectorId === assignedCollectorId;
+  const unchanged = collectorId === (assignedCollectorId || NO_COLLECTOR);
 
   // Which page is behind the panel, read off the browser's own URL. Closing
   // and saving both have to land on the one they were reading — the listing
@@ -114,39 +119,45 @@ export function ReassignCollectorSheet({
             </p>
           </div>
 
-          {collectors.length === 0 ? (
-            <p className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
-              There are no active collectors to move them to. Add one under Staff
-              first.
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                Move to<span className="ml-0.5 text-destructive">*</span>
-              </Label>
-              <Select
-                name="collectorId"
-                value={collectorId}
-                onValueChange={setCollectorId}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Pick a collector" />
-                </SelectTrigger>
-                <SelectContent>
-                  {collectors.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {unchanged && assignedCollectorId && (
-                <p className="text-xs text-muted-foreground">
-                  That is already their round.
-                </p>
-              )}
-            </div>
-          )}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Move to<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Select
+              name="collectorId"
+              value={collectorId}
+              onValueChange={setCollectorId}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Pick a collector" />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Taking somebody off every round is a move like any other:
+                    they stop being visited and pay at the counter instead. */}
+                <SelectItem value={NO_COLLECTOR}>
+                  No collector — pays at the office
+                </SelectItem>
+                {collectors.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {unchanged && (
+              <p className="text-xs text-muted-foreground">
+                {assignedCollectorId
+                  ? "That is already their round."
+                  : "They already pay at the office."}
+              </p>
+            )}
+            {collectors.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                There are no active collectors. Add one under Staff to put this
+                customer on a round.
+              </p>
+            )}
+          </div>
 
           <div className="space-y-1.5">
             <Label
@@ -173,7 +184,7 @@ export function ReassignCollectorSheet({
           <SheetCancel />
           <Button
             type="submit"
-            disabled={submitting || !collectorId || unchanged || collectors.length === 0}
+            disabled={submitting || !collectorId || unchanged}
           >
             {submitting ? <Loader2Icon className="animate-spin" /> : <UserRoundCogIcon />}
             Reassign

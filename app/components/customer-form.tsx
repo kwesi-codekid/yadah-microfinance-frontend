@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { Textarea } from "~/components/ui/textarea";
-import { toDay } from "~/lib/customer-form";
+import { NO_COLLECTOR, toDay } from "~/lib/customer-form";
 import {
   GENDER_OPTIONS,
   ID_NUMBER_RULES,
@@ -91,10 +91,13 @@ export function CustomerForm({
   const idIssue =
     idType && idNumber.trim() ? checkIdNumber(idType, idNumber) : null;
 
-  const collectorOptions = collectors.map((c) => ({
-    value: c.id,
-    label: c.name,
-  }));
+  // "No collector" first, because it is a real answer rather than an absence:
+  // plenty of customers bring their deposits to the counter and are collected
+  // from by nobody. The sentinel is turned back into "no round" by the action.
+  const collectorOptions = [
+    { value: NO_COLLECTOR, label: "No collector — pays at the office" },
+    ...collectors.map((c) => ({ value: c.id, label: c.name })),
+  ];
 
   // A rejected submission is a toast carrying the API's issues, each named by
   // its field: "expected string" says nothing without the field it was about.
@@ -278,27 +281,17 @@ export function CustomerForm({
               profile ignores the field, so offering it on an edit would be a
               control that silently does nothing. */}
           {!editing && (
-            <Section title="Assigned collector">
+            <Section title="Collection">
               <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Fld
                   label="Collector"
-                  required
-                  hint={
-                    collectors.length > 0
-                      ? "Whose round this customer joins. Changing it later is an admin job and is recorded against the customer."
-                      : undefined
-                  }
+                  hint="Whose round this customer joins, if anyone's. Leave it as “No collector” for someone who brings their deposits to the counter. Changing it later is an admin job and is recorded against the customer."
                 >
-                  {collectors.length > 0 ? (
-                    <SelectField
-                      name="assignedCollectorId"
-                      options={collectorOptions}
-                    />
-                  ) : (
-                    <p className="pt-2 text-xs text-warning">
-                      No active collectors.
-                    </p>
-                  )}
+                  <SelectField
+                    name="assignedCollectorId"
+                    options={collectorOptions}
+                    defaultValue={NO_COLLECTOR}
+                  />
                 </Fld>
               </div>
             </Section>

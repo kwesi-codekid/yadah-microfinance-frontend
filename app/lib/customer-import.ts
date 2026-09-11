@@ -65,7 +65,8 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
   { field: "fullName", header: "Full name", required: true, input: "text", width: "w-52" },
   { field: "phone", header: "Phone", required: true, input: "phone", width: "w-36" },
   /** Drawn by the page: a picker over the collectors the API offered. */
-  { field: "collector", header: "Collector", required: true, input: "custom", width: "w-44" },
+  // Not required: a blank collector is a customer who pays at the counter.
+  { field: "collector", header: "Collector", input: "custom", width: "w-44" },
   { field: "dateOfBirth", header: "Date of birth", input: "date", width: "w-36" },
   {
     field: "gender",
@@ -182,7 +183,11 @@ function ownIssues(values: Record<ImportField, string>, hasCollector: boolean): 
   const add = (field: ImportField | null, message: string) => issues.push({ field, message });
 
   if (values.fullName.trim().length < 2) add("fullName", "A name is required");
-  if (!hasCollector) add("collector", "Choose the collector whose round this customer joins");
+  // A name that matched nobody is a fault; leaving it blank is not. The second
+  // is a customer who brings their deposits to the office.
+  if (!hasCollector && values.collector.trim() !== "") {
+    add("collector", `No active collector called “${values.collector.trim()}”`);
+  }
 
   const phone = normalizePhone(values.phone);
   if (phone === "") add("phone", "A phone number is required");

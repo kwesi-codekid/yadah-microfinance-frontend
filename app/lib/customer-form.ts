@@ -39,6 +39,13 @@ export function toDay(iso?: string): string | undefined {
  * Free-text branch data is recorded in capitals, matching how the entry form
  * shows it and how v1 stored it. Email and phone numbers keep their case.
  */
+/**
+ * What the collector select posts when the customer is collected from by
+ * nobody. Radix cannot carry an empty value, so "no round" needs a word of its
+ * own, and the parser turns it back into nothing.
+ */
+export const NO_COLLECTOR = "__none__";
+
 export function parseCustomerForm(form: FormData): CreateCustomerInput {
   const get = (k: string) => {
     const v = form.get(k);
@@ -53,7 +60,9 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
     // Optional: an empty slot is simply not sent.
     idDocumentFrontUrl: get("idDocumentFrontUrl"),
     idDocumentBackUrl: get("idDocumentBackUrl"),
-    assignedCollectorId: get("assignedCollectorId") ?? "",
+    // Left off entirely for an office-paying customer — the API reads a missing
+    // collector as "on nobody's round", which is exactly what it means.
+    assignedCollectorId: collectorIdFrom(form.get("assignedCollectorId")),
     dateOfBirth: toIso(get("dateOfBirth")),
     gender: get("gender") as Gender | undefined,
     nationality: up("nationality"),
@@ -91,13 +100,24 @@ function missingProfile(input: CreateCustomerInput): boolean {
   return !input.fullName || !input.phone || !input.photoUrl;
 }
 
+/** The collector the form chose, or undefined for a customer on no round. */
+export function collectorIdFrom(
+  value: FormDataEntryValue | null,
+): string | undefined {
+  const v = typeof value === "string" ? value.trim() : "";
+  return v && v !== NO_COLLECTOR ? v : undefined;
+}
+
 /**
- * The four fields `POST /customers` insists on, in the order the form shows
- * them. The fourth is the collector: every customer joins somebody's round at
- * registration, and the API refuses the record without one.
+ * The three fields `POST /customers` insists on, in the order the form shows
+ * them.
+ *
+ * The collector is NOT among them. Plenty of customers bring their deposits to
+ * the counter rather than being collected from, and those belong to no round —
+ * so an empty collector is an answer, not an omission.
  */
 export function missingRequired(input: CreateCustomerInput): boolean {
-  return missingProfile(input) || !input.assignedCollectorId;
+  return missingProfile(input);
 }
 
 /**
