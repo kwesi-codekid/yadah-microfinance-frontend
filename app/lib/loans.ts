@@ -65,6 +65,8 @@ export interface Loan {
   /** Stamped at settlement. This is what unlocks the big tier. */
   repaidOnTime?: boolean;
   rejectionReason?: string;
+  /** A picture of the customer's signature on the application. */
+  signatureUrl?: string;
 }
 
 /** A loan in the trash. `deletedAt` is what separates it from a live one. */

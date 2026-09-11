@@ -144,7 +144,6 @@ export default function AccountingExpenseNew() {
     <RouteSheet
       backTo="/accounting/expenses"
       title="Record an expense"
-      description="Recording moves no money. Someone else approves it; paying is the step that names an account."
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
@@ -259,9 +258,6 @@ export default function AccountingExpenseNew() {
               autoComplete="off"
               placeholder="https://"
             />
-            <p className="text-xs text-muted-foreground">
-              Where a scan of the receipt lives, if there is one.
-            </p>
           </div>
 
           {/* A bad-debt write-off names what it is writing off, so the cost can
@@ -304,10 +300,6 @@ export default function AccountingExpenseNew() {
                   />
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Optional. Leave the kind blank for a recovery cost that belongs to
-                no single record.
-              </p>
             </div>
           )}
 

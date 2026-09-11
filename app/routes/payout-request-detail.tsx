@@ -204,9 +204,8 @@ export default function PayoutRequestDetail({ loaderData }: Route.ComponentProps
             The account is debited and the money did not arrive
           </h3>
           <p className="text-sm text-muted-foreground">
-            {row.failureReason || "Paystack could not complete the transfer."} The debit is
-            not reversed on its own. Ask Paystack again in case it went through after all;
-            if not, pay the customer in cash and note it against the account.
+            {row.failureReason || "Paystack could not complete the transfer."} The debit
+            stays: ask Paystack again, or pay the customer in cash.
           </p>
           {row.paystackStatus && (
             <p className="mt-2 text-xs text-muted-foreground">

@@ -529,10 +529,8 @@ function HeaderActions({
                   Move {customer.fullName} to the trash?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  They disappear from the listings and from lookups, and can be
-                  restored from Trash. Their phone number stays reserved. This
-                  is refused while they still hold an open susu account, savings
-                  account, loan or hire-purchase agreement.
+                  They leave the listings and can be restored from Trash.
+                  Refused while they hold an open account, loan or agreement.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <div className="space-y-1.5">
@@ -568,8 +566,8 @@ function HeaderActions({
                   Deactivate {customer.fullName}?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  They stay visible and their records are kept, but the profile
-                  and its accounts cannot be edited until reactivated.
+                  The profile and its accounts cannot be edited until
+                  reactivated.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

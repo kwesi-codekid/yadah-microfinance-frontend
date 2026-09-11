@@ -12,8 +12,12 @@ import { data, useSubmit } from "react-router";
 
 import { throwAsRouteError } from "~/api/client";
 import { getCustomerStatement } from "~/api/customers";
-import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
-import { ModuleDot, PeriodFilter } from "~/components/listing";
+import {
+  FilterMenu,
+  type MenuChoice,
+  ModuleDot,
+  PeriodFilter,
+} from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
 import { TransactionAdvice } from "~/components/transaction-advice";
 import { Button } from "~/components/ui/button";
@@ -123,7 +127,7 @@ function haystack(tx: UnifiedTransaction): string {
  * Susu, savings, loans, hire purchase and transfers share a row shape, so they
  * share a table — reading a statement means following the money in date order,
  * and splitting it per product hides the day a payout became a repayment. The
- * module rail narrows it when that is what you want. Both the rail and the
+ * module menu narrows it when that is what you want. Both the menu and the
  * search are local: the rows are already loaded, so neither should cost a
  * round trip.
  */
@@ -156,7 +160,7 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
     return acc;
   }, {});
 
-  const items: RailItem[] = [
+  const items: MenuChoice[] = [
     {
       key: "all",
       label: "All entries",
@@ -255,16 +259,6 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
   }
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter entries by module"
-          sections={[{ label: "Module", items }]}
-          active={module}
-          horizontal={horizontal}
-        />
-      )}
-    >
     <Page className="max-w-none">
       {/* Back on the left, who this statement is for on the right. The period
           is not repeated here — the filter in the toolbar already states it. */}
@@ -281,6 +275,7 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
       </header>
 
       <DataTable
+        filters={<FilterMenu label="Module" items={items} active={module} />}
         actions={
           <>
             <PeriodFilter
@@ -292,8 +287,8 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
             <ExportMenu id={id} period={period} rows={transactions.length} />
           </>
         }
-        // No strip is drawn for this — the rail beside the page owns the choice.
-        // It is still passed because the table is paged locally and resets to
+        // No tab strip is drawn for this — the menu above owns the choice. It
+        // is still passed because the table is paged locally and resets to
         // page one when it changes.
         activeTab={module}
         search={search}
@@ -404,7 +399,6 @@ export default function CustomerStatementRoute({ loaderData }: Route.ComponentPr
         </DialogContent>
       </Dialog>
     </Page>
-    </RailFrame>
   );
 }
 

@@ -87,7 +87,6 @@ export default function PortalTransactions({ loaderData }: Route.ComponentProps)
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold tracking-tight">Transactions</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Every movement on your accounts, latest first.</p>
         </div>
         <DayRangeFilter from={from} to={to} apply={apply} title="Day" />
       </header>

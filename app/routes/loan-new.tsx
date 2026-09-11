@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { ApiError } from "~/api/error";
 import { apply as applyForLoan, getConfig } from "~/api/loans";
 import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
+import { IDLE, ScanDrop, type Slot } from "~/components/scan-drop";
 import { Figure } from "~/components/listing";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -59,9 +60,13 @@ export async function action({ request }: Route.ActionArgs) {
   const customerId = String(form.get("customerId") ?? "").trim();
   const durationMonths = Number(form.get("durationMonths") ?? 0);
   const principal = parseCedis(String(form.get("principal") ?? "").trim());
+  const signatureUrl = String(form.get("signatureUrl") ?? "").trim();
 
   if (!customerId) {
     return data({ error: "Choose the customer applying." }, { status: 400 });
+  }
+  if (!signatureUrl) {
+    return data({ error: "Take a picture of the customer's signature." }, { status: 400 });
   }
   if (principal == null || principal <= 0) {
     return data({ error: "Enter how much they are asking for." }, { status: 400 });
@@ -74,7 +79,7 @@ export async function action({ request }: Route.ActionArgs) {
   let headers: { "Set-Cookie": string } | undefined;
   try {
     ({ data: result, headers } = await withAuth(request, (token) =>
-      applyForLoan(token, { customerId, principal, durationMonths }),
+      applyForLoan(token, { customerId, principal, durationMonths, signatureUrl }),
     ));
   } catch (error) {
     if (error instanceof ApiError) {
@@ -107,6 +112,8 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
   const [customer, setCustomer] = useState<PickedCustomer | null>(null);
   const [principal, setPrincipal] = useState("");
   const [months, setMonths] = useState<LoanDuration>(6);
+  // Uploaded the moment it is taken; the form only carries the URL.
+  const [signature, setSignature] = useState<Slot>(IDLE);
 
   // Loaded the moment a customer is picked. The decision is a person's, so the
   // form's job is to put the history in front of them before they type a
@@ -149,7 +156,6 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
     <RouteSheet
       backTo="/loans"
       title="New loan application"
-      description="Recorded now, decided by a person afterwards."
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
@@ -270,23 +276,37 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
               <Figure
                 label="Monthly instalment"
                 value={formatPesewas(Math.floor((pesewas + interest) / months))}
-                hint="The remainder folds into the last one"
                 className="col-span-2"
               />
             </dl>
           )}
 
-          <p className="text-xs text-muted-foreground">
-            These figures use the rates in force today. The rate and the schedule
-            are locked from the config at the moment someone approves it.
-          </p>
+          {/* The customer signs the paper application; the picture of that
+              signature is what the record keeps. */}
+          <input type="hidden" name="signatureUrl" value={signature.url ?? ""} />
+          <ScanDrop
+            label="Customer's signature"
+            kind="signature"
+            slot={signature}
+            onChange={setSignature}
+            captureTitle="Photograph the signature"
+            frame="aspect-[5/2] w-full"
+            required
+          />
         </div>
 
         <SheetActions>
           <SheetCancel />
           <Button
             type="submit"
-            disabled={submitting || !customer || !principal || Boolean(fault) || blocked}
+            disabled={
+              submitting ||
+              !customer ||
+              !principal ||
+              Boolean(fault) ||
+              blocked ||
+              signature.status !== "done"
+            }
           >
             {submitting && <Loader2Icon className="animate-spin" />}
             Record application

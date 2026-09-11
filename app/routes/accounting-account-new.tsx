@@ -134,7 +134,6 @@ export default function AccountingAccountNew() {
     <RouteSheet
       backTo="/accounting"
       title="Open a company account"
-      description="One active account per channel. The opening balance is where the books start counting."
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">

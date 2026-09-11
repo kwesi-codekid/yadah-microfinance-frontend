@@ -135,13 +135,14 @@ export const NAV: NavItem[] = [
     blurb: "Every sale rung up, with its receipt.",
     roles: COUNTER,
   },
-  // Its own section: the shelf is stocked whether or not anything is signed for.
+  // Its own section: the shelf is stocked whether or not anything is signed
+  // for. The counter keeps it — whoever sells off it stocks it.
   {
     to: "/inventory",
     label: "Inventory",
     icon: WarehouseIcon,
     blurb: "Stock on the shelf and what is reserved.",
-    roles: OFFICE,
+    roles: COUNTER,
   },
   // No `roles`: this is the one place a collector and the office each hold
   // half. The collector declares their day, the office counts it, and the API

@@ -50,9 +50,6 @@ export default function PortalRequests({ loaderData }: Route.ComponentProps) {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="font-heading text-2xl font-bold tracking-tight">Withdrawals</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            You ask, the office approves, and the money is sent to your mobile-money wallet.
-          </p>
         </div>
         <Button asChild>
           <Link to="/portal/requests/new" prefetch="intent">

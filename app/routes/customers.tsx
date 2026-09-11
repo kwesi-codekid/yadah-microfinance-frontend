@@ -41,7 +41,6 @@ import {
 } from "~/api/customers";
 import { ApiError } from "~/api/error";
 import { listUsers } from "~/api/users";
-import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -87,6 +86,7 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
+import { FilterMenu } from "~/components/listing";
 import { initialsOf, isCounter, isOffice } from "~/lib/auth";
 import {
   ID_TYPE_LABELS,
@@ -399,131 +399,120 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
   const filtered = Boolean(filters.search || filters.from || filters.to);
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter customers by status"
-          sections={[
-            {
-              label: "Status",
-              items: TABS.map((tab) => ({
-                key: tab.key,
-                label: tab.label,
-                count: counts[tab.key],
-                to: hrefFor({ ...filters, status: tab.key }),
-              })),
-            },
-          ]}
-          active={filters.status}
-          horizontal={horizontal}
-        />
-      )}
-    >
-      <Page className="max-w-none">
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-end">
-            <div className="flex flex-wrap items-center gap-2">
-              <SearchBox filters={filters} busy={busy} />
-              <DateRangeFilter filters={filters} />
-              <ExportMenu filters={filters} total={total} />
-              {/* A whole book at once, for when the office is loading the branch
-                rather than signing one person up at the counter. */}
-              {canManage && (
-                <Button asChild size="sm" variant="outline">
-                  <Link to="/customers/import">
-                    <UploadIcon />
-                    Import
-                  </Link>
-                </Button>
-              )}
-              {canServe && (
-                <Button asChild size="sm">
-                  <Link to="/customers/new">
-                    <UserPlusIcon />
-                    Register customer
-                  </Link>
-                </Button>
-              )}
-            </div>
+    <Page className="max-w-none">
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
+          <FilterMenu
+            label="Status"
+            items={TABS.map((tab) => ({
+              key: tab.key,
+              label: tab.label,
+              count: counts[tab.key],
+              to: hrefFor({ ...filters, status: tab.key }),
+            }))}
+            active={filters.status}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <SearchBox filters={filters} busy={busy} />
+            <DateRangeFilter filters={filters} />
+            <ExportMenu filters={filters} total={total} />
+            {/* A whole book at once, for when the office is loading the branch
+              rather than signing one person up at the counter. */}
+            {canManage && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/customers/import">
+                  <UploadIcon />
+                  Import
+                </Link>
+              </Button>
+            )}
+            {canServe && (
+              <Button asChild size="sm">
+                <Link to="/customers/new">
+                  <UserPlusIcon />
+                  Register customer
+                </Link>
+              </Button>
+            )}
           </div>
-
-          {filtered && <ActiveFilters filters={filters} total={total} />}
-
-          {rows.length === 0 ? (
-            <CustomersEmpty filters={filters} />
-          ) : (
-            <div className={cn("transition-opacity", busy && "opacity-60")}>
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <Th>Customer</Th>
-                    <Th className="hidden lg:table-cell">Age / Sex</Th>
-                    <Th className="hidden sm:table-cell">Contact</Th>
-                    <Th className="hidden xl:table-cell">Identification</Th>
-                    <Th>Status</Th>
-                    <Th className="hidden md:table-cell">Registered</Th>
-                    <Th className="w-16 text-right">Actions</Th>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row) => (
-                    <CustomerRow
-                      key={row.id}
-                      row={row}
-                      canServe={canServe}
-                      canManage={canManage}
-                      canReassign={canReassign}
-                      search={search}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-
-          {total > 0 && (
-            <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
-              <p>
-                Showing{" "}
-                <span className="tabular font-medium text-foreground">
-                  {first}
-                </span>
-                –
-                <span className="tabular font-medium text-foreground">
-                  {last}
-                </span>{" "}
-                of{" "}
-                <span className="tabular font-medium text-foreground">
-                  {formatCount(total)}
-                </span>
-              </p>
-              <div className="flex items-center gap-2">
-                <PagerButton
-                  to={hrefFor(filters, page - 1)}
-                  disabled={page <= 1}
-                  label="Previous page"
-                >
-                  <ChevronLeftIcon />
-                  Prev
-                </PagerButton>
-                <PagerButton
-                  to={hrefFor(filters, page + 1)}
-                  disabled={last >= total}
-                  label="Next page"
-                >
-                  Next
-                  <ChevronRightIcon />
-                </PagerButton>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* The reassign drawer renders here — over the rows, not a page away
-          from them. */}
-        <Outlet />
-      </Page>
-    </RailFrame>
+        {filtered && <ActiveFilters filters={filters} total={total} />}
+
+        {rows.length === 0 ? (
+          <CustomersEmpty filters={filters} />
+        ) : (
+          <div className={cn("transition-opacity", busy && "opacity-60")}>
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <Th>Customer</Th>
+                  <Th className="hidden lg:table-cell">Age / Sex</Th>
+                  <Th className="hidden sm:table-cell">Contact</Th>
+                  <Th className="hidden xl:table-cell">Identification</Th>
+                  <Th>Status</Th>
+                  <Th className="hidden md:table-cell">Registered</Th>
+                  <Th className="w-16 text-right">Actions</Th>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <CustomerRow
+                    key={row.id}
+                    row={row}
+                    canServe={canServe}
+                    canManage={canManage}
+                    canReassign={canReassign}
+                    search={search}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {total > 0 && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
+            <p>
+              Showing{" "}
+              <span className="tabular font-medium text-foreground">
+                {first}
+              </span>
+              –
+              <span className="tabular font-medium text-foreground">
+                {last}
+              </span>{" "}
+              of{" "}
+              <span className="tabular font-medium text-foreground">
+                {formatCount(total)}
+              </span>
+            </p>
+            <div className="flex items-center gap-2">
+              <PagerButton
+                to={hrefFor(filters, page - 1)}
+                disabled={page <= 1}
+                label="Previous page"
+              >
+                <ChevronLeftIcon />
+                Prev
+              </PagerButton>
+              <PagerButton
+                to={hrefFor(filters, page + 1)}
+                disabled={last >= total}
+                label="Next page"
+              >
+                Next
+                <ChevronRightIcon />
+              </PagerButton>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* The reassign drawer renders here — over the rows, not a page away
+        from them. */}
+      <Outlet />
+    </Page>
   );
 }
 
@@ -1097,10 +1086,8 @@ function RowActions({
                   Move {row.fullName} to the trash?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  They disappear from the listings and from lookups, and can be
-                  restored from Trash. Their phone number stays reserved. This
-                  is refused while they still hold an open susu account, savings
-                  account, loan or hire-purchase agreement.
+                  They leave the listings and can be restored from Trash.
+                  Refused while they hold an open account, loan or agreement.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <div className="space-y-1.5">
@@ -1134,8 +1121,8 @@ function RowActions({
               <AlertDialogHeader>
                 <AlertDialogTitle>Deactivate {row.fullName}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  They stay visible and their records are kept, but the profile
-                  and its accounts cannot be edited until reactivated.
+                  The profile and its accounts cannot be edited until
+                  reactivated.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

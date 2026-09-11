@@ -203,7 +203,7 @@ export default function StaffDetail({ loaderData }: Route.ComponentProps) {
           <Fld
             label="Password"
             value="Set by an admin"
-            hint="It is never shown. Reset it to issue a new one."
+            hint="Reset to issue a new one"
           />
         </Section>
       </SheetBody>
@@ -293,9 +293,8 @@ function StaffActions({
           <AlertDialogHeader>
             <AlertDialogTitle>Disable {staff.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              They are signed out everywhere immediately and cannot sign in
-              again until an admin re-enables them. Their name stays on every
-              record they touched. Nothing is deleted.
+              They are signed out everywhere and cannot sign in until
+              re-enabled. Nothing is deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

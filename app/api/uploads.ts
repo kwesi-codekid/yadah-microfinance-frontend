@@ -6,7 +6,7 @@ import { apiFetch } from "~/api/client";
  * calls these with the session's access token.
  */
 
-export type UploadKind = "photo" | "document";
+export type UploadKind = "photo" | "document" | "signature";
 
 export interface UploadedImage {
   /** Hosted image URL — submit this on the customer record. */

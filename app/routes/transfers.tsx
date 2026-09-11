@@ -34,7 +34,7 @@ import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { formatAmount, formatPesewas, parseCedis, toCedisInput } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
-import { MIN_DEPOSIT, WITHDRAWAL_FEE } from "~/lib/savings";
+import { WITHDRAWAL_FEE } from "~/lib/savings";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { commissionOf, payoutIfClosedNow } from "~/lib/susu";
 import { redirectWithToast } from "~/lib/toast.server";
@@ -51,11 +51,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Transfer · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Transfer",
-  description:
-    "Move money between one customer's own accounts. Both halves happen, or neither does.",
 };
 
 /**
@@ -425,22 +423,18 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
           )}
           {source?.commission ? (
             <Note>
-              Moving from this account <strong>stops it</strong>. One
-              day&rsquo;s deposit — GH₵ {formatAmount(source.commission)} — is
-              kept as commission, exactly as it would be at the counter.
+              Moving from this account <strong>stops it</strong>; one
+              day&rsquo;s deposit (GH₵ {formatAmount(source.commission)}) is
+              kept as commission.
             </Note>
           ) : null}
           {source?.pendingPayout ? (
-            <Note>
-              This account is awaiting payout, so it may be drawn down in part.
-              It is the only case where a partial amount is accepted.
-            </Note>
+            <Note>Awaiting payout, so a partial amount is accepted.</Note>
           ) : null}
           {source?.kind === "savings" ? (
             <Note>
-              This is a real withdrawal: the flat GH₵{" "}
-              {formatAmount(WITHDRAWAL_FEE)} fee comes off on top, and it uses
-              up the one withdrawal this account may take today.
+              A withdrawal: the GH₵ {formatAmount(WITHDRAWAL_FEE)} fee applies
+              and it uses today&rsquo;s one withdrawal.
             </Note>
           ) : null}
         </Step>
@@ -475,13 +469,6 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
               ))}
             </div>
           )}
-          {target?.kind === "savings" ? (
-            <Note>
-              An internal credit skips the GH₵ {formatAmount(MIN_DEPOSIT)}{" "}
-              minimum deposit — that floor is there to stop pointless counter
-              deposits, not to block a move.
-            </Note>
-          ) : null}
         </Step>
 
         <Step
@@ -594,10 +581,6 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
                       the susu account, pending withdrawal.
                     </Note>
                   )}
-                  <Note>
-                    These are this screen&rsquo;s figures. The API settles them
-                    itself, and the confirmation will show what it actually did.
-                  </Note>
                 </>
               )}
             </div>

@@ -19,10 +19,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Commission and fees · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Commission and fees",
-  description: "What the branch earned, as opposed to what passed through it.",
 };
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;

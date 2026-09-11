@@ -138,7 +138,6 @@ export default function AccountingCapitalNew({ loaderData }: Route.ComponentProp
     <RouteSheet
       backTo="/accounting/capital"
       title="Record capital"
-      description="Owner money in or out. It moves equity, never profit."
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
@@ -217,8 +216,7 @@ export default function AccountingCapitalNew({ loaderData }: Route.ComponentProp
             </Label>
             {accounts.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No company account to name yet. The entry still counts toward
-                equity; open an account on the cash position to tie it to one.
+                No company account to name yet.
               </p>
             ) : (
               <Select name="cashAccountId" value={account} onValueChange={setAccount}>

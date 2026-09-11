@@ -18,8 +18,11 @@ import {
   rejectPayoutRequest,
   verifyPayoutTransfer,
 } from "~/api/payout-requests";
-import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
-import { StatusPill } from "~/components/listing";
+import {
+  FilterMenu,
+  type MenuChoice,
+  StatusPill,
+} from "~/components/listing";
 import { Page } from "~/components/page";
 import {
   AlertDialog,
@@ -67,10 +70,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Payout requests · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Payout requests",
-  description: "Withdrawals customers asked for from the portal, waiting on a decision.",
 };
 
 /** Ten rows, as the ledger and the sales book page them. */
@@ -110,7 +112,7 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
 /**
  * `GET /payout-requests` — the queue. Office only.
  *
- * The rail counts are fetched the way every other listing here does it: one
+ * The status counts are fetched the way every other listing here does it: one
  * one-row request per status. This endpoint answers `{ items }` without a
  * total, so a count is the page-1 length capped at the page size — exact up to
  * a hundred, and "100+" is all anyone needs to know past that.
@@ -277,7 +279,7 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
   const goToPage = (next: number) =>
     submit(queryFor(filters, next), { replace: true, preventScrollReset: true });
 
-  const items: RailItem[] = TABS.map((t) => ({
+  const items: MenuChoice[] = TABS.map((t) => ({
     key: t.key,
     label: t.label,
     count: counts[t.key],
@@ -363,20 +365,11 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
   ];
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter requests by status"
-          sections={[{ label: "Status", items }]}
-          active={filters.status}
-          horizontal={horizontal}
-        />
-      )}
-    >
     <Page className="max-w-none">
       <TotalsBand counts={counts} stranded={stranded} />
 
       <DataTable
+        filters={<FilterMenu label="Status" items={items} active={filters.status} />}
         columns={columns}
         rows={rows}
         rowKey={(row) => row.id}
@@ -451,11 +444,9 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
                   {deciding.row.customerName}?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  The account is debited first, then Paystack sends the money to{" "}
-                  {deciding.row.wallet}. If the transfer fails the debit stays — it is
-                  never reversed on its own — and the request shows up under{" "}
-                  <span className="font-medium text-foreground">Transfer failed</span> for
-                  you to retry or pay in cash.
+                  The account is debited, then Paystack sends the money to{" "}
+                  {deciding.row.wallet}. A failed transfer keeps the debit and shows
+                  under <span className="font-medium text-foreground">Transfer failed</span>.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -479,8 +470,7 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
               <AlertDialogHeader>
                 <AlertDialogTitle>Decline {deciding.row.customerName}'s request?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Nothing moves. The customer reads this reason on the portal, so write it
-                  for them.
+                  Nothing moves. The customer reads this reason on the portal.
                 </AlertDialogDescription>
               </AlertDialogHeader>
 
@@ -517,7 +507,6 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
         </AlertDialogContent>
       </AlertDialog>
     </Page>
-    </RailFrame>
   );
 }
 

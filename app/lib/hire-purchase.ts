@@ -19,9 +19,30 @@ export type ItemCondition = "new" | "used";
 
 export type ItemStatus = "active" | "discontinued";
 
+/** The two managed lists an item is filed under: who makes it, what kind of thing it is. */
+export type LabelKind = "brand" | "category";
+
+export interface ItemLabel {
+  id: string;
+  kind: LabelKind;
+  name: string;
+  description?: string;
+  /** Items on the shelf filed under it, trashed ones excluded. */
+  itemCount: number;
+  createdAt: string;
+}
+
+/** A label as an item carries it: enough to show and to filter by. */
+export interface LabelRef {
+  id: string;
+  name: string;
+}
+
 export interface HpItem {
   id: string;
   name: string;
+  brand?: LabelRef;
+  category?: LabelRef;
   description?: string;
   quantityInStock: number;
   /** What Yadah paid. Office-only — this must never reach a customer-facing view. */
@@ -92,6 +113,8 @@ export interface HpAgreement {
   redemptionDeadline?: string;
   closedAt?: string;
   rejectionReason?: string;
+  /** A picture of the customer's signature on the agreement. */
+  signatureUrl?: string;
   createdAt: string;
 }
 

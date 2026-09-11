@@ -1,11 +1,12 @@
-import { InfoIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { data, Form, useActionData, useNavigation } from "react-router";
 import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
-import { listItems, updateItem } from "~/api/hire-purchase";
+import { allLabels, listItems, updateItem } from "~/api/hire-purchase";
+import { ItemLabels, labelIdFrom } from "~/components/item-labels";
 import { Figure } from "~/components/listing";
 import {
   RouteSheet,
@@ -29,7 +30,7 @@ import {
   depositFor,
   type ItemStatus,
 } from "~/lib/hire-purchase";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import type { Route } from "./+types/inventory-edit";
 
@@ -45,26 +46,32 @@ export function meta({ loaderData }: Route.MetaArgs) {
  * way.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
 
-  const { data: item, headers } = await withAuth(request, async (token) => {
+  const { data: result, headers } = await withAuth(request, async (token) => {
     try {
-      const list = await listItems(token, { limit: 100 });
+      const [list, brands, categories] = await Promise.all([
+        listItems(token, { limit: 100 }),
+        allLabels(token, "brand"),
+        allLabels(token, "category"),
+      ]);
       const found = list.items.find((candidate) => candidate.id === params.id);
       if (!found) throw new Response("No such item.", { status: 404 });
-      return found;
+      return { item: found, labels: { brands, categories } };
     } catch (error) {
       throwAsRouteError(error);
     }
   });
 
-  return data({ item }, { headers });
+  return data(result, { headers });
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
+  const brandId = labelIdFrom(form.get("brandId"));
+  const categoryId = labelIdFrom(form.get("categoryId"));
   const description = String(form.get("description") ?? "").trim();
   const status = String(form.get("status") ?? "active") as ItemStatus;
   const costPrice = parseCedis(String(form.get("costPrice") ?? "").trim());
@@ -85,6 +92,9 @@ export async function action({ request, params }: Route.ActionArgs) {
     ({ headers } = await withAuth(request, (token) =>
       updateItem(token, params.id, {
         name,
+        // "None" is null; the API takes the item off the label.
+        brandId: brandId ?? null,
+        categoryId: categoryId ?? null,
         description,
         costPrice,
         sellingPrice,
@@ -106,7 +116,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
-  const { item } = loaderData;
+  const { item, labels } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -150,6 +160,11 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
             />
           </div>
 
+          <ItemLabels
+            brands={labels.brands}
+            categories={labels.categories}
+            defaults={{ brandId: item.brand?.id ?? "", categoryId: item.category?.id ?? "" }}
+          />
 
           <div className="space-y-1.5">
             <Label
@@ -218,20 +233,6 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              Discontinued keeps the item and its history but takes it off the
-              list of things an agreement can be signed against.
-            </p>
-          </div>
-
-          {/* The rule that makes editing a price safe, said where it matters. */}
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>
-              Agreements snapshot their prices at signing. Changing these
-              figures affects new agreements only — nothing already signed
-              moves.
-            </span>
           </div>
 
           {changed && sellingPesewas != null && (
@@ -249,8 +250,7 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
           )}
 
           <p className="tabular text-xs text-muted-foreground">
-            {item.quantityInStock} in stock. Stock moves through an adjustment,
-            not through this form.
+            {item.quantityInStock} in stock.
           </p>
         </div>
 

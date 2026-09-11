@@ -43,10 +43,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "POS · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "POS",
-  description: "Ring up a counter sale: stock out, money in, receipt printed.",
 };
 
 /** What the picker needs to know about a thing on the shelf. */

@@ -36,11 +36,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Loan portfolio · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Loan portfolio",
-  description:
-    "What is still out there, and how late it is. A position as at now, not a period.",
 };
 
 /**
@@ -215,8 +213,7 @@ export default function ReportLoans({ loaderData }: Route.ComponentProps) {
           </dl>
         ) : (
           <p className="text-sm text-muted-foreground">
-            The aging report did not answer. The outstanding loans below are
-            unaffected — only the bucket summary is missing.
+            The aging report did not answer.
           </p>
         )}
       </section>

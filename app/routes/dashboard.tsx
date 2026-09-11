@@ -332,7 +332,6 @@ function OfficeDashboard({
           <Card
             title="Collections Performance"
             detailTo="/reports/collections"
-            note="Field cash recorded against what the office confirmed receiving. Reconciled collector days only, so the newest buckets fill in as handovers are confirmed."
           >
             {series ? (
               <CollectionsChart key={period} series={series} />
@@ -435,7 +434,6 @@ function OfficeDashboard({
           <Card
             title="Collections Reconciliation"
             detailTo="/reconciliation"
-            note="The share of each bucket's recorded field cash that the office confirmed receiving."
           >
             {series ? (
               <ReconTrend key={period} series={series} />

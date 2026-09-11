@@ -272,25 +272,15 @@ function useFlashToast(toast: Toast | null) {
  * What the header calls this page: the rail item it belongs to, or — for pages
  * with no item of their own — the `handle.title` the route exports.
  */
-function useHeaderTitle(pathname: string): {
-  title: string | undefined;
-  description: string | undefined;
-} {
+function useHeaderTitle(pathname: string): string | undefined {
   const matches = useMatches();
   const named = [...matches]
     .reverse()
     .find(
-      (match): match is typeof match & { handle: { title: string; description?: string } } =>
+      (match): match is typeof match & { handle: { title: string } } =>
         typeof (match.handle as { title?: unknown } | undefined)?.title === "string",
     );
-  return {
-    title: named?.handle.title ?? navItemFor(pathname)?.label,
-    description:
-      named?.handle.description ??
-      (pathname === "/dashboard"
-        ? "Manage, Monitor, and Optimize Yadah’s Banking Operations!"
-        : undefined),
-  };
+  return named?.handle.title ?? navItemFor(pathname)?.label;
 }
 
 /**
@@ -307,7 +297,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
   const { user, sidebarOpen, toast, dateLabel, bell } = loaderData;
   const { pathname } = useLocation();
   const mainRef = useRef<HTMLDivElement>(null);
-  const { title, description } = useHeaderTitle(pathname);
+  const title = useHeaderTitle(pathname);
 
   useFlashToast(toast);
 
@@ -327,16 +317,9 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
               title on the left, then the search, date and account pills. */}
           <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
             <SidebarTrigger className="shrink-0 text-muted-foreground" />
-            <div className="min-w-0">
-              <h1 className="truncate font-heading text-lg font-bold tracking-tight">
-                {title}
-              </h1>
-              {description && (
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {description}
-                </p>
-              )}
-            </div>
+            <h1 className="min-w-0 truncate font-heading text-lg font-bold tracking-tight">
+              {title}
+            </h1>
 
             <div className="ml-auto flex flex-wrap items-center gap-2.5">
               {/* One global search: it looks a customer up, which is what the

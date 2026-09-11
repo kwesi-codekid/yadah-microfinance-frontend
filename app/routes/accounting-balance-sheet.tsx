@@ -26,10 +26,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Balance sheet · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Balance sheet",
-  description: "What the business owns, owes and is worth on one day.",
 };
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;

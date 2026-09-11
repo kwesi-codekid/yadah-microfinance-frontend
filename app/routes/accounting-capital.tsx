@@ -23,10 +23,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Capital · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Capital",
-  description: "What the owner put in and took out. Equity, not profit.",
 };
 
 /**

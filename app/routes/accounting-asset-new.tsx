@@ -172,7 +172,6 @@ export default function AccountingAssetNew({ loaderData }: Route.ComponentProps)
     <RouteSheet
       backTo="/accounting/assets"
       title="Register an asset"
-      description="An asset, not an expense: only its depreciation reaches profit and loss."
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
@@ -321,8 +320,7 @@ export default function AccountingAssetNew({ loaderData }: Route.ComponentProps)
             </Label>
             {accounts.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No company account to name. The asset still goes on the register;
-                the cash position will not move.
+                No company account to name; the cash position will not move.
               </p>
             ) : (
               <Select name="cashAccountId" value={paidFrom} onValueChange={setPaidFrom}>
@@ -338,10 +336,6 @@ export default function AccountingAssetNew({ loaderData }: Route.ComponentProps)
                 </SelectContent>
               </Select>
             )}
-            <p className="text-xs text-muted-foreground">
-              Name one and the cash position drops by the cost from the day it was
-              acquired. Leave it for an asset that arrived some other way.
-            </p>
           </div>
 
           {/* What registering it will do to the books, while the figures are
