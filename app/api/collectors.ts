@@ -14,6 +14,20 @@ import type { CollectorDay, CollectorRound } from "~/lib/collectors";
  * **must** name a `collectorId`, and get a 400 without one.
  */
 
+/**
+ * GET /collectors — the roster: who is out collecting, by name.
+ *
+ * Registering a customer means putting them on somebody's round, so the
+ * counter needs this list. It is deliberately not `GET /users`, which is the
+ * staff directory and stays office-only: a teller answering "whose round?"
+ * should not be handed every account in the branch to do it.
+ */
+export function listCollectors(
+  accessToken: string,
+): Promise<{ collectors: { id: string; name: string }[] }> {
+  return apiFetch("/collectors", { accessToken });
+}
+
 export interface RoundParams {
   /** Accra day, `YYYY-MM-DD`. Defaults to today on the API's side. */
   date?: string;
