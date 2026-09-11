@@ -30,6 +30,7 @@ import { Label } from "~/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import { TableHead } from "~/components/ui/table";
 import { formatCount, formatDayRange } from "~/lib/format";
+import type { PeriodPreset } from "~/lib/period";
 import { MODULE_VAR, type TxnModule } from "~/lib/reports";
 import { cn } from "~/lib/utils";
 
@@ -545,6 +546,7 @@ export function PeriodFilter({
   title = "Period",
   apply,
   align = "end",
+  presets,
 }: {
   /** The resolved range — never blank, defaulted or not. */
   from: string;
@@ -555,6 +557,12 @@ export function PeriodFilter({
   /** Clear hands back two empty strings, which is the route's cue to default. */
   apply: (next: { from: string; to: string }) => void;
   align?: "start" | "end";
+  /**
+   * Named periods, offered above the two date fields. A report is nearly
+   * always asked one of a handful of questions, and typing two dates to ask
+   * one of them is work this can do instead. Omit for a plain range.
+   */
+  presets?: PeriodPreset[];
 }) {
   const [open, setOpen] = useState(false);
   const fieldsRef = useRef<HTMLDivElement>(null);
@@ -577,8 +585,33 @@ export function PeriodFilter({
         </Button>
       </PopoverTrigger>
       <PopoverContent align={align} className="w-72 space-y-3">
+        {presets && presets.length > 0 && (
+          <div className="grid grid-cols-2 gap-1.5">
+            {presets.map((preset) => {
+              const range = preset.range();
+              const chosen = active && range.from === from && range.to === to;
+              return (
+                <Button
+                  key={preset.id}
+                  type="button"
+                  variant={chosen ? "secondary" : "ghost"}
+                  size="sm"
+                  className="justify-start font-normal"
+                  onClick={() => commit(range)}
+                >
+                  {preset.label}
+                </Button>
+              );
+            })}
+          </div>
+        )}
         {/* Keyed on the applied range so reopening after a Clear shows it. */}
         <div ref={fieldsRef} key={`${from}|${to}`} className="space-y-3">
+          {presets && presets.length > 0 && (
+            <div className="border-t border-border pt-3">
+              <Label className="eyebrow text-muted-foreground">Or a custom range</Label>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label className="eyebrow text-muted-foreground">{title} from</Label>
             <DateField name="from" defaultValue={from} endMonth={new Date()} />

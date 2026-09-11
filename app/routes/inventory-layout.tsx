@@ -1,11 +1,17 @@
-import { BoxesIcon, ShapesIcon, TagIcon, WarehouseIcon } from "lucide-react";
+import {
+  BoxesIcon,
+  PackageXIcon,
+  ShapesIcon,
+  TagIcon,
+  WarehouseIcon,
+} from "lucide-react";
 import { Outlet } from "react-router";
 
 import { FilterRail, RailFrame, type RailSection } from "~/components/filter-rail";
 
 /**
- * The frame the inventory pages sit in: the shelf itself, and the two lists
- * everything on it is filed under. The rail is what makes them one place —
+ * The frame the inventory pages sit in: the shelf, what has been written off
+ * it, and the two lists everything on it is filed under. The rail is what makes them one place —
  * from the products, the brands are one click away, and the one you are in
  * is lit.
  *
@@ -31,6 +37,10 @@ const SECTIONS: RailSection[] = [
     items: [
       // Only the shelf must match exactly; `/inventory/new` is still the shelf.
       { key: "products", to: "/inventory", label: "Products", icon: BoxesIcon, end: true },
+      // Stock that left the shelf without being sold. It belongs beside the
+      // shelf rather than in the books: the person who notices a broken item
+      // is standing in front of it.
+      { key: "damages", to: "/inventory/damages", label: "Damages", icon: PackageXIcon },
     ],
   },
   {

@@ -40,11 +40,13 @@ import {
 import {
   MODULES,
   MODULE_LABELS,
+  RECORDED_BY_LABELS,
   TXN_TYPE_LABELS,
   netCash,
   receiptPathFor,
   refPath,
   type Direction,
+  type RecordedByKind,
   type TransactionTotals,
   type TxnModule,
   type UnifiedTransaction,
@@ -186,6 +188,7 @@ interface Row {
   where: string;
   wherePath: string | null;
   recordedBy: string;
+  recordedByKind: RecordedByKind;
   date: string;
   time: string;
   /** The Accra day this landed on — what the advice link searches. */
@@ -208,8 +211,14 @@ function toRow(t: UnifiedTransaction): Row {
     customerName: t.customerName,
     where: t.ref.accountNumber ? `#${t.ref.accountNumber}` : MODULE_LABELS[t.module],
     wherePath: refPath(t),
-    // `System` is the API's own word for the automated debt-recovery moves.
-    recordedBy: t.recordedByName ?? "System",
+    // A staff row is named; the other three are described. Naming a customer
+    // here would only repeat the Customer column, and the question this
+    // answers is which of them put the entry on the ledger.
+    recordedBy:
+      t.recordedByKind === "staff"
+        ? (t.recordedByName ?? "Staff")
+        : RECORDED_BY_LABELS[t.recordedByKind],
+    recordedByKind: t.recordedByKind,
     date: formatAccraDate(t.createdAt),
     // The full stamp reads `25 Aug 2026, 1:32 pm`; the date already has its
     // own line above, so only the clock time is kept here.
@@ -347,7 +356,19 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
       key: "by",
       header: "Recorded by",
       className: "hidden text-muted-foreground lg:table-cell",
-      cell: (row) => row.recordedBy,
+      // Staff reads as a plain name, which is the common case and needs no
+      // decoration. The three that are not a member of staff are the ones
+      // worth noticing, so those carry the tint.
+      cell: (row) => (
+        <span
+          className={cn(
+            row.recordedByKind === "customer" && "text-foreground",
+            row.recordedByKind === "unknown" && "italic",
+          )}
+        >
+          {row.recordedBy}
+        </span>
+      ),
     },
     {
       key: "amount",
@@ -360,9 +381,10 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
       header: "Commission",
       align: "end",
       className: "tabular hidden md:table-cell",
-      // What the branch took on this entry — the flat savings withdrawal and
-      // transfer charge. Gold, which the theme reserves for money the company
-      // earns. A dash means this entry carried no charge, not that it is unknown.
+      // What the branch took on this entry: the savings withdrawal or closure
+      // fee, or the one-day commission charged when a susu cycle was stopped.
+      // Gold, which the theme reserves for money the company earns. A dash
+      // means this entry carried no charge, not that it is unknown.
       cell: (row) =>
         row.fee > 0 ? (
           <span className="font-medium text-revenue-foreground">
@@ -561,7 +583,7 @@ function TotalsBand({
       <Stat
         label="Net"
         value={`${net > 0 ? "+" : net < 0 ? "−" : ""}${formatPesewas(Math.abs(net))}`}
-        note={`In less out. Fees collected: ${formatPesewas(totals.feesCollected)}`}
+        note={`In less out. Charges kept: ${formatPesewas(totals.feesCollected)}`}
         icon={ScaleIcon}
         tone={net > 0 ? "in" : net < 0 ? "out" : "internal"}
       />
@@ -706,9 +728,12 @@ function Amount({ row }: { row: Row }) {
         <p className="text-[0.6875rem] tracking-wide text-internal uppercase">
           Internal
         </p>
-      ) : row.fee > 0 ? (
-        // The charge has its own column from `md` up; below that there is no
-        // room for one, so it rides under the amount instead of disappearing.
+      ) : null}
+      {/* The charge has its own column from `md` up; below that there is no
+          room for one, so it rides under the amount instead of disappearing.
+          Shown for internal rows too — a susu cycle closed straight into a
+          loan is internal AND charges its commission. */}
+      {row.fee > 0 ? (
         <p className="tabular text-xs text-revenue-foreground md:hidden">
           commission {formatAmount(row.fee)}
         </p>

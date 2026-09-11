@@ -24,9 +24,36 @@ export type SusuStatus =
 /** How the cash physically arrived. `transfer` is only ever set by the API. */
 export type DepositChannel = "cash" | "paystack" | "momo";
 
+/** Cycle months, in the three-letter form the branch writes on a passbook. */
+export const CYCLE_MONTHS = [
+  "JAN",
+  "FEB",
+  "MAR",
+  "APR",
+  "MAY",
+  "JUN",
+  "JUL",
+  "AUG",
+  "SEP",
+  "OCT",
+  "NOV",
+  "DEC",
+] as const;
+export type CycleMonth = (typeof CYCLE_MONTHS)[number];
+
+/** The month we are in now, which is what a new cycle is called by default. */
+export function currentCycleMonth(): CycleMonth {
+  // Ghana is UTC+0 year-round, so the UTC month is the Accra month.
+  return CYCLE_MONTHS[new Date().getUTCMonth()] ?? "JAN";
+}
+
 export interface SusuAccount {
   id: string;
-  /** 6 digits, randomised and unique. What the branch calls the account. */
+  /**
+   * `SU` + YYMM + a 4-digit monthly sequence + the cycle month, e.g.
+   * `SU26090005-SEP`. Accounts opened before the cycle month carry no suffix;
+   * accounts opened before the scheme keep their legacy 6 random digits.
+   */
   accountNumber: string;
   customerId: string;
   /** Present on list responses, for display. */
@@ -47,6 +74,15 @@ export interface SusuAccount {
    */
   availableToWithdraw: number;
   status: SusuStatus;
+  /**
+   * The month this cycle is called — the `-SEP` on the account number. It need
+   * not be the month the number was issued in: a cycle opened in late August
+   * for a customer who thinks of it as September is a September cycle.
+   * Absent on accounts opened before the field existed.
+   */
+  cycleMonth?: CycleMonth;
+  /** Set when this cycle exists because another one overflowed into it. */
+  carriedFromAccountId?: string;
   /** Set when the account stops: one day's deposit. */
   commissionAmount?: number;
   /** Set when the account stops: total less the commission. */
@@ -55,6 +91,32 @@ export interface SusuAccount {
   payoutRemaining: number;
   openedAt: string;
   closedAt?: string;
+}
+
+/** One account's share of a payment. More than one only on a carry-forward. */
+export interface DepositLeg {
+  deposit: SusuDeposit;
+  account: SusuAccount;
+  /** True when this leg's account was opened by this very payment. */
+  carried: boolean;
+}
+
+/**
+ * What recording a deposit gives back.
+ *
+ * `deposit` and `account` are always the leg on the account that was paid
+ * into, so every existing screen reads the same two fields. A payment that ran
+ * past the end of the cycle has more in `legs`, and the accounts it had to
+ * open in `openedAccounts`.
+ */
+export interface DepositResult {
+  deposit: SusuDeposit;
+  account: SusuAccount;
+  legs: DepositLeg[];
+  /** Pesewas across every leg — what the customer actually handed over. */
+  totalAmount: number;
+  openedAccounts: SusuAccount[];
+  replayed?: boolean;
 }
 
 /** An account in the trash. `deletedAt` is what separates it from a live one. */
@@ -78,6 +140,14 @@ export interface SusuDeposit {
   channel: DepositChannel | "transfer";
   /** Set when the deposit came from a collect-all across several accounts. */
   collectAllBatchId?: string;
+  /**
+   * The other half of a payment that ran past the end of this cycle. The half
+   * that overflowed points forward; the half in the new account points back.
+   */
+  carriedToDepositId?: string;
+  carriedToAccountId?: string;
+  carriedFromDepositId?: string;
+  carriedFromAccountId?: string;
   createdAt: string;
 }
 
@@ -224,9 +294,29 @@ export function balanceAfterWithdrawal(
   return account.balance - pesewas;
 }
 
+/** Days still unpaid in this cycle. */
+export function daysRemaining(account: SusuAccount): number {
+  return (account.cycleTarget || CYCLE_TARGET) - account.depositsCount;
+}
+
+/**
+ * How many new accounts a payment of this size would have to open. A payment
+ * fills the rest of this cycle first, then whole cycles after it.
+ */
+export function accountsCarried(account: SusuAccount, pesewas: number): number {
+  const days = Math.floor(pesewas / account.dailyAmount);
+  const over = days - daysRemaining(account);
+  return over <= 0 ? 0 : Math.ceil(over / (account.cycleTarget || CYCLE_TARGET));
+}
+
 /**
  * The API derives the days covered from the cash handed over, so the amount
  * must be a whole multiple of the daily amount. Returns the fault, or null.
+ *
+ * Running past the end of the cycle is no longer a fault: the days that fit
+ * finish this cycle and the rest starts a new one. Running past the end of
+ * TWO cycles is, because a single payment worth that much is far likelier a
+ * mistyped amount than cash somebody actually handed over.
  */
 export function checkDepositAmount(
   account: SusuAccount,
@@ -236,12 +326,29 @@ export function checkDepositAmount(
   if (pesewas % account.dailyAmount !== 0) {
     return "The amount has to be a whole number of days.";
   }
-  const remaining =
-    (account.cycleTarget || CYCLE_TARGET) - account.depositsCount;
-  if (pesewas / account.dailyAmount > remaining) {
-    return `Only ${remaining} day${remaining === 1 ? "" : "s"} left in this cycle.`;
+  if (accountsCarried(account, pesewas) > MAX_CARRY_ACCOUNTS) {
+    return "That is more than two full cycles at once — check the amount.";
   }
   return null;
+}
+
+/** The most new accounts one payment may open. Mirrors the API's own limit. */
+export const MAX_CARRY_ACCOUNTS = 1;
+
+/**
+ * What will happen to a payment that runs past the end of the cycle, in the
+ * words the collector should say to the customer. Null when it simply fits.
+ */
+export function carryNotice(account: SusuAccount, pesewas: number): string | null {
+  if (!Number.isFinite(pesewas) || pesewas <= 0) return null;
+  if (pesewas % account.dailyAmount !== 0) return null;
+  if (accountsCarried(account, pesewas) !== 1) return null;
+  const remaining = daysRemaining(account);
+  const carried = Math.floor(pesewas / account.dailyAmount) - remaining;
+  return (
+    `${remaining} day${remaining === 1 ? "" : "s"} finishes this cycle; the ` +
+    `other ${carried} day${carried === 1 ? "" : "s"} will start a new account.`
+  );
 }
 
 /** How many days a given amount covers, for the "3 days" line under the box. */

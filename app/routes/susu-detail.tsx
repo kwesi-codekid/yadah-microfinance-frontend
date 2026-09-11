@@ -416,6 +416,19 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
             {account.closedAt
               ? ` · Closed ${formatAccraDate(account.closedAt)}`
               : ` · Opened ${formatAccraDate(account.openedAt)}`}
+            {/* A cycle that exists because an earlier one overflowed. The link
+                matters: the two halves of one payment sit on either side. */}
+            {account.carriedFromAccountId && (
+              <>
+                {" · "}
+                <Link
+                  to={`/susu/${account.carriedFromAccountId}`}
+                  className="underline-offset-4 hover:underline"
+                >
+                  carried forward
+                </Link>
+              </>
+            )}
           </p>
         </div>
       </header>

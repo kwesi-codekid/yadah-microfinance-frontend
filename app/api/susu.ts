@@ -1,6 +1,7 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
 import type {
+  CycleMonth,
   DepositChannel,
   SusuAccount,
   SusuDeposit,
@@ -9,6 +10,7 @@ import type {
   TrashedSusuAccount,
   TrashedSusuDeposit,
 } from "~/lib/susu";
+import type { DepositResult } from "~/lib/susu";
 
 /**
  * The `/susu` endpoints. This module imports the API client, so it is
@@ -80,7 +82,7 @@ export function getAccount(
  */
 export function openAccount(
   accessToken: string,
-  input: { customerId: string; dailyAmount: number },
+  input: { customerId: string; dailyAmount: number; cycleMonth?: CycleMonth },
 ): Promise<{ account: SusuAccount }> {
   return apiFetch("/susu/accounts", { method: "POST", json: input, accessToken });
 }
@@ -164,7 +166,7 @@ export function recordDeposit(
   accessToken: string,
   id: string,
   input: { amount: number; idempotencyKey: string; channel?: DepositChannel },
-): Promise<{ deposit: SusuDeposit; account: SusuAccount; replayed?: boolean }> {
+): Promise<DepositResult> {
   return apiFetch(`/susu/accounts/${id}/deposits`, {
     method: "POST",
     json: input,

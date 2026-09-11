@@ -21,18 +21,20 @@ import {
 } from "react-router";
 import { toast } from "sonner";
 
+import { listCashAccounts } from "~/api/accounting";
 import {
   approveExpense,
-  listCashAccounts,
+  getExpenseSummary,
   listExpenses,
   payExpense,
   rejectExpense,
-} from "~/api/accounting";
+} from "~/api/expenses";
 import { ApiError } from "~/api/error";
 import {
   ChoiceFilter,
   DayRangeFilter,
   ExportMenu,
+  Figure,
   SearchBox,
   StatusPill,
 } from "~/components/listing";
@@ -76,10 +78,11 @@ import {
   type ExpenseCategory,
   type ExpenseStatus,
 } from "~/lib/accounting";
-import { accraDay, formatAccraDate, formatPesewas } from "~/lib/format";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { accraDay, formatAccraDate, formatCount, formatPesewas } from "~/lib/format";
+import { isOffice } from "~/lib/auth";
+import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
-import type { Route } from "./+types/accounting-expenses";
+import type { Route } from "./+types/expenses";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Expenses · Yadah Dynamic Enterprise" }];
@@ -148,7 +151,9 @@ function paramsFor(f: Filters) {
 }
 
 /**
- * `GET /accounting/expenses` — the book of costs. Office only.
+ * `GET /expenses` — the book of costs.
+ *
+ * The counter reads and records; the office decides and pays.
  *
  * The tab counts are one one-row request per status, scoped by the same
  * filters as the rows, so a count never contradicts the list under it. The
@@ -156,7 +161,10 @@ function paramsFor(f: Filters) {
  * name one.
  */
 export async function loader({ request }: Route.LoaderArgs) {
-  const user = await requireOffice(request);
+  // Reading and recording are the counter's — petty cash leaves the drawer all
+  // day, and a book only the office can open is written up on Friday from a
+  // pocketful of receipts. Deciding and paying are checked in the action.
+  const user = await requireCounter(request);
   const url = new URL(request.url);
 
   const filters = readFilters(url);
@@ -164,7 +172,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     const scope = paramsFor(filters);
-    const [list, accounts, ...counts] = await Promise.all([
+    const [list, accounts, summary, ...counts] = await Promise.all([
       listExpenses(token, {
         ...scope,
         page,
@@ -172,11 +180,15 @@ export async function loader({ request }: Route.LoaderArgs) {
         status: filters.status === "all" ? undefined : filters.status,
       }),
       listCashAccounts(token),
+      // The month so far, over the whole book rather than this page of it: a
+      // filtered total would make the branch look like it spent less than it
+      // did. A missing summary must not take the book down with it.
+      getExpenseSummary(token, { from: monthStart(), to: accraDay() }).catch(() => null),
       ...EXPENSE_STATUSES.map((status) =>
         listExpenses(token, { ...scope, page: 1, limit: 1, status }),
       ),
     ]);
-    return { list, accounts, counts };
+    return { list, accounts, summary, counts };
   });
 
   const byStatus = Object.fromEntries(
@@ -200,9 +212,17 @@ export async function loader({ request }: Route.LoaderArgs) {
         .filter((a) => (a.status ?? "active") === "active")
         .map((a) => ({ id: a.id, name: a.name })),
       accountName: filters.account ? (accountNames.get(filters.account) ?? null) : null,
+      summary: result.summary,
+      filteredAmount: result.list.totalAmount,
     },
     { headers },
   );
+}
+
+/** The first day of this month, in the Accra calendar the API counts by. */
+function monthStart(): string {
+  const now = new Date();
+  return accraDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
 }
 
 /** Opening the record drawer does not re-read the book underneath it. */
@@ -224,6 +244,8 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
  * money, and the only one that names an account.
  */
 export async function action({ request }: Route.ActionArgs) {
+  // Every action on this route decides or pays, so all of them are the
+  // office's. Recording is a different route.
   await requireOffice(request);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
@@ -361,7 +383,8 @@ function toRow(e: Expense, userId: string, accountNames: Map<string, string>): R
  * and the row says which hand it is waiting on.
  */
 export default function AccountingExpenses({ loaderData }: Route.ComponentProps) {
-  const { filters, page, total, counts, rows, accounts, accountName } = loaderData;
+  const { filters, page, total, counts, rows, accounts, accountName, summary, filteredAmount } =
+    loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
   const fetcher = useFetcher<ActionResult>();
@@ -381,7 +404,7 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
 
   const busy =
     navigation.state === "loading" &&
-    navigation.location?.pathname === "/accounting/expenses";
+    navigation.location?.pathname === "/expenses";
 
   const apply = (patch: Partial<Filters>) =>
     submit(queryFor({ ...filters, ...patch }), {
@@ -414,7 +437,12 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
       header: "What",
       cell: (row) => (
         <div className="min-w-0">
-          <p className="truncate font-medium">{row.description}</p>
+          <Link
+            to={`/expenses/${row.id}`}
+            className="truncate font-medium underline-offset-4 hover:underline"
+          >
+            {row.description}
+          </Link>
           <p className="truncate text-xs text-muted-foreground">
             {row.categoryLabel}
             {row.payee ? ` · ${row.payee}` : ""}
@@ -479,8 +507,52 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
     },
   ];
 
+  // The three largest categories, which is as much as a strip can say without
+  // becoming a report. Everything else is one line.
+  const top = summary?.byCategory.slice(0, 3) ?? [];
+  const rest = (summary?.byCategory.length ?? 0) - top.length;
+
   return (
     <Page className="max-w-none">
+      {/* What the branch has spent this month, and what it still owes on it.
+          Over the whole book, not the filtered page: a total that moved when
+          somebody picked a category would be a total nobody could quote. */}
+      {summary && (
+        <section className="mb-6">
+          <dl className="grid gap-3 sm:grid-cols-3">
+            <Figure
+              label="Spent this month"
+              value={formatPesewas(summary.totalAmount)}
+              hint={`${formatCount(summary.totalCount)} expense${summary.totalCount === 1 ? "" : "s"}, rejected ones excluded`}
+              tone="warning"
+            />
+            <Figure
+              label="Still owed"
+              value={formatPesewas(summary.outstandingAmount)}
+              hint="Incurred but not yet paid out"
+              tone={summary.outstandingAmount > 0 ? "info" : "muted"}
+            />
+            <Figure
+              label="Biggest category"
+              value={top[0] ? EXPENSE_CATEGORY_LABELS[top[0].category] : "—"}
+              hint={top[0] ? formatPesewas(top[0].amount) : "Nothing recorded yet"}
+              tone="muted"
+            />
+          </dl>
+
+          {top.length > 0 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {top
+                .map(
+                  (entry) =>
+                    `${EXPENSE_CATEGORY_LABELS[entry.category]} ${formatPesewas(entry.amount)}`,
+                )
+                .join(" · ")}
+              {rest > 0 && ` · ${formatCount(rest)} more`}
+            </p>
+          )}
+        </section>
+      )}
 
       <DataTable
         actions={
@@ -514,13 +586,13 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
               title="Incurred"
             />
             <ExportMenu
-              path="/accounting/expenses/export"
+              path="/expenses/export"
               query={queryFor(filters).toString()}
               total={total}
               noun="expense"
             />
             <Button asChild size="sm">
-              <Link to={`/accounting/expenses/new${search}`} prefetch="intent" preventScrollReset>
+              <Link to={`/expenses/new${search}`} prefetch="intent" preventScrollReset>
                 <PlusIcon />
                 Record expense
               </Link>
@@ -554,6 +626,10 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
         loading={busy}
         rowActions={(row) => (
           <>
+            <DropdownMenuItem asChild>
+              <Link to={`/expenses/${row.id}`}>Open</Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             {/* Disabled rather than absent: the same menu on every row, so the
                 sequence — approve, then pay — is legible from the menu itself. */}
             <DropdownMenuItem

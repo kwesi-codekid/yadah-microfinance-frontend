@@ -1,9 +1,12 @@
 import { LandmarkIcon } from "lucide-react";
-import { data, Link, useNavigation } from "react-router";
+import { data, Link, useNavigation, useSubmit } from "react-router";
 
 import { getLoanAging, getOutstandingLoans } from "~/api/reports";
 import {
+  DayRangeChip,
+  DayRangeFilter,
   ExportMenu,
+  FilterBar,
   Figure,
   ListingCard,
   ListingToolbar,
@@ -28,6 +31,7 @@ import {
 } from "~/components/ui/table";
 import { formatAccraDate, formatCount, formatPesewas } from "~/lib/format";
 import { amountOf } from "~/lib/reports";
+import { rangeQuery, readDay } from "~/lib/period";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/report-loans";
@@ -77,13 +81,21 @@ const BUCKETS: { keys: string[]; label: string; blurb: string; tone: Tone }[] = 
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireOffice(request);
+  const url = new URL(request.url);
+  // Unlike the other reports, no range here means the WHOLE book — which is
+  // the question this page is usually asked. A range narrows it to loans put
+  // out in that period, for "how much did we lend in August, and what is
+  // still owed on it".
+  const from = readDay(url.searchParams, "from");
+  const to = readDay(url.searchParams, "to");
+  const range = { ...(from ? { from } : {}), ...(to ? { to } : {}) };
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     const [outstanding, aging] = await Promise.all([
-      getOutstandingLoans(token),
+      getOutstandingLoans(token, range),
       // A missing aging report must not take the whole page down with it: the
       // outstanding rows are the part someone came here to act on.
-      getLoanAging(token).catch(() => null),
+      getLoanAging(token, range).catch(() => null),
     ]);
     return { outstanding, aging };
   });
@@ -134,15 +146,26 @@ export async function loader({ request }: Route.LoaderArgs) {
           rows.reduce((n, r) => n + r.remaining, 0),
       },
       overdueCount: rows.filter((r) => r.daysOverdue > 0).length,
+      filters: { from, to },
     },
     { headers },
   );
 }
 
 export default function ReportLoans({ loaderData }: Route.ComponentProps) {
-  const { rows, buckets, agingRead, totals, overdueCount } = loaderData;
+  const { rows, buckets, agingRead, totals, overdueCount, filters } = loaderData;
   const navigation = useNavigation();
+  const submit = useSubmit();
   const busy = navigation.state === "loading";
+
+  const exportQuery = rangeQuery(filters.from, filters.to);
+
+  const apply = (next: { from: string; to: string }) => {
+    const params = new URLSearchParams();
+    if (next.from) params.set("from", next.from);
+    if (next.to) params.set("to", next.to);
+    submit(params, { method: "get", action: "/reports/loans" });
+  };
 
   const arrears = buckets.reduce((n, b) => n + b.amount, 0);
 
@@ -220,19 +243,37 @@ export default function ReportLoans({ loaderData }: Route.ComponentProps) {
 
       <ListingCard>
         <ListingToolbar>
+          {/* No range means the whole book, so this reads "Disbursed" rather
+              than naming a period the page is not actually limited to. */}
+          <DayRangeFilter
+            from={filters.from}
+            to={filters.to}
+            apply={apply}
+            title="Disbursed"
+          />
           <ExportMenu
             path="/reports/loans/aging/export"
-            query=""
+            query={exportQuery}
             total={agingRead ? buckets.length : 0}
             noun="bucket"
           />
           <ExportMenu
             path="/reports/loans/export"
-            query=""
+            query={exportQuery}
             total={rows.length}
             noun="loan"
           />
         </ListingToolbar>
+
+        {(filters.from || filters.to) && (
+          <FilterBar total={rows.length} noun="loan" plural="loans">
+            <DayRangeChip
+              from={filters.from}
+              to={filters.to}
+              onDrop={() => apply({ from: "", to: "" })}
+            />
+          </FilterBar>
+        )}
 
         {rows.length === 0 ? (
           <Empty className="py-14">

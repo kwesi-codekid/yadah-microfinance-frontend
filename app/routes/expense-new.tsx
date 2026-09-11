@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 import { data, Form, useActionData, useNavigation } from "react-router";
 import { toast } from "sonner";
 
-import { recordExpense } from "~/api/accounting";
+import { recordExpense } from "~/api/expenses";
 import { ApiError } from "~/api/error";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
+import { IDLE, ScanDrop, type Slot } from "~/components/scan-drop";
 import { Button } from "~/components/ui/button";
 import { DateField } from "~/components/ui/date-field";
 import { Input } from "~/components/ui/input";
@@ -26,16 +27,16 @@ import {
   type WriteOffEntityType,
 } from "~/lib/accounting";
 import { accraDay, formatPesewas, parseCedis } from "~/lib/format";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
-import type { Route } from "./+types/accounting-expense-new";
+import type { Route } from "./+types/expense-new";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Record an expense · Yadah Dynamic Enterprise" }];
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   return null;
 }
 
@@ -43,14 +44,14 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const WRITE_OFF_TYPES: WriteOffEntityType[] = ["loan", "hp-agreement"];
 
 /**
- * `POST /accounting/expenses` — record a cost. Office.
+ * `POST /expenses` — record a cost. Counter and office.
  *
  * Recording moves no money: the expense waits for someone other than the
  * recorder to approve it, and only paying names an account. `incurredOn` is
  * the day the cost belongs to, which is not always the day it is paid.
  */
 export async function action({ request }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const category = String(form.get("category") ?? "") as ExpenseCategory;
   const description = String(form.get("description") ?? "").trim();
@@ -117,7 +118,7 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   await redirectWithToast(
-    "/accounting/expenses",
+    "/expenses",
     {
       tone: "success",
       message: `${formatPesewas(amount)} recorded.`,
@@ -134,6 +135,8 @@ export default function AccountingExpenseNew() {
 
   const [category, setCategory] = useState<ExpenseCategory>("petty-cash-office");
   const [writeOffType, setWriteOffType] = useState<WriteOffEntityType | "">("");
+  const [receipt, setReceipt] = useState<Slot>(IDLE);
+  const [typedUrl, setTypedUrl] = useState("");
   const writingOff = category === "bad-debt-recovery";
 
   useEffect(() => {
@@ -142,7 +145,7 @@ export default function AccountingExpenseNew() {
 
   return (
     <RouteSheet
-      backTo="/accounting/expenses"
+      backTo="/expenses"
       title="Record an expense"
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
@@ -246,18 +249,37 @@ export default function AccountingExpenseNew() {
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="receiptUrl" className="eyebrow text-muted-foreground">
-              Receipt link
-            </Label>
-            <Input
-              id="receiptUrl"
-              name="receiptUrl"
-              type="url"
-              inputMode="url"
-              autoComplete="off"
-              placeholder="https://"
+          {/* The receipt, two ways. Most are a scrap of paper on the counter,
+              so the camera comes first; a supplier's hosted invoice is just as
+              good a record and stays typeable. Photographing fills the same
+              field, so only one of them is ever sent. */}
+          <div className="space-y-3">
+            <Label className="eyebrow text-muted-foreground">Receipt</Label>
+            <input type="hidden" name="receiptUrl" value={receipt.url ?? typedUrl} />
+            <ScanDrop
+              label="Photograph it"
+              kind="document"
+              slot={receipt}
+              onChange={setReceipt}
+              captureTitle="Photograph the receipt"
+              frame="aspect-[3/4] w-full max-w-[14rem]"
             />
+            {receipt.status !== "done" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="receiptLink" className="text-xs text-muted-foreground">
+                  Or paste a link to one
+                </Label>
+                <Input
+                  id="receiptLink"
+                  value={typedUrl}
+                  onChange={(event) => setTypedUrl(event.target.value)}
+                  type="url"
+                  inputMode="url"
+                  autoComplete="off"
+                  placeholder="https://"
+                />
+              </div>
+            )}
           </div>
 
           {/* A bad-debt write-off names what it is writing off, so the cost can

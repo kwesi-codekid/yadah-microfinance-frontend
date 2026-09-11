@@ -2,13 +2,16 @@ import {
   BoxesIcon,
   EyeIcon,
   EyeOffIcon,
+  HistoryIcon,
   MoreHorizontalIcon,
   PackageIcon,
+  PackageXIcon,
   PencilIcon,
   PlusIcon,
   ReceiptTextIcon,
   ScalingIcon,
   Trash2Icon,
+  TruckIcon,
   UploadIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -580,10 +583,33 @@ function ItemRow({
                   Edit item
                 </Link>
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {/* Receiving is the ordinary way stock goes up, and the only one
+                  that asks what the delivery actually cost. */}
+              <DropdownMenuItem asChild>
+                <Link to={`/inventory/${row.id}/receive`} prefetch="intent">
+                  <TruckIcon />
+                  Receive stock
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to="/inventory/damages/new" prefetch="intent">
+                  <PackageXIcon />
+                  Report damage
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to={`/inventory/${row.id}/prices`} prefetch="intent">
+                  <HistoryIcon />
+                  Price history
+                </Link>
+              </DropdownMenuItem>
+              {/* A plain count correction, now that deliveries and write-offs
+                  have their own doors. */}
               <DropdownMenuItem asChild>
                 <Link to={`/inventory/${row.id}/stock`} prefetch="intent">
                   <ScalingIcon />
-                  Adjust stock
+                  Correct the count
                 </Link>
               </DropdownMenuItem>
               {canTrash && (

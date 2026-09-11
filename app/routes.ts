@@ -139,7 +139,7 @@ export default [
        not fit a card. The pages share a layout with the books down the left;
        every export stays outside it, a sibling of what it exports — nesting
        would run the page's own queries just to answer a download. */
-    route("accounting/expenses/export", "routes/accounting-expenses-export.tsx"),
+
     route("accounting/assets/export", "routes/accounting-assets-export.tsx"),
     route(
       "accounting/balance-sheet/export",
@@ -149,12 +149,20 @@ export default [
       "accounting/profit-loss/export",
       "routes/accounting-profit-loss-export.tsx",
     ),
+    /* What the business spends on itself. Its own module rather than a corner
+       of accounting: the counter records a cost the moment the money leaves
+       the drawer, and the statements are read at month end by somebody else.
+       Recording is an errand and opens as a drawer; deciding on one is a page,
+       because approving money out deserves the whole screen. */
+    route("expenses/export", "routes/expenses-export.tsx"),
+    route("expenses", "routes/expenses.tsx", [
+      route("new", "routes/expense-new.tsx"),
+    ]),
+    route("expenses/:id", "routes/expense.tsx"),
+
     layout("routes/accounting-layout.tsx", [
       route("accounting", "routes/accounting.tsx", [
         route("accounts/new", "routes/accounting-account-new.tsx"),
-      ]),
-      route("accounting/expenses", "routes/accounting-expenses.tsx", [
-        route("new", "routes/accounting-expense-new.tsx"),
       ]),
       route("accounting/assets", "routes/accounting-assets.tsx", [
         route("new", "routes/accounting-asset-new.tsx"),
@@ -255,14 +263,23 @@ export default [
     // the page's own work to answer it.
     route("inventory/import", "routes/inventory-import.tsx"),
     route("inventory/import/template", "routes/inventory-import-template.tsx"),
-    /* The shelf and the two lists it is filed under, behind one rail. The
-       add and rename drawers are children of the page they open over. */
+    // A sibling, so a download does not run the damage listing's queries.
+    route("inventory/damages/export", "routes/inventory-damages-export.tsx"),
+    /* The shelf, the damage register, and the two lists the shelf is filed
+       under, behind one rail. The add and rename drawers are children of the
+       page they open over. */
     layout("routes/inventory-layout.tsx", [
       route("inventory", "routes/inventory.tsx", [
         route("new", "routes/inventory-new.tsx"),
         route(":id/edit", "routes/inventory-edit.tsx"),
         route(":id/stock", "routes/inventory-stock.tsx"),
+        route(":id/receive", "routes/inventory-receive.tsx"),
+        route(":id/prices", "routes/inventory-prices.tsx"),
       ]),
+      route("inventory/damages", "routes/inventory-damages.tsx", [
+        route("new", "routes/inventory-damage-new.tsx"),
+      ]),
+      route("inventory/damages/:id", "routes/inventory-damage.tsx"),
       route("inventory/brands", "routes/inventory-brands.tsx", [
         route("new", "routes/inventory-brand-new.tsx"),
       ]),

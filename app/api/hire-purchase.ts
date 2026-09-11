@@ -2,7 +2,11 @@ import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
 import type {
   AgreementStatus,
+  DamageCause,
+  DamageStatus,
+  DamageSummary,
   HpAgreement,
+  HpDamage,
   HpConfig,
   HpEligibility,
   HpItem,
@@ -12,7 +16,10 @@ import type {
   ItemStatus,
   LabelKind,
   PaymentChannel,
+  PriceChange,
+  PriceKind,
   TrashedHpAgreement,
+  TrashedHpDamage,
   TrashedHpItem,
 } from "~/lib/hire-purchase";
 import type {
@@ -178,6 +185,181 @@ export function adjustStock(
   return apiFetch(`/hire-purchase/items/${id}/adjust-stock`, {
     method: "POST",
     json: input,
+    accessToken,
+  });
+}
+
+/**
+ * `POST /hire-purchase/items/{id}/receive` — book a delivery.
+ *
+ * Takes the invoice's unit cost every time. The invoice is the only place the
+ * real figure exists, and a delivery is the one moment somebody is holding it;
+ * when it disagrees with the shelf, the shelf moves and the move goes on the
+ * item's price history with the supplier and invoice that carried it.
+ */
+export function receiveStock(
+  accessToken: string,
+  id: string,
+  input: {
+    quantity: number;
+    unitCost: number;
+    /** Only when the delivery is also a repricing. */
+    sellingPrice?: number;
+    supplier?: string;
+    invoiceRef?: string;
+    receivedOn?: string;
+    note?: string;
+  },
+): Promise<{ item: HpItem; changes: PriceChange[] }> {
+  return apiFetch(`/hire-purchase/items/${id}/receive`, {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+/** `GET /hire-purchase/items/{id}/price-changes` — why this item's prices moved. */
+export function listPriceChanges(
+  accessToken: string,
+  id: string,
+  params: { page?: number; limit?: number; kind?: PriceKind } = {},
+): Promise<Paginated<PriceChange>> {
+  return apiFetch(`/hire-purchase/items/${id}/price-changes${queryOf(params)}`, {
+    accessToken,
+  });
+}
+
+/* ---------------------------------------------------------------- damages --- */
+
+export interface DamageList extends Paginated<HpDamage> {
+  /** Cost of the APPROVED reports matching the filters. Pending ones are not losses yet. */
+  totalCostValue: number;
+  pendingCount: number;
+}
+
+/**
+ * `POST /hire-purchase/damages` — report damaged or missing stock.
+ *
+ * Counter and office. Writes nothing off: the shelf is untouched until the
+ * office approves, so a mistaken report costs only a rejection.
+ */
+export function reportDamage(
+  accessToken: string,
+  input: {
+    itemId: string;
+    quantity: number;
+    cause: DamageCause;
+    description: string;
+    occurredOn?: string;
+    photoUrls?: string[];
+  },
+): Promise<{ damage: HpDamage }> {
+  return apiFetch("/hire-purchase/damages", {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+export function listDamages(
+  accessToken: string,
+  params: {
+    page?: number;
+    limit?: number;
+    status?: DamageStatus;
+    cause?: DamageCause;
+    itemId?: string;
+    search?: string;
+    from?: string;
+    to?: string;
+  } = {},
+): Promise<DamageList> {
+  return apiFetch(`/hire-purchase/damages${queryOf(params)}`, { accessToken });
+}
+
+export function exportDamages(
+  accessToken: string,
+  params: Record<string, string | undefined>,
+  format: ExportFormat,
+): Promise<Response> {
+  return apiFetchRaw(`/hire-purchase/damages${queryOf(params, format)}`, { accessToken });
+}
+
+export function getDamageSummary(
+  accessToken: string,
+  range: { from?: string; to?: string } = {},
+): Promise<DamageSummary> {
+  return apiFetch(`/hire-purchase/damages/summary${queryOf(range)}`, { accessToken });
+}
+
+export function getDamage(accessToken: string, id: string): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}`, { accessToken });
+}
+
+/** Only while pending — once decided, the report is what was decided on. */
+export function updateDamage(
+  accessToken: string,
+  id: string,
+  input: {
+    quantity?: number;
+    cause?: DamageCause;
+    description?: string;
+    occurredOn?: string;
+    photoUrls?: string[];
+  },
+): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}`, {
+    method: "PATCH",
+    json: input,
+    accessToken,
+  });
+}
+
+/**
+ * Approve: take the stock off the shelf and strike the loss (office). Refused
+ * with `SELF_APPROVAL` when the approver is the person who reported it.
+ */
+export function approveDamage(
+  accessToken: string,
+  id: string,
+): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}/approve`, {
+    method: "POST",
+    accessToken,
+  });
+}
+
+export function rejectDamage(
+  accessToken: string,
+  id: string,
+  reason: string,
+): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}/reject`, {
+    method: "POST",
+    json: { reason },
+    accessToken,
+  });
+}
+
+/** Pending or rejected only — an approved write-off stays on the record. */
+export function trashDamage(
+  accessToken: string,
+  id: string,
+  reason?: string,
+): Promise<{ damage: TrashedHpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}`, {
+    method: "DELETE",
+    json: reason ? { reason } : {},
+    accessToken,
+  });
+}
+
+export function restoreDamage(
+  accessToken: string,
+  id: string,
+): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}/restore`, {
+    method: "POST",
     accessToken,
   });
 }

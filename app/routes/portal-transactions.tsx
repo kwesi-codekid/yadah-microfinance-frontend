@@ -95,7 +95,7 @@ export default function PortalTransactions({ loaderData }: Route.ComponentProps)
         <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           <Figure label="Paid in" value={formatPesewas(totals.in.amount)} tone="success" hint={`${formatCount(totals.in.count)} deposits`} />
           <Figure label="Taken out" value={formatPesewas(totals.out.amount)} tone="warning" hint={`${formatCount(totals.out.count)} withdrawals`} />
-          <Figure label="Fees" value={formatPesewas(totals.feesCollected)} tone="muted" hint="Savings withdrawal fees" className="col-span-2 sm:col-span-1" />
+          <Figure label="Fees" value={formatPesewas(totals.feesCollected)} tone="muted" hint="Withdrawal fees and susu commission" className="col-span-2 sm:col-span-1" />
         </dl>
       )}
 

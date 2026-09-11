@@ -267,7 +267,7 @@ export default function Accounting({ loaderData }: Route.ComponentProps) {
         rowActions={(row) => (
           <>
             <DropdownMenuItem asChild>
-              <Link to={`/accounting/expenses?account=${row.id}&status=paid`}>
+              <Link to={`/expenses?account=${row.id}&status=paid`}>
                 <ReceiptIcon />
                 Expenses paid from here
               </Link>
