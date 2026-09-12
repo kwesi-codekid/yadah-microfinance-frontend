@@ -325,6 +325,7 @@ export interface RecentTransactions {
 /** Where an alert's action button goes. The API names the module; this maps it. */
 const ALERT_MODULE_PATHS: Record<string, string> = {
   susu: "/susu",
+  "susu-corrections": "/susu/corrections",
   savings: "/savings",
   loans: "/loans",
   "hire-purchase": "/hire-purchase",

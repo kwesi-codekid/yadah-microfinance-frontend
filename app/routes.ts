@@ -46,8 +46,8 @@ export default [
        savings listing for an account they already had open. */
     layout("routes/customer-layout.tsx", [
       route("customers/:id", "routes/customer-detail.tsx", [
-        // Admin-only, and the only way `assignedCollectorId` ever changes — a
-        // profile update ignores the field.
+        // Counter work, and the only way `assignedCollectorId` ever changes —
+        // a profile update ignores the field.
         route("collector", "routes/customer-collector.tsx"),
       ]),
       // One product per page: the counter works on one at a time, and each
@@ -72,6 +72,10 @@ export default [
        not fit a drawer — with the deposit drawer nested in turn. */
     route("susu/export", "routes/susu-export.tsx"),
     route("susu/summary", "routes/susu-summary.tsx"),
+    // Deposit corrections tellers asked for, waiting on the office. A page of
+    // its own: the queue cuts across accounts, and the decision is made on
+    // the account's page or here, whichever the office has open.
+    route("susu/corrections", "routes/susu-corrections.tsx"),
     route("susu", "routes/susu.tsx", [
       route("new", "routes/susu-new.tsx"),
       route("collect", "routes/susu-collect.tsx"),
@@ -86,6 +90,13 @@ export default [
     route(
       "susu/:id/withdrawals/:payoutId/receipt",
       "routes/susu-withdrawal-receipt.tsx",
+    ),
+    // JSON resource route behind the session: what correcting one deposit
+    // needs to know, for a screen — the ledger — that shows the deposit
+    // without its account.
+    route(
+      "susu/:id/deposits/:depositId/correctable",
+      "routes/susu-correctable.tsx",
     ),
     route("susu/:id", "routes/susu-detail.tsx", [
       route("deposit", "routes/susu-deposit.tsx"),

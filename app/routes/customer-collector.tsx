@@ -1,12 +1,12 @@
 import { data } from "react-router";
 
 import { throwAsRouteError } from "~/api/client";
+import { listCollectors } from "~/api/collectors";
 import { getCustomer, reassignCustomerCollector } from "~/api/customers";
 import { ApiError } from "~/api/error";
-import { listUsers } from "~/api/users";
 import { ReassignCollectorSheet } from "~/components/reassign-collector-sheet";
 import { NO_COLLECTOR } from "~/lib/customer-form";
-import { requireAdmin, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import type { Route } from "./+types/customer-collector";
 
@@ -17,21 +17,25 @@ export function meta(_: Route.MetaArgs) {
 /**
  * `PATCH /customers/:id/collector` — move one customer to another round.
  *
- * Admin only, and deliberately so: a manager may edit a customer but must not
- * quietly move who collects from them. It is also the *only* way the field
- * changes — a profile update ignores it — which is why this is a route of its
- * own rather than a field on the edit form.
+ * Counter work: whoever registers a customer puts them on a round, and the
+ * same people may move them — admin, manager or teller. Handing over a whole
+ * round stays admin-only, on the staff page. It is also the *only* way the
+ * field changes — a profile update ignores it — which is why this is a route
+ * of its own rather than a field on the edit form.
+ *
+ * The roster comes from `GET /collectors`, the one the counter may read; the
+ * staff directory behind `GET /users` is the office's.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireAdmin(request);
+  await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
-      const [{ customer }, staff] = await Promise.all([
+      const [{ customer }, roster] = await Promise.all([
         getCustomer(token, params.id),
-        listUsers(token, { role: "collector", status: "active", limit: 100 }),
+        listCollectors(token),
       ]);
-      return { customer, collectors: staff.items };
+      return { customer, collectors: roster.collectors };
     } catch (error) {
       throwAsRouteError(error);
     }
@@ -51,7 +55,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireAdmin(request);
+  await requireCounter(request);
   const form = await request.formData();
   // The select posts a sentinel for "nobody": the API takes null to mean the
   // customer is on no round and pays at the counter.

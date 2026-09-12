@@ -39,8 +39,8 @@ import {
   listCustomers,
   trashCustomer,
 } from "~/api/customers";
+import { listCollectors } from "~/api/collectors";
 import { ApiError } from "~/api/error";
-import { listUsers } from "~/api/users";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -162,9 +162,9 @@ function hrefFor(f: Filters, page = 1): string {
 /** Everyone signed in may read customers; only the office may register them. */
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireUser(request);
-  // Moving a round is admin-only: a manager may edit a customer but must not
-  // silently change who collects from them.
-  const canReassign = user.role === "admin";
+  // Moving one customer between rounds is counter work: whoever registers a
+  // customer puts them on a round, and the same people may move them.
+  const canReassign = isCounter(user);
   const url = new URL(request.url);
 
   const filters = readFilters(url);
@@ -192,19 +192,16 @@ export async function loader({ request }: Route.LoaderArgs) {
       // on each opening made the panel wait on the server every single time,
       // for a list that is identical every single time.
       //
-      // Admin-only, both because only an admin may reassign and because
-      // `GET /users` is closed to everyone else — a manager asking would be a
-      // 403 that fails the whole listing.
+      // The roster behind `GET /collectors` rather than the staff directory:
+      // it is the one the counter may read, and a teller may now reassign.
+      // Collectors get nothing — they may not reassign, and the roster is not
+      // theirs to read.
       //
       // Soft, for the same reason the bell in the layout is: a page of
-      // customers must not go down because the staff list is briefly away.
+      // customers must not go down because the roster is briefly away.
       // Without it the drawer falls back to the route that fetches for itself.
       canReassign
-        ? listUsers(token, {
-            role: "collector",
-            status: "active",
-            limit: 100,
-          }).catch((error: unknown) => {
+        ? listCollectors(token).catch((error: unknown) => {
             // A 401 belongs to `withAuth`, which renews the token and retries.
             if (error instanceof ApiError && error.status === 401) throw error;
             return null;
@@ -214,7 +211,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     return {
       list,
       collectors:
-        collectors?.items.map(({ id, name }) => ({ id, name })) ?? null,
+        collectors?.collectors.map(({ id, name }) => ({ id, name })) ?? null,
       counts: {
         all: active.total + inactive.total,
         active: active.total,
@@ -229,8 +226,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   return data(
     {
       // Serving whoever is at the counter — registering them, correcting the
-      // record, reading their statement. Switching a record off, importing a
-      // whole book and moving somebody between rounds are not that.
+      // record, reading their statement, moving them between rounds. Switching
+      // a record off and importing a whole book are not that.
       canServe: isCounter(user),
       canManage: isOffice(user),
       canReassign,
@@ -1028,9 +1025,9 @@ function RowActions({
           )}
           {canManage && (
             <>
-              {/* Drawn for everyone who can reach this half and disabled for a
-                  manager, rather than hidden — the same way every other row menu
-                  in this app says "not yours to do". */}
+              {/* Drawn for everyone who can reach this half and disabled where
+                  it is not theirs, rather than hidden — the same way every other
+                  row menu in this app says "not yours to do". */}
               <DropdownMenuItem asChild disabled={!canReassign}>
                 <Link
                   to={`/customers/${row.id}/reassign${search}`}
