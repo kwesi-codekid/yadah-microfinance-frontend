@@ -296,7 +296,7 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
           </div>
           <p className="text-sm text-muted-foreground">
             {agreement.item.name} · {agreement.durationMonths} months ·{" "}
-            {formatPesewas(agreement.item.sellingPrice)} · signed{" "}
+            {formatPesewas(agreement.agreedPrice)} · signed{" "}
             {formatAccraDate(agreement.createdAt)}
           </p>
         </div>
@@ -393,9 +393,15 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
 
       <section className="mb-6 rounded-xl border border-border bg-card p-4">
         <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* The agreed price, which is what this agreement is built on. The
+              shelf price at signing sits under it when the two differ, so the
+              office can see where the bargaining landed. */}
           <Figure
-            label="Selling price"
-            value={formatPesewas(agreement.item.sellingPrice)}
+            label="Agreed price"
+            value={formatPesewas(agreement.agreedPrice)}
+            {...(agreement.agreedPrice !== agreement.listedPrice
+              ? { hint: `Shelf price ${formatPesewas(agreement.listedPrice)}` }
+              : {})}
           />
           <Figure
             label="Deposit"

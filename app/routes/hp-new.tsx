@@ -24,6 +24,7 @@ import { IDLE, ScanDrop, type Slot } from "~/components/scan-drop";
 import { Figure } from "~/components/listing";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import {
   Select,
@@ -32,7 +33,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { formatCount, formatPesewas } from "~/lib/format";
+import {
+  formatCount,
+  formatPesewas,
+  parseCedis,
+  toCedisInput,
+} from "~/lib/format";
 import {
   CONDITION_LABELS,
   depositFor,
@@ -87,11 +93,20 @@ export async function action({ request }: Route.ActionArgs) {
   const form = await request.formData();
   const customerId = String(form.get("customerId") ?? "").trim();
   const itemId = String(form.get("itemId") ?? "").trim();
+  // Pesewas, converted in the browser so the price reaches here as the API
+  // wants it. Two is the floor: anything less cannot be split in half.
+  const agreedPrice = Number(form.get("agreedPrice") ?? 0);
   const durationMonths = Number(form.get("durationMonths") ?? 0);
   const signatureUrl = String(form.get("signatureUrl") ?? "").trim();
 
   if (!customerId) return data({ error: "Choose the customer." }, { status: 400 });
   if (!itemId) return data({ error: "Choose what they are buying." }, { status: 400 });
+  if (!Number.isInteger(agreedPrice) || agreedPrice < 2) {
+    return data(
+      { error: "Enter the price agreed with the customer." },
+      { status: 400 },
+    );
+  }
   if (!signatureUrl) {
     return data({ error: "Take a picture of the customer's signature." }, { status: 400 });
   }
@@ -103,7 +118,13 @@ export async function action({ request }: Route.ActionArgs) {
   let headers: { "Set-Cookie": string } | undefined;
   try {
     ({ data: result, headers } = await withAuth(request, (token) =>
-      signAgreement(token, { customerId, itemId, durationMonths, signatureUrl }),
+      signAgreement(token, {
+        customerId,
+        itemId,
+        agreedPrice,
+        durationMonths,
+        signatureUrl,
+      }),
     ));
   } catch (error) {
     if (error instanceof ApiError) {
@@ -160,8 +181,22 @@ export default function HpNew({ loaderData }: Route.ComponentProps) {
   const refused = eligibility?.eligible === false;
 
   const item = items.find((candidate) => candidate.id === itemId) ?? null;
-  const deposit = item ? depositFor(item.sellingPrice) : 0;
-  const financed = item ? financedFor(item.sellingPrice) : 0;
+
+  // The price is bargained, so the form asks for it. It starts at the shelf
+  // price of whatever was chosen — the common case needs no typing — and is
+  // typed over when the counter settles on something else.
+  const [priceText, setPriceText] = useState("");
+  useEffect(() => {
+    const chosen = items.find((candidate) => candidate.id === itemId);
+    setPriceText(chosen ? toCedisInput(chosen.sellingPrice) : "");
+  }, [itemId, items]);
+
+  const agreedPrice = priceText.trim() === "" ? null : parseCedis(priceText);
+  // Two pesewas is the API's floor: below that there is no half to take.
+  const priced = agreedPrice != null && agreedPrice >= 2;
+  const deposit = priced ? depositFor(agreedPrice) : 0;
+  const financed = priced ? financedFor(agreedPrice) : 0;
+  const offShelf = item != null && priced && agreedPrice !== item.sellingPrice;
   const interest =
     interestRatePercent != null
       ? Math.round((financed * interestRatePercent) / 100)
@@ -256,6 +291,47 @@ export default function HpNew({ loaderData }: Route.ComponentProps) {
             </div>
           )}
 
+          {/* The price the customer is held to. The shelf figure is where it
+              starts, not where it has to end: what was settled at the counter
+              is what the deposit and every instalment are worked out from. */}
+          {item && (
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="agreed-price"
+                className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+              >
+                Price agreed<span className="ml-0.5 text-destructive">*</span>
+              </Label>
+              <input type="hidden" name="agreedPrice" value={agreedPrice ?? ""} />
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">GH₵</span>
+                <Input
+                  id="agreed-price"
+                  value={priceText}
+                  onChange={(event) => setPriceText(event.target.value)}
+                  inputMode="decimal"
+                  autoComplete="off"
+                  placeholder={toCedisInput(item.sellingPrice)}
+                  className="tabular w-40"
+                />
+                {offShelf && (
+                  <button
+                    type="button"
+                    onClick={() => setPriceText(toCedisInput(item.sellingPrice))}
+                    className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                  >
+                    Back to the shelf price
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {priced
+                  ? `Shelf price ${formatPesewas(item.sellingPrice)}`
+                  : "Enter what the customer agreed to pay."}
+              </p>
+            </div>
+          )}
+
           <fieldset className="space-y-1.5">
             <legend className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Duration
@@ -289,7 +365,7 @@ export default function HpNew({ loaderData }: Route.ComponentProps) {
           {/* The two halves, worked out before anyone signs. The deposit is the
               figure the counter is asked for first and it has to match to the
               pesewa, so it is the one drawn largest. */}
-          {item && (
+          {item && priced && (
             <dl className="grid grid-cols-2 gap-3">
               <Figure
                 label="Deposit due"
@@ -337,7 +413,12 @@ export default function HpNew({ loaderData }: Route.ComponentProps) {
           <Button
             type="submit"
             disabled={
-              submitting || !customer || !item || refused || signature.status !== "done"
+              submitting ||
+              !customer ||
+              !item ||
+              !priced ||
+              refused ||
+              signature.status !== "done"
             }
           >
             {submitting && <Loader2Icon className="animate-spin" />}

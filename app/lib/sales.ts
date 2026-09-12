@@ -20,9 +20,10 @@ export type SaleStatus = "completed" | "voided";
 export type SaleChannel = "cash" | "paystack" | "momo";
 
 /**
- * One line of a completed sale, as the API returns it. `unitPrice` is what was
- * actually charged and `listPrice` what the shelf said — they differ only when
- * someone haggled, and the receipt shows both so a discount is never invisible.
+ * One line of a completed sale, as the API returns it. `unitPrice` is the price
+ * the line was sold at — the figure settled with the buyer, which is the price,
+ * full stop. `listPrice` is what the shelf said at the time, kept for the
+ * office to compare against; bargaining moves a line either side of it.
  */
 export interface SaleLine {
   itemId: string;
@@ -43,9 +44,9 @@ export interface Sale {
   buyerName: string;
   buyerPhone?: string;
   lines: SaleLine[];
-  subtotal: number;
-  /** List total less what was charged. Zero on a sale at shelf prices. */
-  discount: number;
+  /** What the basket would have come to at shelf prices. Reference only. */
+  listedTotal: number;
+  /** What the buyer paid, and what the sale is. */
   total: number;
   channel: string;
   soldById: string;
@@ -73,20 +74,24 @@ export interface SaleTotals {
 /**
  * A line while it is still being built at the till, before anything is sent.
  *
- * `unitPrice` is left unset for the ordinary case and the API fills it from the
- * item's selling price. It is set only to record a haggled price — which is why
- * the form starts it empty rather than pre-filled with the shelf price: a box
- * that already holds a number invites editing it.
+ * `unitPrice` is the price agreed with the buyer, and the till starts it at the
+ * shelf price so that a sale at the shelf price needs no typing. Every line
+ * carries its own figure because that is how the counter works: a price is
+ * settled per item, and the settled price is what the sale is written at.
  */
 export interface BasketLine {
   itemId: string;
   name: string;
-  /** The shelf price, kept for the discount arithmetic and the preview. */
+  /** What the shelf says, for the reset and the comparison on the line. */
   listPrice: number;
   /** What is left on the shelf, so the till can refuse to oversell. */
   available: number;
   quantity: number;
-  /** Pesewas. Null means "charge the list price". */
+  /**
+   * Pesewas. Null while the box is empty or holds something unreadable, which
+   * blocks the sale rather than quietly falling back to the shelf price — the
+   * figure charged has to be the figure somebody entered.
+   */
   unitPrice: number | null;
 }
 
@@ -100,14 +105,9 @@ export function lineListTotal(line: BasketLine): number {
   return line.listPrice * line.quantity;
 }
 
-/** The basket at shelf prices. */
-export function basketSubtotal(lines: BasketLine[]): number {
+/** What the basket would have come to at shelf prices. Reference only. */
+export function basketListedTotal(lines: BasketLine[]): number {
   return lines.reduce((sum, line) => sum + lineListTotal(line), 0);
-}
-
-/** What comes off for haggling. Never negative — see `checkLine`. */
-export function basketDiscount(lines: BasketLine[]): number {
-  return Math.max(0, basketSubtotal(lines) - basketTotal(lines));
 }
 
 /** What the buyer actually pays. */
@@ -129,15 +129,33 @@ export function checkLine(line: BasketLine): string | null {
       ? "Out of stock."
       : `Only ${line.available} left on the shelf.`;
   }
-  if (line.unitPrice != null) {
-    if (!Number.isFinite(line.unitPrice) || line.unitPrice < 1) {
-      return "Enter the price charged, or clear it for the shelf price.";
-    }
-    if (line.unitPrice > line.listPrice) {
-      // Above list is almost always a slipped decimal point. The API would take
-      // it, which is exactly why it is worth catching here.
-      return "Above the shelf price. Change the item's price instead.";
-    }
+  if (
+    line.unitPrice == null ||
+    !Number.isFinite(line.unitPrice) ||
+    line.unitPrice < 1
+  ) {
+    return "Enter the price agreed.";
+  }
+  return null;
+}
+
+/**
+ * A remark to put under a settled price, or null. It never blocks the sale:
+ * what a line goes for is the counter's call, above the shelf price as readily
+ * as below it, and this screen does not get a vote.
+ *
+ * It exists for the one thing bargaining and a typing mistake look alike in —
+ * a slipped decimal point. GH₵120 entered for GH₵1,200 reads as an ordinary
+ * figure on the line and as a hole in the month's takings. Three times either
+ * way is past any haggling and worth a glance.
+ */
+export function priceNote(line: BasketLine): string | null {
+  if (line.unitPrice == null || line.listPrice <= 0) return null;
+  if (line.unitPrice >= line.listPrice * 3) {
+    return "Well above the shelf price — check the figure.";
+  }
+  if (line.unitPrice * 3 <= line.listPrice) {
+    return "Well below the shelf price — check the figure.";
   }
   return null;
 }
@@ -199,9 +217,9 @@ export function checkBasket(lines: BasketLine[]): string | null {
 /**
  * The body `POST /hire-purchase/sales` wants, from a basket.
  *
- * `unitPrice` is dropped when it is null so the API applies the shelf price
- * itself — sending the same number back would record every sale as haggled at
- * exactly list, which is not the same thing and reads wrong on a receipt.
+ * A null `unitPrice` is dropped and the API charges the shelf price. The till
+ * blocks on an empty box before it gets here, so in practice this only spares
+ * the API a field it would have filled with the same number.
  */
 export function linesForApi(
   lines: BasketLine[],

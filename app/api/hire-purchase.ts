@@ -562,15 +562,22 @@ export function getAgreement(
  * POST /hire-purchase/agreements — sign one.
  *
  * A unit comes off the shelf immediately and the prices are snapshotted, but
- * the item does not leave the shop until the 50% deposit is paid. Refused with
- * `OUT_OF_STOCK` when the shelf is empty, and with `NOT_ELIGIBLE` when the
- * customer does not clear the history and no-other-credit conditions.
+ * the item does not leave the shop until half of `agreedPrice` is paid as the
+ * deposit. Refused with `OUT_OF_STOCK` when the shelf is empty, and with
+ * `NOT_ELIGIBLE` when the customer does not clear the history and
+ * no-other-credit conditions.
  */
 export function signAgreement(
   accessToken: string,
   input: {
     customerId: string;
     itemId: string;
+    /**
+     * Pesewas. What the counter and the customer settled on, which may sit
+     * either side of the shelf price. The deposit and the instalments are
+     * worked out from this.
+     */
+    agreedPrice: number;
     durationMonths: number;
     /** From POST /uploads?kind=signature. */
     signatureUrl: string;

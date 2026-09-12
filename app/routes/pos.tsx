@@ -22,14 +22,14 @@ import { formatPesewas, parseCedis, toCedisInput } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import {
   CHANNEL_OPTIONS,
-  basketDiscount,
-  basketSubtotal,
+  basketListedTotal,
   basketTotal,
   checkBasket,
   checkLine,
   lineErrorsFromRefusal,
   lineTotal,
   linesForApi,
+  priceNote,
   type BasketLine,
   type LineErrors,
   type SaleChannel,
@@ -241,7 +241,9 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
           listPrice: item.sellingPrice,
           available: item.available,
           quantity: 1,
-          unitPrice: null,
+          // Starts at the shelf price so the ordinary sale needs no typing,
+          // and is overwritten when a price is settled at the counter.
+          unitPrice: item.sellingPrice,
         },
       ];
     });
@@ -274,9 +276,11 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
   );
   const quantities = new Map(lines.map((l) => [l.itemId, l.quantity]));
 
-  const subtotal = basketSubtotal(lines);
-  const discount = basketDiscount(lines);
+  // Two figures, and only the second is the sale: what the shelf would have
+  // come to, and what was agreed for it.
+  const listedTotal = basketListedTotal(lines);
   const total = basketTotal(lines);
+  const haggled = lines.length > 0 && listedTotal !== total;
   const units = lines.reduce((n, l) => n + l.quantity, 0);
 
   const basketIssue = checkBasket(lines);
@@ -475,12 +479,25 @@ export default function Pos({ loaderData }: Route.ComponentProps) {
             </div>
           </div>
 
-          <dl className="space-y-1.5 rounded-xl bg-muted/50 px-4 py-3 text-sm">
-            <Money label="Subtotal" value={subtotal} muted />
-            {discount > 0 && (
-              <Money label="Discount" value={-discount} tone="warning" />
+          {/* One figure, because one figure is owed. The shelf total appears
+              beside it only when the counter moved off it, and then only as
+              something to compare against — it is not a discount coming off a
+              price the buyer never agreed to. */}
+          <dl
+            className={cn(
+              "rounded-xl bg-muted/50 px-4 py-3 text-sm",
+              haggled && "space-y-1.5",
             )}
-            <div className="flex items-baseline justify-between border-t border-border pt-2">
+          >
+            {haggled && (
+              <Money label="At shelf prices" value={listedTotal} muted />
+            )}
+            <div
+              className={cn(
+                "flex items-baseline justify-between",
+                haggled && "border-t border-border pt-2",
+              )}
+            >
               <dt className="font-medium">Total</dt>
               <dd className="tabular font-heading text-2xl font-bold tracking-tight">
                 {formatPesewas(total)}
@@ -593,14 +610,17 @@ function OrderLine({
   onPatch: (next: Partial<BasketLine>) => void;
   onDrop: () => void;
 }) {
-  const [haggling, setHaggling] = useState(line.unitPrice != null);
   // Held as typed so a half-entered "12." does not snap back under the cursor.
   const [priceText, setPriceText] = useState(
-    line.unitPrice == null ? "" : toCedisInput(line.unitPrice),
+    toCedisInput(line.unitPrice ?? line.listPrice),
   );
   // The till's own check first; the API's word only when the till saw nothing.
   const issue = checkLine(line) ?? serverIssue;
-  const discounted = line.unitPrice != null && line.unitPrice < line.listPrice;
+  const note = priceNote(line);
+  // Moved off the shelf price — including to nothing at all, which is when the
+  // way back is most wanted. `settled` is the narrower case worth comparing.
+  const offShelf = line.unitPrice !== line.listPrice;
+  const settled = line.unitPrice != null && offShelf;
 
   return (
     <li className="py-3">
@@ -609,10 +629,10 @@ function OrderLine({
           <p className="truncate text-sm font-medium">{line.name}</p>
           <p className="tabular text-xs text-muted-foreground">
             {formatPesewas(line.unitPrice ?? line.listPrice)} each
-            {discounted && (
-              <span className="ml-1 line-through">
-                {formatPesewas(line.listPrice)}
-              </span>
+            {/* Not struck through: the shelf price was not cancelled, it was
+                the starting point. It sits here to be compared with. */}
+            {settled && (
+              <span className="ml-1">shelf {formatPesewas(line.listPrice)}</span>
             )}
           </p>
         </div>
@@ -659,47 +679,46 @@ function OrderLine({
         </button>
       </div>
 
-      <div className="mt-1.5 flex items-center gap-3 text-xs">
-        {haggling ? (
-          <label className="flex items-center gap-2">
-            <span className="text-muted-foreground">Charge GH₵</span>
-            <Input
-              value={priceText}
-              onChange={(e) => {
-                const text = e.target.value;
-                setPriceText(text);
-                onPatch({
-                  unitPrice: text.trim() === "" ? null : parseCedis(text),
-                });
-              }}
-              inputMode="decimal"
-              autoComplete="off"
-              placeholder={toCedisInput(line.listPrice)}
-              className="tabular h-7 w-24 text-xs"
-              autoFocus={line.unitPrice == null}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                setHaggling(false);
-                setPriceText("");
-                onPatch({ unitPrice: null });
-              }}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              Shelf price
-            </button>
-          </label>
-        ) : (
+      {/* The price is a box on every line, not a link to reveal one. What a
+          thing goes for is settled while the buyer is standing there, and the
+          figure agreed is the figure the sale is written at — so it is always
+          on screen, starting at the shelf price and edited over. */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <label className="flex items-center gap-2">
+          <span className="text-muted-foreground">Price GH₵</span>
+          <Input
+            value={priceText}
+            onChange={(e) => {
+              const text = e.target.value;
+              setPriceText(text);
+              onPatch({
+                unitPrice: text.trim() === "" ? null : parseCedis(text),
+              });
+            }}
+            inputMode="decimal"
+            autoComplete="off"
+            aria-label={`Price agreed for ${line.name}`}
+            placeholder={toCedisInput(line.listPrice)}
+            className="tabular h-7 w-24 text-xs"
+          />
+        </label>
+        {offShelf && (
           <button
             type="button"
-            onClick={() => setHaggling(true)}
+            onClick={() => {
+              setPriceText(toCedisInput(line.listPrice));
+              onPatch({ unitPrice: line.listPrice });
+            }}
             className="text-muted-foreground hover:text-foreground"
           >
-            Change price
+            Back to shelf price
           </button>
         )}
-        {issue && <span className="text-destructive">{issue}</span>}
+        {issue ? (
+          <span className="text-destructive">{issue}</span>
+        ) : (
+          note && <span className="text-warning">{note}</span>
+        )}
       </div>
     </li>
   );
@@ -759,19 +778,15 @@ function Money({
   label,
   value,
   muted,
-  tone,
 }: {
   label: string;
   value: number;
   muted?: boolean;
-  tone?: "warning";
 }) {
   return (
     <div className="flex items-baseline justify-between">
       <dt className={cn(muted && "text-muted-foreground")}>{label}</dt>
-      <dd className={cn("tabular", tone === "warning" && "text-warning")}>
-        {value < 0 ? `−${formatPesewas(-value)}` : formatPesewas(value)}
-      </dd>
+      <dd className="tabular">{formatPesewas(value)}</dd>
     </div>
   );
 }
