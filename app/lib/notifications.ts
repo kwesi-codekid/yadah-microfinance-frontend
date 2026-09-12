@@ -15,6 +15,8 @@ export type NotificationType =
   | "susu.deposit"
   | "susu.withdrawal"
   | "susu.payout"
+  | "susu.carry-forward"
+  | "susu.correction"
   | "savings.deposit"
   | "savings.withdrawal"
   | "customer.reassigned"
@@ -61,6 +63,8 @@ export const TYPE_LABELS: Record<NotificationType, string> = {
   "susu.deposit": "Susu deposit",
   "susu.withdrawal": "Susu withdrawal",
   "susu.payout": "Susu payout",
+  "susu.carry-forward": "Susu carried forward",
+  "susu.correction": "Deposit correction",
   "savings.deposit": "Savings deposit",
   "savings.withdrawal": "Savings withdrawal",
   "customer.reassigned": "Customer reassigned",
@@ -81,6 +85,10 @@ export const TYPE_TONE: Record<
   "susu.deposit": "success",
   "susu.withdrawal": "muted",
   "susu.payout": "muted",
+  "susu.carry-forward": "info",
+  // Somebody is waiting on it — the office for a decision, or the teller for
+  // the answer — so it is drawn to be noticed.
+  "susu.correction": "warning",
   "savings.deposit": "success",
   "savings.withdrawal": "muted",
   "customer.reassigned": "info",
@@ -132,7 +140,12 @@ export function linkFor(n: AppNotification): string | null {
     case "susu.deposit":
     case "susu.withdrawal":
     case "susu.payout":
+    case "susu.carry-forward":
       return susu ? `/susu/${susu}` : null;
+    // The account page is where a waiting correction is decided, and where
+    // the deposit it changed can be read afterwards.
+    case "susu.correction":
+      return susu ? `/susu/${susu}` : "/susu/corrections";
     case "savings.deposit":
     case "savings.withdrawal":
       return savings ? `/savings/${savings}` : null;

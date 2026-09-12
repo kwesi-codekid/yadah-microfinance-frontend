@@ -112,9 +112,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       // one off or moves it to the trash.
       canEdit: isCounter(user),
       canAdminister: isOffice(user),
-      // Moving a round is admin-only: a manager may edit a customer but must
-      // not silently change who collects from them.
-      canReassign: user.role === "admin",
+      // Moving one customer between rounds is counter work, like registering
+      // them was. Handing over a whole round is not, and lives on the staff page.
+      canReassign: isCounter(user),
       registeredBy,
       collectorName,
     },
@@ -492,9 +492,9 @@ function HeaderActions({
                 Activate
               </DropdownMenuItem>
             )}
-            {/* Drawn for everyone who can reach this menu and disabled for a
-              manager, rather than hidden — the same way every other row menu in
-              this app says "not yours to do". */}
+            {/* Drawn for everyone who can reach this menu and disabled where it
+              is not theirs, rather than hidden — the same way every other row
+              menu in this app says "not yours to do". */}
             <DropdownMenuItem asChild disabled={!canReassign}>
               <Link
                 to={`/customers/${customer.id}/collector`}

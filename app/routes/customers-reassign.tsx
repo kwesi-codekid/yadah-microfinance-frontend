@@ -23,9 +23,9 @@ export function meta(_: Route.MetaArgs) {
  * router has nothing to fetch and the panel opens in the same frame as the
  * click.
  *
- * The gate does not move: the action this posts to still calls `requireAdmin`,
- * which is where it belongs — a menu item can be disabled, but only the server
- * can refuse.
+ * The gate does not move: the action this posts to still calls
+ * `requireCounter`, which is where it belongs — a menu item can be disabled,
+ * but only the server can refuse.
  *
  * `/customers/:id/collector` is the same errand over the customer's own page,
  * and it does have a loader. Cold links land here without the parent's rows to

@@ -171,6 +171,86 @@ export interface TrashedSusuDeposit extends SusuDeposit {
   deleteReason?: string;
 }
 
+/* ------------------------------------------------------------- corrections --- */
+
+/**
+ * A teller's request to correct a deposit, waiting on the office.
+ *
+ * The office corrects a deposit outright. A teller may not — a figure already
+ * on the ledger is changed by a decision — but may ask, and this is the
+ * asking. Nothing moves until the office approves, and approval runs the very
+ * same correction the office would have made by hand, so every rule that
+ * guards a direct correction guards this one, as the account stands then.
+ */
+export type CorrectionStatus = "pending" | "approved" | "rejected" | "cancelled";
+
+export const CORRECTION_STATUSES: CorrectionStatus[] = [
+  "pending",
+  "approved",
+  "rejected",
+  "cancelled",
+];
+
+export interface DepositCorrection {
+  id: string;
+  accountId: string;
+  depositId: string;
+  customerId: string;
+  /** Joined for display; the record holds only ids. */
+  customerName?: string;
+  accountNumber?: string;
+  /** The account's own distinct ref — the number alone is the customer's. */
+  accountRef?: string;
+  /** The deposit as it stood when the teller asked, and what they asked for. */
+  amountBefore: number;
+  amount: number;
+  daysBefore: number;
+  days: number;
+  reason: string;
+  status: CorrectionStatus;
+  requestedById: string;
+  requestedByName?: string;
+  /** Whoever decided — or, for a cancellation, whoever withdrew it. */
+  reviewedById?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+  createdAt: string;
+}
+
+export const CORRECTION_STATUS_LABELS: Record<CorrectionStatus, string> = {
+  pending: "Awaiting decision",
+  approved: "Applied",
+  rejected: "Declined",
+  cancelled: "Taken back",
+};
+
+export const CORRECTION_STATUS_BLURBS: Record<CorrectionStatus, string> = {
+  pending: "Waiting on the office. The deposit still shows the old figure.",
+  approved: "The office applied it. The deposit now shows the new figure.",
+  rejected: "The office said no. The deposit is unchanged.",
+  cancelled: "Whoever asked took it back before a decision.",
+};
+
+/** Waiting is the one that needs someone, so it takes the warning. */
+export const CORRECTION_STATUS_TONE: Record<
+  CorrectionStatus,
+  "success" | "info" | "warning" | "danger" | "muted"
+> = {
+  pending: "warning",
+  approved: "success",
+  rejected: "danger",
+  cancelled: "muted",
+};
+
+/** The API wants three to three hundred characters of reason. */
+export function checkCorrectionReason(reason: string): string | null {
+  const trimmed = reason.trim();
+  if (trimmed.length < 3) return "Say why, in a few words.";
+  if (trimmed.length > 300) return "Keep it under 300 characters.";
+  return null;
+}
+
 /** GET /susu/summary — one Accra day's collection, for reconciliation. */
 export interface SusuSummary {
   date: string;

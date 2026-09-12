@@ -11,6 +11,7 @@ import {
   HandCoinsIcon,
   LayersIcon,
   Loader2Icon,
+  ListChecksIcon,
   MoreHorizontalIcon,
   PlusIcon,
   SearchIcon,
@@ -285,6 +286,17 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
                 Day summary
               </Link>
             </Button>
+            {/* Deposit corrections tellers asked for. The counter reads the
+                queue; the office decides from it. Collectors cannot ask, so
+                they are not shown the door. */}
+            {canManage && (
+              <Button asChild variant="outline" size="sm">
+                <Link to="/susu/corrections" prefetch="intent">
+                  <ListChecksIcon />
+                  Corrections
+                </Link>
+              </Button>
+            )}
             <Button asChild variant="outline" size="sm">
               <Link to={`/susu/collect${search}`} prefetch="intent">
                 <HandCoinsIcon />

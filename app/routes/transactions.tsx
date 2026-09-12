@@ -4,16 +4,32 @@ import {
   ArrowRightLeftIcon,
   ArrowUpRightIcon,
   HourglassIcon,
+  PencilIcon,
   PrinterIcon,
   ScaleIcon,
   UserIcon,
   WalletIcon,
 } from "lucide-react";
-import { useState } from "react";
-import { data, Link, useNavigation, useSubmit } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import {
+  data,
+  Link,
+  useFetcher,
+  useNavigation,
+  useSubmit,
+} from "react-router";
+import { toast } from "sonner";
 
 import { getCustomer } from "~/api/customers";
+import { ApiError } from "~/api/error";
 import { listTransactions } from "~/api/reports";
+import { correctDeposit, proposeCorrection } from "~/api/susu";
+import {
+  CorrectDepositDialog,
+  isCorrectableAccount,
+  whyNotCorrectable,
+  type CorrectionOutcome,
+} from "~/components/deposit-correction";
 import {
   ExportMenu,
   FilterChip,
@@ -23,9 +39,26 @@ import {
   PeriodFilter,
 } from "~/components/listing";
 import { Page } from "~/components/page";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { DataTable, type Column } from "~/components/ui/data-table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { DropdownMenuItem } from "~/components/ui/dropdown-menu";
+import { isOffice } from "~/lib/auth";
 import { channelLabel } from "~/lib/customers";
 import {
   accraDay,
@@ -36,6 +69,7 @@ import {
   formatCount,
   formatDayRange,
   formatPesewas,
+  parseCedis,
 } from "~/lib/format";
 import {
   MODULES,
@@ -53,6 +87,7 @@ import {
 } from "~/lib/reports";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
+import type { Correctable } from "./susu-correctable";
 import type { Route } from "./+types/transactions";
 
 export function meta(_: Route.MetaArgs) {
@@ -117,7 +152,7 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
  * with no period beside it is a figure nobody can check.
  */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  const user = await requireOffice(request);
   const url = new URL(request.url);
 
   const filters = readFilters(url);
@@ -163,12 +198,80 @@ export async function loader({ request }: Route.LoaderArgs) {
           button, and what decides whether Clear can be pressed. */
       explicit: Boolean(filters.from || filters.to),
       customerName: result.customer?.fullName ?? null,
+      /**
+       * The office corrects a deposit outright; the counter asks. The page is
+       * office-only today, so this is always true — it is here so the dialog
+       * asks the right question if the ledger is ever opened wider.
+       */
+      canManage: isOffice(user),
       total: feed.total,
       totals: feed.totals,
       rows: feed.items.map(toRow),
     },
     { headers },
   );
+}
+
+/**
+ * The one thing the ledger changes: a susu deposit's amount, the same way the
+ * account page does it. The shared dialog posts here with the account and
+ * deposit named, since unlike the account page this route has neither in its
+ * path.
+ */
+export async function action({ request }: Route.ActionArgs) {
+  await requireOffice(request);
+  const form = await request.formData();
+  const intent = String(form.get("intent") ?? "");
+  const accountId = String(form.get("accountId") ?? "");
+  const depositId = String(form.get("depositId") ?? "");
+  const why = String(form.get("reason") ?? "").trim();
+  const amount = parseCedis(String(form.get("amount") ?? ""));
+
+  if (!accountId || !depositId) {
+    throw new Response("No deposit named.", { status: 400 });
+  }
+  if (amount == null || amount <= 0) {
+    throw new Response("Enter the corrected amount.", { status: 400 });
+  }
+
+  try {
+    const { data: result, headers } = await withAuth(request, async (token) => {
+      switch (intent) {
+        case "correct-deposit":
+          await correctDeposit(token, accountId, depositId, amount);
+          return { message: "Deposit corrected." };
+        case "propose-correction":
+          await proposeCorrection(token, accountId, depositId, {
+            amount,
+            reason: why,
+          });
+          return {
+            message: "Sent to the office. Nothing changes until they answer.",
+          };
+        default:
+          throw new Response("Unknown action.", { status: 400 });
+      }
+    });
+    return data<CorrectionOutcome>(
+      { ok: true, message: result.message },
+      { headers },
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return data<CorrectionOutcome>(
+        {
+          ok: false,
+          message: error.message,
+          details:
+            typeof error.details === "object" && error.details
+              ? (error.details as Record<string, unknown>)
+              : undefined,
+        },
+        { status: error.status },
+      );
+    }
+    throw error;
+  }
 }
 
 /* -------------------------------------------------------------------- rows --- */
@@ -195,12 +298,28 @@ interface Row {
   day: string;
   /** The printable receipt, or null for a charge that has not landed. */
   receiptPath: string | null;
+  /** The susu account behind a susu row, for the correction dialog. */
+  accountId: string | null;
+  /**
+   * A susu deposit that has landed and was not written by a transfer — the
+   * only ledger row whose figure can be corrected. Whether it is also the
+   * newest on its account, and whether a request is already waiting, is read
+   * when the item is chosen.
+   */
+  correctable: boolean;
 }
 
 function toRow(t: UnifiedTransaction): Row {
+  const susuAccount = t.ref.kind === "susu-account" ? t.ref.id : null;
   return {
     id: t.id,
     module: t.module,
+    accountId: susuAccount,
+    correctable:
+      t.type === "susu-deposit" &&
+      susuAccount !== null &&
+      t.status === "completed" &&
+      t.channel !== "transfer",
     what: TXN_TYPE_LABELS[t.type] ?? t.type,
     direction: t.direction,
     amount: t.amount,
@@ -258,12 +377,37 @@ function haystack(row: Row): string {
  * under the table says so rather than letting a miss be read as an absence.
  */
 export default function Transactions({ loaderData }: Route.ComponentProps) {
-  const { filters, page, range, explicit, customerName, total, totals, rows } =
-    loaderData;
+  const {
+    filters,
+    page,
+    range,
+    explicit,
+    customerName,
+    canManage,
+    total,
+    totals,
+    rows,
+  } = loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
 
   const [search, setSearch] = useState("");
+
+  // The row being corrected, if any. One dialog over the table, opened by
+  // whichever menu asked; the ledger re-reads itself when the action answers.
+  const [correcting, setCorrecting] = useState<Row | null>(null);
+  const fetcher = useFetcher<CorrectionOutcome>();
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !fetcher.data) return;
+    if (fetcher.data.ok) {
+      toast.success(fetcher.data.message);
+      setCorrecting(null);
+    } else {
+      toast.error(fetcher.data.message, {
+        description: describe(fetcher.data.details),
+      });
+    }
+  }, [fetcher.state, fetcher.data]);
 
   const busy =
     navigation.state === "loading" &&
@@ -493,6 +637,19 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
                 No record to open
               </DropdownMenuItem>
             )}
+            {/* A susu deposit can be corrected from here as from its account
+                page. Disabled rather than absent on every other row, for the
+                reason above. */}
+            <DropdownMenuItem
+              disabled={!row.correctable}
+              onSelect={(event) => {
+                event.preventDefault();
+                setCorrecting(row);
+              }}
+            >
+              <PencilIcon />
+              {row.correctable ? "Correct the amount" : "Nothing to correct"}
+            </DropdownMenuItem>
             {/* The advice page finds its entry by re-reading the customer's
                 statement, so it is handed this row's own day to look in. */}
             <DropdownMenuItem asChild>
@@ -534,8 +691,131 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
         }
       />
 
+      {correcting && correcting.accountId && (
+        <LedgerCorrection
+          key={correcting.id}
+          accountId={correcting.accountId}
+          depositId={correcting.id}
+          canManage={canManage}
+          fetcher={fetcher}
+          onClose={() => setCorrecting(null)}
+        />
+      )}
     </Page>
   );
+}
+
+/* -------------------------------------------------------------- correcting --- */
+
+/**
+ * Correcting a deposit from the ledger.
+ *
+ * The row knows the account and the deposit, but not what the correction
+ * rules need — the daily amount, whether this is the newest deposit, whether a
+ * request is already waiting — so those are read when the item is chosen,
+ * from the resource route at `/susu/:id/deposits/:depositId/correctable`.
+ * Nothing is fetched for rows nobody touches. What comes back decides which
+ * dialog opens: the correction itself, or the reason it cannot be made.
+ *
+ * A waiting request is decided on the account page, not here: the ledger
+ * corrects figures, and deciding what a teller asked deserves the row it sits
+ * on, with the rest of the cycle around it.
+ */
+function LedgerCorrection({
+  accountId,
+  depositId,
+  canManage,
+  fetcher,
+  onClose,
+}: {
+  accountId: string;
+  depositId: string;
+  canManage: boolean;
+  fetcher: ReturnType<typeof useFetcher<CorrectionOutcome>>;
+  onClose: () => void;
+}) {
+  const probe = useFetcher<Correctable>();
+  // Asked once per opening — the component is keyed by the row, so a second
+  // opening is a fresh instance and a fresh read.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (asked.current) return;
+    asked.current = true;
+    probe.load(`/susu/${accountId}/deposits/${depositId}/correctable`);
+  }, [probe, accountId, depositId]);
+
+  const found = probe.data;
+
+  if (!found) {
+    return (
+      <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Correct the deposit</DialogTitle>
+            <DialogDescription>Reading the account…</DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  const blocked =
+    found.error ??
+    (found.account && found.deposit
+      ? whyNotCorrectable(
+          found.deposit,
+          found.newestId,
+          isCorrectableAccount(found.account),
+        )
+      : "This deposit cannot be read right now.");
+
+  if (blocked || !found.account || !found.deposit) {
+    return (
+      <AlertDialog open onOpenChange={(open) => !open && onClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>This deposit cannot be corrected here</AlertDialogTitle>
+            <AlertDialogDescription>{blocked}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* A waiting request is decided where it sits. */}
+            {found.deposit?.pending && (
+              <Button asChild variant="outline">
+                <Link to={`/susu/${accountId}`}>Open the account</Link>
+              </Button>
+            )}
+            <AlertDialogAction onClick={onClose}>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
+
+  return (
+    <CorrectDepositDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      account={found.account}
+      deposit={found.deposit}
+      asking={!canManage}
+      fetcher={fetcher}
+    />
+  );
+}
+
+/** The figures an error carries, as one line under the toast. */
+function describe(details?: Record<string, unknown>): string | undefined {
+  if (!details) return undefined;
+  const money = (k: string) =>
+    typeof details[k] === "number"
+      ? `GH₵ ${formatAmount(details[k] as number)}`
+      : null;
+  const parts = [
+    money("dailyAmount") && `daily ${money("dailyAmount")}`,
+    typeof details.remaining === "number" &&
+      `${details.remaining} day${details.remaining === 1 ? "" : "s"} left in the cycle`,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
 }
 
 /* ------------------------------------------------------------------ totals --- */
