@@ -8,7 +8,14 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
-import { data, Form, useActionData, useFetcher, useNavigation } from "react-router";
+import {
+  data,
+  Form,
+  Link,
+  useActionData,
+  useFetcher,
+  useNavigation,
+} from "react-router";
 import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
@@ -25,6 +32,7 @@ import {
   DURATIONS,
   DURATION_LABELS,
   checkPrincipal,
+  guarantorIssue,
   interestOn,
   rateFor,
   tierFor,
@@ -58,12 +66,22 @@ export async function action({ request }: Route.ActionArgs) {
   await requireCounter(request);
   const form = await request.formData();
   const customerId = String(form.get("customerId") ?? "").trim();
+  const guarantorId = String(form.get("guarantorId") ?? "").trim();
   const durationMonths = Number(form.get("durationMonths") ?? 0);
   const principal = parseCedis(String(form.get("principal") ?? "").trim());
   const signatureUrl = String(form.get("signatureUrl") ?? "").trim();
 
   if (!customerId) {
     return data({ error: "Choose the customer applying." }, { status: 400 });
+  }
+  if (!guarantorId) {
+    return data({ error: "Choose the guarantor." }, { status: 400 });
+  }
+  if (guarantorId === customerId) {
+    return data(
+      { error: "A customer cannot guarantee their own loan." },
+      { status: 400 },
+    );
   }
   if (!signatureUrl) {
     return data({ error: "Take a picture of the customer's signature." }, { status: 400 });
@@ -79,7 +97,13 @@ export async function action({ request }: Route.ActionArgs) {
   let headers: { "Set-Cookie": string } | undefined;
   try {
     ({ data: result, headers } = await withAuth(request, (token) =>
-      applyForLoan(token, { customerId, principal, durationMonths, signatureUrl }),
+      applyForLoan(token, {
+        customerId,
+        principal,
+        durationMonths,
+        guarantorId,
+        signatureUrl,
+      }),
     ));
   } catch (error) {
     if (error instanceof ApiError) {
@@ -110,6 +134,7 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
   const submitting = navigation.state === "submitting";
 
   const [customer, setCustomer] = useState<PickedCustomer | null>(null);
+  const [guarantor, setGuarantor] = useState<PickedCustomer | null>(null);
   const [principal, setPrincipal] = useState("");
   const [months, setMonths] = useState<LoanDuration>(6);
   // Uploaded the moment it is taken; the form only carries the URL.
@@ -138,15 +163,21 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
       ? null
       : checkPrincipal(config, pesewas, eligibility?.bigTierUnlocked ?? false);
 
-  // Three conditions the API refuses outright. Blocking the button on them
-  // saves a round trip and, more to the point, saves telling a customer their
+  // The conditions the API refuses outright. Blocking the button on them saves
+  // a round trip and, more to the point, saves telling a customer their
   // application went in when it did not.
-  const noCard = eligibility != null && !eligibility.customer.hasGhanaCard;
-  // Only an explicit `false` blocks: an API that predates the field must not
-  // stop every application, and it re-checks the scans itself on submit.
+  //
+  // Only an explicit `false` blocks: an API that predates a field must not stop
+  // every application, and it re-checks all of this itself on submit.
+  const noId = eligibility?.customer.hasId === false;
   const noScans = eligibility?.customer.hasIdDocument === false;
   const alreadyOpen = eligibility?.openLoan != null;
-  const blocked = noCard || noScans || alreadyOpen;
+  // The guarantor is held to the same ID rule as the borrower, and cannot be
+  // the borrower. Both are the API's refusals, said here first.
+  const guarantorFault = guarantor
+    ? guarantorIssue(customer?.id ?? null, guarantor)
+    : null;
+  const blocked = noId || noScans || alreadyOpen || Boolean(guarantorFault);
 
   useEffect(() => {
     if (actionData?.error) toast.error(actionData.error);
@@ -183,6 +214,43 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
               error={history.data?.error ?? null}
             />
           )}
+
+          {/* The guarantor. Another customer of the branch, with an ID recorded
+              and photographed — the same standard the borrower is held to,
+              because they are who the branch turns to if the borrower stops
+              paying. The search says on the row who does not qualify yet. */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Guarantor<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <CustomerPicker
+              name="guarantorId"
+              value={guarantor}
+              onChange={setGuarantor}
+              placeholder="Search the guarantor by name or phone"
+              warn={(candidate) => guarantorIssue(customer?.id ?? null, candidate)}
+            />
+            {/* The picker has already said what is wrong with the person
+                chosen, so this line is what to do about it, not a repeat. */}
+            {guarantorFault ? (
+              <p className="text-xs text-destructive">
+                {guarantor && guarantor.id !== customer?.id ? (
+                  <Link
+                    to={`/customers/${guarantor.id}/edit`}
+                    className="underline underline-offset-4"
+                  >
+                    Complete their record
+                  </Link>
+                ) : (
+                  "Pick somebody else."
+                )}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                A customer with their ID on file. Any ID type will do.
+              </p>
+            )}
+          </div>
 
           <div className="space-y-1.5">
             <Label
@@ -302,6 +370,7 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
             disabled={
               submitting ||
               !customer ||
+              !guarantor ||
               !principal ||
               Boolean(fault) ||
               blocked ||
@@ -321,10 +390,13 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
 
 /**
  * The decision aid. Four months of the customer's own record, plus the three
- * conditions that stop an application dead — no Ghana Card on the profile, no
- * ID document uploaded, and a loan already open. All are refusals the API
- * would make anyway; saying them here means nobody promises a customer
- * something that cannot happen.
+ * conditions that stop an application dead — no ID recorded, no photograph of
+ * it uploaded, and a loan already open. All are refusals the API would make
+ * anyway; saying them here means nobody promises a customer something that
+ * cannot happen.
+ *
+ * Any ID type is accepted, so the Ghana Card is reported where the record shows
+ * one and never held against anybody.
  */
 function HistoryPanel({
   loading,
@@ -356,7 +428,7 @@ function HistoryPanel({
     );
   }
 
-  const noCard = !eligibility.customer.hasGhanaCard;
+  const noId = eligibility.customer.hasId === false;
   const noScans = eligibility.customer.hasIdDocument === false;
   const alreadyOpen = eligibility.openLoan != null;
 
@@ -383,10 +455,12 @@ function HistoryPanel({
       </dl>
 
       <ul className="space-y-1.5 text-sm">
-        <Condition met={!noCard} icon={<IdCardIcon className="size-4" />}>
-          {noCard
-            ? "No Ghana Card on the profile. Add it before applying."
-            : "Ghana Card on file."}
+        <Condition met={!noId} icon={<IdCardIcon className="size-4" />}>
+          {noId
+            ? "No ID on the profile. Record the type and number before applying."
+            : eligibility.customer.hasGhanaCard
+              ? "Ghana Card on file."
+              : "ID recorded."}
         </Condition>
         <Condition met={!noScans} icon={<FileImageIcon className="size-4" />}>
           {noScans

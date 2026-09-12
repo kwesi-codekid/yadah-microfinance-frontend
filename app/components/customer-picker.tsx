@@ -11,6 +11,12 @@ export interface PickedCustomer {
   id: string;
   fullName: string;
   phone: string;
+  /**
+   * What the search knows about their ID. Optional: only `/customers/search`
+   * fills them in, and a caller that does not care never looks.
+   */
+  hasIdNumber?: boolean;
+  hasIdDocument?: boolean;
 }
 
 /**
@@ -20,17 +26,26 @@ export interface PickedCustomer {
  * than something each screen rebuilds. It searches through `/customers/search`,
  * which is server-side and session-gated — the browser never holds a token — and
  * writes the chosen id into a hidden field so the surrounding form submits it.
+ *
+ * `warn` lets the surrounding form disqualify somebody in its own words — a
+ * guarantor with no ID on file, say. It is drawn on the row as well as on the
+ * choice, so the reason is visible before the choice is made rather than after.
  */
 export function CustomerPicker({
   name = "customerId",
   value,
   onChange,
   autoFocus,
+  placeholder = "Search name or phone",
+  warn,
 }: {
   name?: string;
   value: PickedCustomer | null;
   onChange: (next: PickedCustomer | null) => void;
   autoFocus?: boolean;
+  placeholder?: string;
+  /** Why this person will not do, or null. */
+  warn?: (customer: PickedCustomer) => string | null;
 }) {
   const fetcher = useFetcher<{ items: PickedCustomer[] }>();
   const [query, setQuery] = useState("");
@@ -53,13 +68,20 @@ export function CustomerPicker({
   // Chosen: the search collapses to the one row, so the form reads as settled
   // rather than as a box still waiting for an answer.
   if (value) {
+    const fault = warn?.(value) ?? null;
     return (
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-lg border px-3 py-2.5",
+          fault ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/40",
+        )}
+      >
         <input type="hidden" name={name} value={value.id} />
         <Avatar name={value.fullName} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{value.fullName}</p>
           <p className="tabular truncate text-xs text-muted-foreground">{value.phone}</p>
+          {fault && <p className="mt-0.5 text-xs text-destructive">{fault}</p>}
         </div>
         <Button
           type="button"
@@ -101,7 +123,7 @@ export function CustomerPicker({
           }}
           autoFocus={autoFocus}
           autoComplete="off"
-          placeholder="Search name or phone"
+          placeholder={placeholder}
           aria-label="Search for a customer"
           className="pr-9 pl-9"
         />
@@ -118,7 +140,9 @@ export function CustomerPicker({
         </p>
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-          {hits.map((hit) => (
+          {hits.map((hit) => {
+            const fault = warn?.(hit) ?? null;
+            return (
             <li key={hit.id}>
               <button
                 type="button"
@@ -134,11 +158,18 @@ export function CustomerPicker({
                   <p className="tabular truncate text-xs text-muted-foreground">
                     {hit.phone}
                   </p>
+                  {/* Still selectable: the row says what is missing, and the
+                      form repeats it on the choice. Hiding them would leave
+                      somebody hunting for a name that is right there. */}
+                  {fault && (
+                    <p className="mt-0.5 text-xs text-warning">{fault}</p>
+                  )}
                 </div>
                 <CheckIcon className="size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </div>

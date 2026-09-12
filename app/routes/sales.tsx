@@ -242,8 +242,7 @@ interface Row {
   walkIn: boolean;
   items: number;
   units: number;
-  subtotal: number;
-  discount: number;
+  listedTotal: number;
   total: number;
   channel: string;
   status: SaleStatus;
@@ -263,8 +262,7 @@ function toRow(sale: Sale, canDecide: boolean): Row {
     walkIn: isWalkIn(sale),
     items: sale.lines.length,
     units: unitCount(sale),
-    subtotal: sale.subtotal,
-    discount: sale.discount,
+    listedTotal: sale.listedTotal,
     total: sale.total,
     channel: CHANNEL_LABELS[sale.channel] ?? sale.channel,
     status: sale.status,
@@ -395,19 +393,20 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
       cell: (row) => <Total row={row} />,
     },
     {
-      key: "discount",
-      header: "Discount",
+      key: "shelf",
+      header: "At shelf",
       align: "end",
       className: "tabular hidden md:table-cell",
-      // What came off for haggling. A dash means the sale went at shelf prices,
-      // not that the figure is unknown.
+      // What the basket would have come to unbargained. A dash means the sale
+      // went at shelf prices, not that the figure is unknown. It is not a
+      // discount: the settled price is the price, and it moves both ways.
       cell: (row) =>
-        row.discount > 0 ? (
-          <span className="font-medium text-warning">
-            −{formatPesewas(row.discount)}
-          </span>
-        ) : (
+        row.listedTotal === row.total ? (
           <span className="text-muted-foreground">—</span>
+        ) : (
+          <span className="text-muted-foreground">
+            {formatPesewas(row.listedTotal)}
+          </span>
         ),
     },
     {
@@ -745,15 +744,12 @@ function Total({ row }: { row: Row }) {
       >
         {formatPesewas(row.total)}
       </p>
-      {/* The basket and the discount have columns from `md` up; below that they
-          ride under the total instead of disappearing. */}
+      {/* The basket and the shelf figure have columns from `md` up; below that
+          they ride under the total instead of disappearing. */}
       <p className="tabular text-xs text-muted-foreground md:hidden">
         {formatCount(row.units)} unit{row.units === 1 ? "" : "s"}
-        {row.discount > 0 && (
-          <span className="text-warning">
-            {" "}
-            · −{formatPesewas(row.discount)}
-          </span>
+        {row.listedTotal !== row.total && (
+          <span> · shelf {formatPesewas(row.listedTotal)}</span>
         )}
       </p>
     </>

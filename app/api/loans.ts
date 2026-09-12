@@ -129,11 +129,16 @@ export function getLoan(
 /**
  * POST /loans/applications — record what the customer asked for.
  *
- * Refused with `GHANA_CARD_REQUIRED` unless the card is on the profile, with
- * `ID_DOCUMENT_REQUIRED` until both sides of the ID are uploaded, with
- * `LOAN_EXISTS` when one is already open, and with `BIG_TIER_LOCKED` for a big
- * principal from someone who has not repaid a small one on time. Nothing is
- * disbursed here — the application waits for a person.
+ * Both the borrower and their guarantor must have an ID on file: refused with
+ * `ID_REQUIRED` until the borrower's type and number are recorded and with
+ * `ID_DOCUMENT_REQUIRED` until both sides are uploaded, and with
+ * `GUARANTOR_ID_INCOMPLETE` (`details.missing` naming the halves),
+ * `GUARANTOR_NOT_FOUND`, `GUARANTOR_INACTIVE` or `GUARANTOR_IS_BORROWER` for
+ * the guarantor. Any ID type counts, for either of them.
+ *
+ * Also refused with `LOAN_EXISTS` when one is already open, and with
+ * `BIG_TIER_LOCKED` for a big principal from someone who has not repaid a small
+ * one on time. Nothing is disbursed here — the application waits for a person.
  */
 export function apply(
   accessToken: string,
@@ -141,6 +146,8 @@ export function apply(
     customerId: string;
     principal: number;
     durationMonths: number;
+    /** The customer standing behind it. Never the borrower themselves. */
+    guarantorId: string;
     /** From POST /uploads?kind=signature. */
     signatureUrl: string;
   },

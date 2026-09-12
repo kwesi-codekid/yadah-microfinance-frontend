@@ -5,8 +5,8 @@ import type { Route } from "./+types/sale-receipt";
 
 /**
  * `GET /hire-purchase/sales/:id/receipt` — the A4 till receipt, one line per
- * basket item. A discounted line prints the list price beside what was charged,
- * and a voided sale still prints, stamped VOIDED with its reason.
+ * basket item at the price agreed for it. A voided sale still prints, stamped
+ * VOIDED with its reason.
  *
  * Office-only, like the till itself.
  */

@@ -63,7 +63,7 @@ import {
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
 import { isOffice } from "~/lib/auth";
-import { hasIdDocument } from "~/lib/customers";
+import { ID_TYPE_LABELS, hasIdDocument } from "~/lib/customers";
 import {
   accraDay,
   formatAccraDate,
@@ -88,6 +88,7 @@ import {
   repaymentProgress,
   withDefaults,
   type LoanEligibility,
+  type LoanGuarantor,
 } from "~/lib/loans";
 import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
@@ -144,10 +145,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       canDecide: isOffice(viewer),
       customerName:
         result.customer?.fullName ?? loan.customerName ?? "Customer",
-      customerHasCard: result.customer?.identification?.idType === "ghana-card",
       // Fallbacks for when the eligibility read fails: the record itself says
-      // whether the scans are there. An unreadable record does not block — the
-      // API refuses approval without them either way.
+      // whether the ID is there. An unreadable record does not block — the API
+      // refuses approval without one either way. Any ID type counts.
+      customerHasId: result.customer
+        ? Boolean(result.customer.identification?.idNumber)
+        : true,
       customerHasIdDocument: result.customer
         ? hasIdDocument(result.customer)
         : true,
@@ -248,7 +251,7 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
     loan,
     canDecide,
     customerName,
-    customerHasCard,
+    customerHasId,
     customerHasIdDocument,
     eligibility,
     standardRate,
@@ -330,10 +333,20 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
         </Note>
       )}
 
+      {/* Who stands behind it. Above the decision because it is part of the
+          decision, and kept on the page afterwards because it is who the branch
+          turns to if the repayments stop. */}
+      {loan.guarantor && (
+        <GuarantorCard
+          guarantor={loan.guarantor}
+          customerId={loan.guarantorId}
+        />
+      )}
+
       {pending && canDecide ? (
         <DecisionPanel
           eligibility={eligibility}
-          customerHasCard={customerHasCard}
+          customerHasId={customerHasId}
           customerHasIdDocument={customerHasIdDocument}
           principal={loan.principal}
           interest={loan.interestAmount}
@@ -405,6 +418,54 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
       {/* The repayment drawers render here, over the loan. */}
       <Outlet />
     </Page>
+  );
+}
+
+/* --------------------------------------------------------------- guarantor --- */
+
+/**
+ * Who stands behind the loan.
+ *
+ * Read off the snapshot taken when the application was recorded, not off the
+ * guarantor's profile as it is today: this has to say who was accepted on the
+ * day. The link goes to their record all the same, since the reason to look
+ * them up is usually to reach them.
+ */
+function GuarantorCard({
+  guarantor,
+  customerId,
+}: {
+  guarantor: LoanGuarantor;
+  /** Absent on a snapshot written before the id was stored alongside it. */
+  customerId?: string;
+}) {
+  const id =
+    guarantor.idType && guarantor.idNumber
+      ? `${ID_TYPE_LABELS[guarantor.idType]} ${guarantor.idNumber}`
+      : null;
+
+  return (
+    <section className="mb-6 rounded-xl border border-border bg-card px-4 py-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="eyebrow text-muted-foreground">Guarantor</span>
+        <span className="font-medium">
+          {customerId ? (
+            <Link
+              to={`/customers/${customerId}`}
+              className="underline-offset-4 hover:underline"
+            >
+              {guarantor.fullName}
+            </Link>
+          ) : (
+            guarantor.fullName
+          )}
+        </span>
+        <span className="tabular text-sm text-muted-foreground">
+          {guarantor.phone}
+        </span>
+        {id && <span className="text-sm text-muted-foreground">{id}</span>}
+      </div>
+    </section>
   );
 }
 
@@ -486,7 +547,7 @@ function RateLadder({
  */
 function DecisionPanel({
   eligibility,
-  customerHasCard,
+  customerHasId,
   customerHasIdDocument,
   principal,
   interest,
@@ -494,7 +555,7 @@ function DecisionPanel({
   ratePercent,
 }: {
   eligibility: LoanEligibility | null;
-  customerHasCard: boolean;
+  customerHasId: boolean;
   customerHasIdDocument: boolean;
   principal: number;
   interest: number;
@@ -511,10 +572,10 @@ function DecisionPanel({
     else toast.error(fetcher.data.message);
   }, [fetcher.data]);
 
-  const hasCard = eligibility?.customer.hasGhanaCard ?? customerHasCard;
+  const hasId = eligibility?.customer.hasId ?? customerHasId;
   const hasScans = eligibility?.customer.hasIdDocument ?? customerHasIdDocument;
   const openLoan = eligibility?.openLoan ?? null;
-  const blocked = !hasCard || !hasScans || openLoan != null;
+  const blocked = !hasId || !hasScans || openLoan != null;
 
   return (
     <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card">
@@ -565,12 +626,12 @@ function DecisionPanel({
             rather than as advice, because the API will refuse either way. */}
         {blocked && (
           <ul className="space-y-1.5 text-sm">
-            {!hasCard && (
+            {!hasId && (
               <li className="flex items-start gap-2 text-danger">
                 <IdCardIcon className="mt-0.5 size-4 shrink-0" />
                 <span>
-                  No Ghana Card on the profile. Add it to the customer record
-                  before approving.
+                  No ID on the profile. Record the type and number on the
+                  customer record before approving — any type will do.
                 </span>
               </li>
             )}

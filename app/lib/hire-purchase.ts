@@ -236,7 +236,15 @@ export interface HpAgreement {
   customerName?: string;
   /** Snapshotted at signing. Later edits to the item never reach back here. */
   item: { name: string; description?: string; sellingPrice: number };
-  /** Exactly half the selling price. Must be paid to the pesewa. */
+  /**
+   * What the customer agreed to pay. The price is bargained at the counter, so
+   * this is the figure the whole agreement is built on — the deposit, what is
+   * financed, and the instalments all come off it, not off the shelf price.
+   */
+  agreedPrice: number;
+  /** What the shelf listed it at when this was signed. Reference only. */
+  listedPrice: number;
+  /** Exactly half the agreed price. Must be paid to the pesewa. */
   depositRequired: number;
   /** The other half — what interest is charged on. */
   financedAmount: number;
@@ -309,17 +317,22 @@ export interface HpEligibility {
 
 /* -------------------------------------------------------------- the halves --- */
 
-/** The deposit is exactly half the selling price. Nothing about that is configurable. */
+/** The deposit is exactly half the price. Nothing about that is configurable. */
 export const DEPOSIT_SHARE = 0.5;
 
-/** What the deposit on an item will be, for the sign-up form's preview. */
-export function depositFor(sellingPrice: number): number {
-  return Math.round(sellingPrice * DEPOSIT_SHARE);
+/**
+ * What the deposit will be, for the sign-up form's preview.
+ *
+ * It halves the price agreed with the customer, not the shelf price: a fridge
+ * listed at GH₵3,000 and settled at GH₵2,600 is a GH₵1,300 deposit.
+ */
+export function depositFor(agreedPrice: number): number {
+  return Math.round(agreedPrice * DEPOSIT_SHARE);
 }
 
 /** What is financed once the deposit is down. */
-export function financedFor(sellingPrice: number): number {
-  return sellingPrice - depositFor(sellingPrice);
+export function financedFor(agreedPrice: number): number {
+  return agreedPrice - depositFor(agreedPrice);
 }
 
 /* ------------------------------------------------------------------ labels --- */

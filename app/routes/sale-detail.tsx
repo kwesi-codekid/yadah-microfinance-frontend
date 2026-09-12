@@ -211,14 +211,18 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
             <TableRow>
               <Th>Item</Th>
               <Th className="text-right">Qty</Th>
-              <Th className="text-right">List</Th>
-              <Th className="text-right">Charged</Th>
+              <Th className="text-right">Shelf</Th>
+              <Th className="text-right">Sold at</Th>
               <Th className="text-right">Line</Th>
             </TableRow>
           </TableHeader>
           <TableBody>
             {sale.lines.map((line, i) => {
-              const cut = line.unitPrice < line.listPrice;
+              // The shelf price is shown to be compared with, not crossed out:
+              // the price settled at the counter is the price, and a line that
+              // went above the shelf figure is as ordinary as one that went
+              // below it.
+              const moved = line.unitPrice !== line.listPrice;
               return (
                 <TableRow key={`${line.itemId}-${i}`}>
                   <TableCell className="px-4 py-3 font-medium">
@@ -227,18 +231,13 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
                   <TableCell className="tabular px-4 py-3 text-right">
                     {formatCount(line.quantity)}
                   </TableCell>
-                  <TableCell
-                    className={cn(
-                      "tabular px-4 py-3 text-right text-muted-foreground",
-                      cut && "line-through",
-                    )}
-                  >
+                  <TableCell className="tabular px-4 py-3 text-right text-muted-foreground">
                     {formatPesewas(line.listPrice)}
                   </TableCell>
                   <TableCell
                     className={cn(
                       "tabular px-4 py-3 text-right",
-                      cut && "font-medium text-warning",
+                      moved && "font-medium",
                     )}
                   >
                     {formatPesewas(line.unitPrice)}
@@ -253,20 +252,17 @@ export default function SaleDetail({ loaderData }: Route.ComponentProps) {
         </Table>
       </section>
 
-      <dl className="grid gap-3 sm:grid-cols-4">
+      <dl className="grid gap-3 sm:grid-cols-3">
         <Figure label="Units" value={formatCount(units)} />
+        {/* Kept beside the total for the office to compare against, and named
+            for what it is: what the shelf said, not a price anybody owed. */}
         <Figure
-          label="Subtotal"
-          value={formatPesewas(sale.subtotal)}
+          label="At shelf prices"
+          value={formatPesewas(sale.listedTotal)}
           tone="muted"
         />
         <Figure
-          label="Discount"
-          value={sale.discount > 0 ? `−${formatPesewas(sale.discount)}` : "—"}
-          tone={sale.discount > 0 ? "warning" : "muted"}
-        />
-        <Figure
-          label="Total"
+          label="Sold for"
           value={formatPesewas(sale.total)}
           tone={voided ? "muted" : "success"}
         />
