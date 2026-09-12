@@ -110,6 +110,8 @@ export interface Repayment {
   id: string;
   amount: number;
   source: string;
+  /** How the cash arrived. Absent on rows the API wrote before it was kept. */
+  channel?: string;
   /** Set when the repayment came from closing a susu account. */
   susuAccountId?: string;
   recordedById?: string;

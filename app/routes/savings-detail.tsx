@@ -26,6 +26,14 @@ import {
 import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
+import {
+  approveCorrection,
+  cancelCorrection,
+  correctTransaction,
+  listCorrections,
+  proposeCorrection,
+  rejectCorrection,
+} from "~/api/corrections";
 import { getCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
 import {
@@ -39,6 +47,12 @@ import {
 } from "~/api/savings";
 import { listUsers } from "~/api/users";
 import { BackLink, Page } from "~/components/page";
+import {
+  TxnRowMenu,
+  toPending,
+  whyNotCorrectable,
+  type PendingCorrection,
+} from "~/components/txn-correction";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AccountTypeTag,
@@ -78,6 +92,7 @@ import {
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
 import { isCounter, isOffice } from "~/lib/auth";
+import type { CorrectionKind } from "~/lib/corrections";
 import {
   accraDay,
   formatAccraDate,
@@ -86,6 +101,7 @@ import {
   formatCount,
   formatDayRange,
   formatPesewas,
+  parseCedis,
 } from "~/lib/format";
 import {
   CHANNEL_LABELS,
@@ -120,6 +136,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireUser(request);
   const url = new URL(request.url);
   const office = isOffice(user);
+  const counter = isCounter(user);
   const showTrashed = url.searchParams.get("trashed") === "1" && office;
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const day = (key: string) => {
@@ -131,7 +148,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const { account } = await getAccount(token, params.id);
-      const [customer, txns, recent, trashed, staff] = await Promise.all([
+      const [customer, txns, recent, trashed, staff, corrections] = await Promise.all([
         getCustomer(token, account.customerId)
           .then((r) => r.customer)
           .catch(() => null),
@@ -156,8 +173,18 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         office
           ? listUsers(token, { limit: 100 }).catch(() => null)
           : Promise.resolve(null),
+        // Corrections asked for on this account and not yet answered, so a
+        // row can say one is waiting. Soft: the statement must not go down
+        // with it. Collectors cannot ask, so they are not asked.
+        counter
+          ? listCorrections(token, {
+              targetId: params.id,
+              status: "pending",
+              limit: 100,
+            }).catch(() => null)
+          : Promise.resolve(null),
       ]);
-      return { account, customer, txns, recent, trashed, staff };
+      return { account, customer, txns, recent, trashed, staff, corrections };
     } catch (error) {
       throwAsRouteError(error);
     }
@@ -169,12 +196,24 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   names.set(user.id, user.name);
   const nameOf = (id: string) => names.get(id) ?? `Staff #${shortId(id)}`;
 
+  // One open request per transaction is the API's rule, so a map by
+  // transaction holds everything a row needs to say about it.
+  const pending = new Map<string, PendingCorrection>(
+    result.corrections?.items.map((c) => [c.txnId, toPending(c, user.id)]) ??
+      [],
+  );
+
   return data(
     {
-      /** Correcting a transaction, and the trashed view. Office only. */
+      /**
+       * Correcting a transaction outright, trashing one, deciding what a
+       * teller asked, and the trashed view. Office only.
+       */
       canManage: office,
+      /** Asking for a correction — the counter's door to one. */
+      canCorrect: counter,
       /** Closing, paying out and withdrawing — counter work. */
-      canServe: isCounter(user),
+      canServe: counter,
       account: {
         ...result.account,
         // The detail endpoint omits it; the customer record is the only source.
@@ -194,6 +233,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         items: result.txns.items.map((t) => ({
           ...toRow(t),
           recordedBy: nameOf(t.recordedById),
+          pending: pending.get(t.id) ?? null,
         })),
       },
       trashed:
@@ -224,8 +264,12 @@ interface TxnRow {
   channel: string;
   /** Created by an internal transfer. The API will not let these be touched. */
   transfer: boolean;
+  /** Paid through Paystack: the amount is what was charged, not what was typed. */
+  paystack: boolean;
   at: string;
   recordedBy: string;
+  /** A correction asked for on this row and not yet answered. */
+  pending: PendingCorrection | null;
 }
 
 function toRow(t: SavingsTxn) {
@@ -237,6 +281,7 @@ function toRow(t: SavingsTxn) {
     balanceAfter: t.balanceAfter,
     channel: CHANNEL_LABELS[t.channel] ?? t.channel,
     transfer: t.channel === "transfer",
+    paystack: t.channel === "paystack",
     at: formatAccraDateTime(t.createdAt),
   };
 }
@@ -250,16 +295,22 @@ interface ActionResult {
 
 /**
  * Everything that changes the account or its transactions. Closing and paying
- * out are counter work; trashing an account or a transaction is the office's,
- * which the API enforces. All of it moves money or rewrites a record, so each
- * one confirms first.
+ * out are counter work, and so is asking for a correction; trashing, correcting
+ * outright and deciding a request are the office's, which the API enforces.
+ * All of it moves money or rewrites a record, so each one confirms first.
  */
 export async function action({ request, params }: Route.ActionArgs) {
   await requireCounter(request);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const txnId = String(form.get("txnId") ?? "");
+  const correctionId = String(form.get("correctionId") ?? "");
+  // The shared correction dialogs name the entry they are about themselves.
+  const kind = String(form.get("kind") ?? "") as CorrectionKind;
   const reason = trimmedReason(form.get("reason"));
+  // The reason behind a correction, or a refusal of one. Read raw: the API
+  // wants at least three characters here and says so itself.
+  const why = String(form.get("reason") ?? "").trim();
 
   try {
     const { data: result, headers } = await withAuth(request, async (token) => {
@@ -289,6 +340,51 @@ export async function action({ request, params }: Route.ActionArgs) {
         case "restore-txn": {
           await restoreTxn(token, params.id, txnId);
           return { message: "Transaction restored.", flagged: false, gone: false };
+        }
+        case "correct-txn": {
+          const amount = parseCedis(String(form.get("amount") ?? ""));
+          if (amount == null || amount <= 0) {
+            throw new Response("Enter the corrected amount.", { status: 400 });
+          }
+          await correctTransaction(token, kind, params.id, txnId, amount);
+          return { message: "Transaction corrected.", flagged: false, gone: false };
+        }
+        // The counter's door to a correction: nothing changes until the
+        // office answers, and the office is told there is something to answer.
+        case "propose-correction": {
+          const amount = parseCedis(String(form.get("amount") ?? ""));
+          if (amount == null || amount <= 0) {
+            throw new Response("Enter the corrected amount.", { status: 400 });
+          }
+          await proposeCorrection(token, kind, params.id, txnId, {
+            amount,
+            reason: why,
+          });
+          return {
+            message: "Sent to the office. Nothing changes until they answer.",
+            flagged: false,
+            gone: false,
+          };
+        }
+        case "approve-correction": {
+          const { correction } = await approveCorrection(token, correctionId);
+          return {
+            message: `Correction applied. The transaction is now GH₵ ${formatAmount(correction.amount)}.`,
+            flagged: false,
+            gone: false,
+          };
+        }
+        case "reject-correction": {
+          await rejectCorrection(token, correctionId, why);
+          return {
+            message: "Correction declined. The transaction is unchanged.",
+            flagged: false,
+            gone: false,
+          };
+        }
+        case "cancel-correction": {
+          await cancelCorrection(token, correctionId);
+          return { message: "Request taken back.", flagged: false, gone: false };
         }
         default:
           throw new Response("Unknown action.", { status: 400 });
@@ -337,6 +433,7 @@ function trimmedReason(value: FormDataEntryValue | null): string | undefined {
 export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
   const {
     canManage,
+    canCorrect,
     canServe,
     account,
     showTrashed,
@@ -486,6 +583,7 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
           </p>
         ) : (
           <TxnTable
+            canCorrect={canCorrect}
             rows={txns.items}
             newestId={newestId}
             canManage={canManage}
@@ -738,13 +836,17 @@ function TxnTable({
   rows,
   newestId,
   canManage,
+  canCorrect,
   account,
   fetcher,
 }: {
   rows: (TxnRow & { recordedBy: string })[];
   /** The newest transaction on the account — not merely the newest on screen. */
   newestId: string | null;
+  /** The office: corrects outright, trashes, and decides what a teller asked. */
   canManage: boolean;
+  /** The counter: may at least ask for a correction. */
+  canCorrect: boolean;
   account: SavingsAccount;
   fetcher: Fetcher;
 }) {
@@ -761,7 +863,7 @@ function TxnTable({
           <Th className="text-right">Balance</Th>
           <Th className="hidden md:table-cell">Channel</Th>
           <Th className="hidden lg:table-cell">Recorded by</Th>
-          {canManage && <Th className="w-12 text-right">Actions</Th>}
+          {canCorrect && <Th className="w-12 text-right">Actions</Th>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -783,6 +885,13 @@ function TxnTable({
               >
                 {out ? "−" : "+"}
                 {formatAmount(row.amount)}
+                {/* A correction somebody asked for and the office has not yet
+                    answered. The figure above is still what the ledger says. */}
+                {row.pending && (
+                  <p className="text-xs font-normal text-warning">
+                    {formatPesewas(row.pending.amount)} waiting
+                  </p>
+                )}
               </TableCell>
               <TableCell className="tabular hidden px-4 py-3 text-right whitespace-nowrap text-muted-foreground sm:table-cell">
                 {row.fee > 0 ? formatAmount(row.fee) : "—"}
@@ -796,12 +905,22 @@ function TxnTable({
               <TableCell className="hidden px-4 py-3 text-muted-foreground lg:table-cell">
                 {row.recordedBy}
               </TableCell>
-              {canManage && (
+              {canCorrect && (
                 <TableCell className="px-4 py-3 text-right">
                   <TxnActions
                     row={row}
+                    account={account}
                     fetcher={fetcher}
-                    blocked={whyNotEditable(row, newestId, open)}
+                    canManage={canManage}
+                    blocked={whyNotCorrectable({
+                      pending: row.pending,
+                      locked: lockedReason(row),
+                      closed: open
+                        ? null
+                        : "This account is closed, so its transactions are final.",
+                      newest: row.id === newestId,
+                      noun: "transaction",
+                    })}
                   />
                 </TableCell>
               )}
@@ -814,39 +933,42 @@ function TxnTable({
 }
 
 /**
- * Why this transaction cannot be taken back, or null when it can. Said the way
- * the branch would say it — the clerk needs to know what to do instead, not
- * which endpoint refused.
+ * Why this transaction can never be corrected or taken back, or null. Said
+ * the way the branch would say it — the clerk needs to know what to do
+ * instead, not which endpoint refused.
  */
-function whyNotEditable(
-  row: TxnRow,
-  newestId: string | null,
-  open: boolean,
-): string | null {
+function lockedReason(row: TxnRow): string | null {
   if (row.transfer) {
     return "This came from a transfer between accounts. Correct it on the transfer, not here.";
   }
   if (row.type === "closure") {
-    return "A closure is final. It cannot be taken back from here.";
+    return "A closure is final. It cannot be changed from here.";
   }
-  if (!open) return "This account is closed, so its transactions are final.";
-  if (row.id !== newestId) {
-    return "Only the newest transaction can be taken back. Remove the ones after it first.";
+  if (row.paystack) {
+    return "This was paid through Paystack, so the amount is what was charged.";
   }
   return null;
 }
 
+/**
+ * The row menu: the shared correction, with the trash beneath it for the
+ * office. Trashing is the one thing here that is this page's own.
+ */
 function TxnActions({
   row,
+  account,
   fetcher,
+  canManage,
   blocked,
 }: {
   row: TxnRow;
+  account: SavingsAccount;
   fetcher: Fetcher;
-  /** Why the actions are unavailable, or null when they are not. */
+  /** The office. Everyone else here is the counter asking. */
+  canManage: boolean;
+  /** Why the correction is unavailable, or null when it is not. */
   blocked: string | null;
 }) {
-  const editable = blocked === null;
   const [trashing, setTrashing] = useState(false);
   const [reason, setReason] = useState("");
 
@@ -854,46 +976,49 @@ function TxnActions({
     if (fetcher.state === "idle" && fetcher.data?.ok) setTrashing(false);
   }, [fetcher.state, fetcher.data]);
 
+  // What the account held before this row — the figure a corrected
+  // withdrawal is checked against, as the original was.
+  const balanceBefore =
+    row.type === "deposit"
+      ? row.balanceAfter - row.amount
+      : row.balanceAfter + row.amount + row.fee;
+
   return (
     <>
-      {/* Every row carries the menu, including the ones that cannot be
-          changed — an actions column that is blank on all but one row reads as
-          broken. The state decides whether the items are usable, not whether
-          the trigger exists. */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">Actions for this transaction</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          {blocked && (
-            <>
-              <DropdownMenuLabel className="max-w-56 font-normal text-wrap text-muted-foreground">
-                {blocked}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-            </>
-          )}
-          <DropdownMenuItem
-            variant="destructive"
-            disabled={!editable}
-            onSelect={(e) => {
-              e.preventDefault();
-              setReason("");
-              setTrashing(true);
-            }}
-          >
-            <Trash2Icon />
-            Move to trash
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <TxnRowMenu
+        txn={{ id: row.id, amount: row.amount }}
+        context={
+          lockedReason(row) !== null || row.type === "closure"
+            ? null
+            : {
+                kind: "savings-txn",
+                txnType: row.type === "withdrawal" ? "withdrawal" : "deposit",
+                balanceBefore,
+              }
+        }
+        targetId={account.id}
+        pending={row.pending}
+        blocked={blocked}
+        canDecide={canManage}
+        fetcher={fetcher}
+        srLabel="Actions for this transaction"
+        after={
+          canManage && (
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={blocked !== null}
+              onSelect={(e) => {
+                e.preventDefault();
+                setReason("");
+                setTrashing(true);
+              }}
+            >
+              <Trash2Icon />
+              Move to trash
+            </DropdownMenuItem>
+          )
+        }
+      />
 
       <AlertDialog open={trashing} onOpenChange={setTrashing}>
         <AlertDialogContent>
@@ -957,7 +1082,7 @@ function TrashedTxns({
 }: {
   // No running balance: a trashed transaction has been taken back out of the
   // account, so there is no position after it to state.
-  rows: (Omit<TxnRow, "balanceAfter"> & {
+  rows: (Omit<TxnRow, "balanceAfter" | "pending"> & {
     recordedBy: string;
     deletedAt: string;
     reason: string | null;

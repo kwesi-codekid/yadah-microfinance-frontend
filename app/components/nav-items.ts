@@ -9,6 +9,7 @@ import {
   ShoppingCartIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
+  ListChecksIcon,
   ReceiptIcon,
   ReceiptTextIcon,
   RepeatIcon,
@@ -163,6 +164,16 @@ export const NAV: NavItem[] = [
     icon: BanknoteArrowUpIcon,
     blurb: "Withdrawals customers asked for, waiting on a decision.",
     roles: OFFICE,
+  },
+  // Corrections to a figure already on the ledger. The counter asks, the
+  // office decides; the queue cuts across every module, so it is its own
+  // item rather than a corner of one.
+  {
+    to: "/corrections",
+    label: "Corrections",
+    icon: ListChecksIcon,
+    blurb: "Figures tellers asked to change, waiting on a decision.",
+    roles: COUNTER,
   },
   // A hub, not a module: each report cuts across several of the books above,
   // which is why none of them lives on a module screen.
