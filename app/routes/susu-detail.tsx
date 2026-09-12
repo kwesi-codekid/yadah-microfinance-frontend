@@ -3,18 +3,14 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   BanknoteArrowUpIcon,
-  CheckIcon,
   CircleSlashIcon,
   DownloadIcon,
   FileTextIcon,
   MoreHorizontalIcon,
-  PencilIcon,
   RotateCcwIcon,
   SmartphoneIcon,
   Trash2Icon,
   TriangleAlertIcon,
-  Undo2Icon,
-  XIcon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { data, Link, useFetcher, useSearchParams } from "react-router";
@@ -27,15 +23,17 @@ import { listUsers } from "~/api/users";
 import {
   approveCorrection,
   cancelCorrection,
-  closeAccount,
-  correctDeposit,
-  getAccount,
+  correctTransaction,
   listCorrections,
+  proposeCorrection,
+  rejectCorrection,
+} from "~/api/corrections";
+import {
+  closeAccount,
+  getAccount,
   listDeposits,
   listTrashedDeposits,
   payoutAccount,
-  proposeCorrection,
-  rejectCorrection,
   restoreDeposit,
   terminateAccount,
   trashAccount,
@@ -48,12 +46,12 @@ import {
   Th,
 } from "~/components/susu-bits";
 import {
-  CorrectDepositDialog,
-  DecideCorrectionDialog,
+  TxnRowMenu,
+  toPending,
   whyNotCorrectable,
   type CorrectionOutcome,
   type PendingCorrection,
-} from "~/components/deposit-correction";
+} from "~/components/txn-correction";
 import { BackLink, Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -83,6 +81,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import type { CorrectionKind } from "~/lib/corrections";
 import { Input } from "~/components/ui/input";
 import {
   Table,
@@ -174,7 +173,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         // with it. Collectors cannot ask, so they are not asked.
         counter
           ? listCorrections(token, {
-              accountId: params.id,
+              targetId: params.id,
               status: "pending",
               limit: ALL_DEPOSITS,
             }).catch(() => null)
@@ -205,17 +204,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   // One open request per deposit is the API's rule, so a map by deposit holds
   // everything a row needs to say about it.
   const pending = new Map<string, PendingCorrection>(
-    result.corrections?.items.map((c) => [
-      c.depositId,
-      {
-        id: c.id,
-        amount: c.amount,
-        days: c.days,
-        reason: c.reason,
-        requestedBy: c.requestedByName ?? "A teller",
-        mine: c.requestedById === user.id,
-      },
-    ]) ?? [],
+    result.corrections?.items.map((c) => [c.txnId, toPending(c, user.id)]) ??
+      [],
   );
 
   return data(
@@ -279,6 +269,8 @@ interface DepositRow {
   batched: boolean;
   /** Created by an internal transfer. The API will not let these be edited. */
   transfer: boolean;
+  /** Paid through Paystack: the amount is what was charged, not what was typed. */
+  paystack: boolean;
   at: string;
   /** Running total after this deposit. */
   balance: number;
@@ -296,6 +288,7 @@ function toRow(d: SusuDeposit) {
     channel: CHANNEL_LABELS[d.channel] ?? d.channel,
     batched: Boolean(d.collectAllBatchId),
     transfer: d.channel === "transfer",
+    paystack: d.channel === "paystack",
     at: formatAccraDateTime(d.createdAt),
   };
 }
@@ -319,6 +312,9 @@ export async function action({ request, params }: Route.ActionArgs) {
   const intent = String(form.get("intent") ?? "");
   const depositId = String(form.get("depositId") ?? "");
   const correctionId = String(form.get("correctionId") ?? "");
+  // The shared correction dialogs name the entry they are about themselves.
+  const kind = String(form.get("kind") ?? "") as CorrectionKind;
+  const txnId = String(form.get("txnId") ?? "");
   const reason = trimmedReason(form.get("reason"));
   // The reason behind a correction, or a refusal of one. Read raw: the API
   // wants at least three characters here and says so itself.
@@ -359,12 +355,12 @@ export async function action({ request, params }: Route.ActionArgs) {
           await trashAccount(token, params.id, reason);
           return { message: "Account moved to the trash.", gone: true };
         }
-        case "correct-deposit": {
+        case "correct-txn": {
           const amount = parseCedis(String(form.get("amount") ?? ""));
           if (amount == null || amount <= 0) {
             throw new Response("Enter the corrected amount.", { status: 400 });
           }
-          await correctDeposit(token, params.id, depositId, amount);
+          await correctTransaction(token, kind, params.id, txnId, amount);
           return { message: "Deposit corrected.", gone: false };
         }
         // The counter's door to a correction: nothing changes until the
@@ -374,7 +370,7 @@ export async function action({ request, params }: Route.ActionArgs) {
           if (amount == null || amount <= 0) {
             throw new Response("Enter the corrected amount.", { status: 400 });
           }
-          await proposeCorrection(token, params.id, depositId, {
+          await proposeCorrection(token, kind, params.id, txnId, {
             amount,
             reason: why,
           });
@@ -384,9 +380,9 @@ export async function action({ request, params }: Route.ActionArgs) {
           };
         }
         case "approve-correction": {
-          const { deposit } = await approveCorrection(token, correctionId);
+          const { correction } = await approveCorrection(token, correctionId);
           return {
-            message: `Correction applied. The deposit is now GH₵ ${formatAmount(deposit.amount)}.`,
+            message: `Correction applied. The deposit is now GH₵ ${formatAmount(correction.amount)}.`,
             gone: false,
           };
         }
@@ -1105,8 +1101,9 @@ function DepositTable({
   fetcher: Fetcher;
 }) {
   // The API takes a correction only on the newest deposit of an account still
-  // open to changes, and never on one a transfer created. Anything else comes
-  // back 422, so the reason is worked out here and shown rather than guessed at.
+  // open to changes, and never on one a transfer or Paystack created. Anything
+  // else comes back 422, so the reason is worked out here and shown rather
+  // than guessed at.
   const open = account.status === "active" || account.status === "completed";
 
   return (
@@ -1167,7 +1164,19 @@ function DepositTable({
                   account={account}
                   fetcher={fetcher}
                   canManage={canManage}
-                  blocked={whyNotCorrectable(row, newestId, open)}
+                  blocked={whyNotCorrectable({
+                    pending: row.pending,
+                    locked: row.transfer
+                      ? "This came from a transfer between accounts. Correct it on the transfer, not here."
+                      : row.paystack
+                        ? "This was paid through Paystack, so the amount is what was charged."
+                        : null,
+                    closed: open
+                      ? null
+                      : "This account is closed, so its deposits are final.",
+                    newest: row.id === newestId,
+                    noun: "deposit",
+                  })}
                 />
               </TableCell>
             )}
@@ -1179,9 +1188,8 @@ function DepositTable({
 }
 
 /**
- * The row menu. The office corrects outright and trashes; anyone else at the
- * counter asks for a correction, which the office then applies, declines, or
- * the asker takes back — all from this same menu, on whichever row is waiting.
+ * The row menu: the shared correction, with the trash beneath it for the
+ * office. Trashing is the one thing here that is this page's own.
  */
 function DepositActions({
   row,
@@ -1195,124 +1203,44 @@ function DepositActions({
   fetcher: Fetcher;
   /** The office. Everyone else here is the counter asking. */
   canManage: boolean;
-  /** Why the actions are unavailable, or null when they are not. */
+  /** Why the correction is unavailable, or null when it is not. */
   blocked: string | null;
 }) {
-  const editable = blocked === null;
-  const [correcting, setCorrecting] = useState(false);
   const [trashing, setTrashing] = useState(false);
-  const [deciding, setDeciding] = useState<
-    "approve" | "reject" | "cancel" | null
-  >(null);
   const [reason, setReason] = useState("");
 
-  // The office corrects outright. Anyone else at the counter asks.
-  const asking = !canManage;
-  const pending = row.pending;
-
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
-      setCorrecting(false);
-      setTrashing(false);
-      setDeciding(null);
-    }
+    if (fetcher.state === "idle" && fetcher.data?.ok) setTrashing(false);
   }, [fetcher.state, fetcher.data]);
 
   return (
     <>
-      {/* Every row carries the menu, including the ones that cannot be
-          changed — an actions column that is blank on all but one row reads as
-          broken. The state decides whether the items are usable, not whether
-          the trigger exists. */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">Actions for this deposit</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64">
-          {/* A waiting request explains itself below; anything else that
-              blocks a correction is said here. */}
-          {blocked && !pending && (
-            <>
-              <DropdownMenuLabel className="max-w-64 font-normal text-wrap text-muted-foreground">
-                {blocked}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-            </>
-          )}
-          {pending && (
-            <>
-              {/* What was asked and why, so the office decides from here
-                  without opening anything. */}
-              <DropdownMenuLabel className="max-w-64 font-normal text-wrap">
-                <span className="block">
-                  {pending.requestedBy} asks for GH₵{" "}
-                  {formatAmount(pending.amount)} — {pending.days} day
-                  {pending.days === 1 ? "" : "s"}.
-                </span>
-                <span className="block text-muted-foreground">
-                  {pending.reason}
-                </span>
-              </DropdownMenuLabel>
-              {canManage && (
-                <>
-                  <DropdownMenuItem
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setDeciding("approve");
-                    }}
-                  >
-                    <CheckIcon />
-                    Apply the correction
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setDeciding("reject");
-                    }}
-                  >
-                    <XIcon />
-                    Decline the correction
-                  </DropdownMenuItem>
-                </>
-              )}
-              {/* The asker's to take back, or the office's to tidy away.
-                  Another teller's request is not theirs to touch. */}
-              {(pending.mine || canManage) && (
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    setDeciding("cancel");
-                  }}
-                >
-                  <Undo2Icon />
-                  Take the request back
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-            </>
-          )}
-          <DropdownMenuItem
-            disabled={!editable}
-            onSelect={(e) => {
-              e.preventDefault();
-              setCorrecting(true);
-            }}
-          >
-            <PencilIcon />
-            {asking ? "Ask to correct the amount" : "Correct the amount"}
-          </DropdownMenuItem>
-          {canManage && (
+      <TxnRowMenu
+        txn={{ id: row.id, amount: row.amount }}
+        // The cycle the corrected amount is re-derived into is the one
+        // *without* this deposit in it.
+        context={
+          row.transfer || row.paystack
+            ? null
+            : {
+                kind: "susu-deposit",
+                dailyAmount: account.dailyAmount,
+                depositsCount: account.depositsCount - row.daysCovered,
+                cycleTarget: account.cycleTarget,
+                daysCovered: row.daysCovered,
+              }
+        }
+        targetId={account.id}
+        pending={row.pending}
+        blocked={blocked}
+        canDecide={canManage}
+        fetcher={fetcher}
+        srLabel="Actions for this deposit"
+        after={
+          canManage && (
             <DropdownMenuItem
               variant="destructive"
-              disabled={!editable}
+              disabled={blocked !== null}
               onSelect={(e) => {
                 e.preventDefault();
                 setReason("");
@@ -1322,17 +1250,8 @@ function DepositActions({
               <Trash2Icon />
               Move to trash
             </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <CorrectDepositDialog
-        open={correcting}
-        onOpenChange={setCorrecting}
-        account={account}
-        deposit={{ id: row.id, amount: row.amount, daysCovered: row.daysCovered }}
-        asking={asking}
-        fetcher={fetcher}
+          )
+        }
       />
 
       <AlertDialog open={trashing} onOpenChange={setTrashing}>
@@ -1377,16 +1296,6 @@ function DepositActions({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {pending && (
-        <DecideCorrectionDialog
-          deciding={deciding}
-          onOpenChange={(o) => !o && setDeciding(null)}
-          pending={pending}
-          currentAmount={row.amount}
-          fetcher={fetcher}
-        />
-      )}
     </>
   );
 }

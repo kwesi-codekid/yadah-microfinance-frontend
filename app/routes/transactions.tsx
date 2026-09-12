@@ -20,16 +20,15 @@ import {
 } from "react-router";
 import { toast } from "sonner";
 
+import { correctTransaction, proposeCorrection } from "~/api/corrections";
 import { getCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
 import { listTransactions } from "~/api/reports";
-import { correctDeposit, proposeCorrection } from "~/api/susu";
 import {
-  CorrectDepositDialog,
-  isCorrectableAccount,
+  CorrectTxnDialog,
   whyNotCorrectable,
   type CorrectionOutcome,
-} from "~/components/deposit-correction";
+} from "~/components/txn-correction";
 import {
   ExportMenu,
   FilterChip,
@@ -59,6 +58,11 @@ import {
 } from "~/components/ui/dialog";
 import { DropdownMenuItem } from "~/components/ui/dropdown-menu";
 import { isOffice } from "~/lib/auth";
+import {
+  KIND_NOUNS,
+  targetPath,
+  type CorrectionKind,
+} from "~/lib/corrections";
 import { channelLabel } from "~/lib/customers";
 import {
   accraDay,
@@ -87,7 +91,7 @@ import {
 } from "~/lib/reports";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
-import type { Correctable } from "./susu-correctable";
+import type { Correctable } from "./correctable";
 import type { Route } from "./+types/transactions";
 
 export function meta(_: Route.MetaArgs) {
@@ -213,22 +217,23 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 /**
- * The one thing the ledger changes: a susu deposit's amount, the same way the
- * account page does it. The shared dialog posts here with the account and
- * deposit named, since unlike the account page this route has neither in its
- * path.
+ * The one thing the ledger changes: a transaction's amount, the same way the
+ * record's own page does it. The shared dialog posts here with the kind, the
+ * record and the entry named, since unlike a record page this route has none
+ * of them in its path.
  */
 export async function action({ request }: Route.ActionArgs) {
   await requireOffice(request);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
-  const accountId = String(form.get("accountId") ?? "");
-  const depositId = String(form.get("depositId") ?? "");
+  const kind = String(form.get("kind") ?? "") as CorrectionKind;
+  const targetId = String(form.get("targetId") ?? "");
+  const txnId = String(form.get("txnId") ?? "");
   const why = String(form.get("reason") ?? "").trim();
   const amount = parseCedis(String(form.get("amount") ?? ""));
 
-  if (!accountId || !depositId) {
-    throw new Response("No deposit named.", { status: 400 });
+  if (!kind || !targetId || !txnId) {
+    throw new Response("No entry named.", { status: 400 });
   }
   if (amount == null || amount <= 0) {
     throw new Response("Enter the corrected amount.", { status: 400 });
@@ -237,11 +242,11 @@ export async function action({ request }: Route.ActionArgs) {
   try {
     const { data: result, headers } = await withAuth(request, async (token) => {
       switch (intent) {
-        case "correct-deposit":
-          await correctDeposit(token, accountId, depositId, amount);
-          return { message: "Deposit corrected." };
+        case "correct-txn":
+          await correctTransaction(token, kind, targetId, txnId, amount);
+          return { message: "Corrected." };
         case "propose-correction":
-          await proposeCorrection(token, accountId, depositId, {
+          await proposeCorrection(token, kind, targetId, txnId, {
             amount,
             reason: why,
           });
@@ -298,28 +303,44 @@ interface Row {
   day: string;
   /** The printable receipt, or null for a charge that has not landed. */
   receiptPath: string | null;
-  /** The susu account behind a susu row, for the correction dialog. */
-  accountId: string | null;
   /**
-   * A susu deposit that has landed and was not written by a transfer — the
-   * only ledger row whose figure can be corrected. Whether it is also the
-   * newest on its account, and whether a request is already waiting, is read
-   * when the item is chosen.
+   * What kind of correctable entry this row is, or null when its figure can
+   * never be corrected from anywhere: a susu deposit, a savings deposit or
+   * withdrawal, a cash loan repayment, or a hire-purchase instalment that
+   * has landed and was typed at the counter. Whether it is also the newest
+   * on its record, and whether a request is already waiting, is read when
+   * the item is chosen.
    */
-  correctable: boolean;
+  kind: CorrectionKind | null;
+  /** The record behind it, for the correction dialog. */
+  targetId: string;
+}
+
+/** The correctable kind a ledger row is, or null. */
+function kindOf(t: UnifiedTransaction): CorrectionKind | null {
+  if (t.status !== "completed") return null;
+  if (t.channel === "transfer" || t.channel === "paystack") return null;
+  switch (t.type) {
+    case "susu-deposit":
+      return t.ref.kind === "susu-account" ? "susu-deposit" : null;
+    case "savings-deposit":
+    case "savings-withdrawal":
+      return t.ref.kind === "savings-account" ? "savings-txn" : null;
+    case "loan-repayment":
+      return t.ref.kind === "loan" && t.detail === "cash" ? "loan-repayment" : null;
+    case "hp-installment":
+      return t.ref.kind === "hp-agreement" ? "hp-payment" : null;
+    default:
+      return null;
+  }
 }
 
 function toRow(t: UnifiedTransaction): Row {
-  const susuAccount = t.ref.kind === "susu-account" ? t.ref.id : null;
   return {
     id: t.id,
     module: t.module,
-    accountId: susuAccount,
-    correctable:
-      t.type === "susu-deposit" &&
-      susuAccount !== null &&
-      t.status === "completed" &&
-      t.channel !== "transfer",
+    kind: kindOf(t),
+    targetId: t.ref.id,
     what: TXN_TYPE_LABELS[t.type] ?? t.type,
     direction: t.direction,
     amount: t.amount,
@@ -637,18 +658,18 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
                 No record to open
               </DropdownMenuItem>
             )}
-            {/* A susu deposit can be corrected from here as from its account
+            {/* A typed figure can be corrected from here as from its record's
                 page. Disabled rather than absent on every other row, for the
                 reason above. */}
             <DropdownMenuItem
-              disabled={!row.correctable}
+              disabled={row.kind === null}
               onSelect={(event) => {
                 event.preventDefault();
                 setCorrecting(row);
               }}
             >
               <PencilIcon />
-              {row.correctable ? "Correct the amount" : "Nothing to correct"}
+              {row.kind ? "Correct the amount" : "Nothing to correct"}
             </DropdownMenuItem>
             {/* The advice page finds its entry by re-reading the customer's
                 statement, so it is handed this row's own day to look in. */}
@@ -691,11 +712,12 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
         }
       />
 
-      {correcting && correcting.accountId && (
+      {correcting && correcting.kind && (
         <LedgerCorrection
           key={correcting.id}
-          accountId={correcting.accountId}
-          depositId={correcting.id}
+          kind={correcting.kind}
+          targetId={correcting.targetId}
+          txnId={correcting.id}
           canManage={canManage}
           fetcher={fetcher}
           onClose={() => setCorrecting(null)}
@@ -708,28 +730,31 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
 /* -------------------------------------------------------------- correcting --- */
 
 /**
- * Correcting a deposit from the ledger.
+ * Correcting an entry from the ledger.
  *
- * The row knows the account and the deposit, but not what the correction
- * rules need — the daily amount, whether this is the newest deposit, whether a
- * request is already waiting — so those are read when the item is chosen,
- * from the resource route at `/susu/:id/deposits/:depositId/correctable`.
- * Nothing is fetched for rows nobody touches. What comes back decides which
- * dialog opens: the correction itself, or the reason it cannot be made.
+ * The row knows the record and the entry, but not what the correction rules
+ * need — the daily amount, what the account held, what was still owed,
+ * whether this is the newest entry, whether a request is already waiting — so
+ * those are read when the item is chosen, from the resource route at
+ * `/corrections/check/:kind/:targetId/:txnId`. Nothing is fetched for rows
+ * nobody touches. What comes back decides which dialog opens: the correction
+ * itself, or the reason it cannot be made.
  *
- * A waiting request is decided on the account page, not here: the ledger
+ * A waiting request is decided on the record's page, not here: the ledger
  * corrects figures, and deciding what a teller asked deserves the row it sits
- * on, with the rest of the cycle around it.
+ * on, with the rest of the record around it.
  */
 function LedgerCorrection({
-  accountId,
-  depositId,
+  kind,
+  targetId,
+  txnId,
   canManage,
   fetcher,
   onClose,
 }: {
-  accountId: string;
-  depositId: string;
+  kind: CorrectionKind;
+  targetId: string;
+  txnId: string;
   canManage: boolean;
   fetcher: ReturnType<typeof useFetcher<CorrectionOutcome>>;
   onClose: () => void;
@@ -741,18 +766,19 @@ function LedgerCorrection({
   useEffect(() => {
     if (asked.current) return;
     asked.current = true;
-    probe.load(`/susu/${accountId}/deposits/${depositId}/correctable`);
-  }, [probe, accountId, depositId]);
+    probe.load(`/corrections/check/${kind}/${targetId}/${txnId}`);
+  }, [probe, kind, targetId, txnId]);
 
   const found = probe.data;
+  const noun = KIND_NOUNS[kind];
 
   if (!found) {
     return (
       <Dialog open onOpenChange={(open) => !open && onClose()}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Correct the deposit</DialogTitle>
-            <DialogDescription>Reading the account…</DialogDescription>
+            <DialogTitle>Correct the {noun}</DialogTitle>
+            <DialogDescription>Reading the record…</DialogDescription>
           </DialogHeader>
         </DialogContent>
       </Dialog>
@@ -761,27 +787,29 @@ function LedgerCorrection({
 
   const blocked =
     found.error ??
-    (found.account && found.deposit
-      ? whyNotCorrectable(
-          found.deposit,
-          found.newestId,
-          isCorrectableAccount(found.account),
-        )
-      : "This deposit cannot be read right now.");
+    (found.txn
+      ? whyNotCorrectable({
+          pending: found.txn.pending,
+          locked: found.txn.locked,
+          closed: found.closed,
+          newest: found.newest,
+          noun,
+        })
+      : "This entry cannot be read right now.");
 
-  if (blocked || !found.account || !found.deposit) {
+  if (blocked || !found.context || !found.txn) {
     return (
       <AlertDialog open onOpenChange={(open) => !open && onClose()}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>This deposit cannot be corrected here</AlertDialogTitle>
+            <AlertDialogTitle>This {noun} cannot be corrected here</AlertDialogTitle>
             <AlertDialogDescription>{blocked}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             {/* A waiting request is decided where it sits. */}
-            {found.deposit?.pending && (
+            {found.txn?.pending && (
               <Button asChild variant="outline">
-                <Link to={`/susu/${accountId}`}>Open the account</Link>
+                <Link to={targetPath({ kind, targetId })}>Open the record</Link>
               </Button>
             )}
             <AlertDialogAction onClick={onClose}>OK</AlertDialogAction>
@@ -792,11 +820,12 @@ function LedgerCorrection({
   }
 
   return (
-    <CorrectDepositDialog
+    <CorrectTxnDialog
       open
       onOpenChange={(open) => !open && onClose()}
-      account={found.account}
-      deposit={found.deposit}
+      context={found.context}
+      targetId={targetId}
+      txn={found.txn}
       asking={!canManage}
       fetcher={fetcher}
     />

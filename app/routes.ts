@@ -72,10 +72,6 @@ export default [
        not fit a drawer — with the deposit drawer nested in turn. */
     route("susu/export", "routes/susu-export.tsx"),
     route("susu/summary", "routes/susu-summary.tsx"),
-    // Deposit corrections tellers asked for, waiting on the office. A page of
-    // its own: the queue cuts across accounts, and the decision is made on
-    // the account's page or here, whichever the office has open.
-    route("susu/corrections", "routes/susu-corrections.tsx"),
     route("susu", "routes/susu.tsx", [
       route("new", "routes/susu-new.tsx"),
       route("collect", "routes/susu-collect.tsx"),
@@ -90,13 +86,6 @@ export default [
     route(
       "susu/:id/withdrawals/:payoutId/receipt",
       "routes/susu-withdrawal-receipt.tsx",
-    ),
-    // JSON resource route behind the session: what correcting one deposit
-    // needs to know, for a screen — the ledger — that shows the deposit
-    // without its account.
-    route(
-      "susu/:id/deposits/:depositId/correctable",
-      "routes/susu-correctable.tsx",
     ),
     route("susu/:id", "routes/susu-detail.tsx", [
       route("deposit", "routes/susu-deposit.tsx"),
@@ -125,6 +114,18 @@ export default [
        run the ledger's own query to answer a download. */
     route("transactions/export", "routes/transactions-export.tsx"),
     route("transactions", "routes/transactions.tsx"),
+
+    /* Corrections to a figure already on the ledger, asked for by tellers and
+       decided by the office. The queue cuts across every module, so it is a
+       page of its own; the decision is made here or on the record's page,
+       whichever the office has open. The check underneath is a JSON resource
+       route behind the session: what correcting one entry needs to know, for
+       a screen — the ledger — that shows the entry without its record. */
+    route("corrections", "routes/corrections.tsx"),
+    route(
+      "corrections/check/:kind/:targetId/:txnId",
+      "routes/correctable.tsx",
+    ),
 
     /* Transfers. One endpoint, so there is no book to list — a transfer shows
        up in the ledger above as its per-module legs. What it needs instead is

@@ -1,9 +1,7 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
 import type {
-  CorrectionStatus,
   CycleMonth,
-  DepositCorrection,
   DepositChannel,
   SusuAccount,
   SusuDeposit,
@@ -180,99 +178,6 @@ export function recordDeposit(
   return apiFetch(`/susu/accounts/${id}/deposits`, {
     method: "POST",
     json: input,
-    accessToken,
-  });
-}
-
-/**
- * PATCH — correct the most recent deposit's amount (office). Data-entry fixes
- * only: the days covered are re-derived and the cycle counters adjust with it,
- * including un-completing a cycle. Transfer-created deposits are immutable.
- */
-export function correctDeposit(
-  accessToken: string,
-  id: string,
-  depositId: string,
-  amount: number,
-): Promise<{ deposit: SusuDeposit; account: SusuAccount; replayed?: boolean }> {
-  return apiFetch(`/susu/accounts/${id}/deposits/${depositId}`, {
-    method: "PATCH",
-    json: { amount },
-    accessToken,
-  });
-}
-
-/* ------------------------------------------------------------- corrections --- */
-
-/**
- * POST /susu/accounts/{id}/deposits/{depositId}/corrections — ask the office
- * to correct a deposit (counter). Nothing moves; the request waits for a
- * decision. Refused on the spot for anything the correction itself would
- * refuse, and `409 CORRECTION_PENDING` when one is already waiting.
- */
-export function proposeCorrection(
-  accessToken: string,
-  id: string,
-  depositId: string,
-  input: { amount: number; reason: string },
-): Promise<{ correction: DepositCorrection }> {
-  return apiFetch(`/susu/accounts/${id}/deposits/${depositId}/corrections`, {
-    method: "POST",
-    json: input,
-    accessToken,
-  });
-}
-
-export interface CorrectionListParams {
-  page?: number;
-  limit?: number;
-  status?: CorrectionStatus;
-  accountId?: string;
-}
-
-/** GET /susu/corrections — the queue, newest first (counter). */
-export function listCorrections(
-  accessToken: string,
-  params: CorrectionListParams = {},
-): Promise<Paginated<DepositCorrection>> {
-  return apiFetch(`/susu/corrections${queryOf({ ...params })}`, { accessToken });
-}
-
-/**
- * POST /susu/corrections/{correctionId}/approve — apply it (office). The same
- * correction as `correctDeposit`, checked against the account as it stands
- * now; a rule that refuses it leaves the request pending with that refusal.
- */
-export function approveCorrection(
-  accessToken: string,
-  correctionId: string,
-): Promise<{ correction: DepositCorrection; deposit: SusuDeposit; account: SusuAccount }> {
-  return apiFetch(`/susu/corrections/${correctionId}/approve`, {
-    method: "POST",
-    accessToken,
-  });
-}
-
-/** POST /susu/corrections/{correctionId}/reject — decline (office). */
-export function rejectCorrection(
-  accessToken: string,
-  correctionId: string,
-  reason: string,
-): Promise<{ correction: DepositCorrection }> {
-  return apiFetch(`/susu/corrections/${correctionId}/reject`, {
-    method: "POST",
-    json: { reason },
-    accessToken,
-  });
-}
-
-/** POST /susu/corrections/{correctionId}/cancel — whoever asked takes it back. */
-export function cancelCorrection(
-  accessToken: string,
-  correctionId: string,
-): Promise<{ correction: DepositCorrection }> {
-  return apiFetch(`/susu/corrections/${correctionId}/cancel`, {
-    method: "POST",
     accessToken,
   });
 }

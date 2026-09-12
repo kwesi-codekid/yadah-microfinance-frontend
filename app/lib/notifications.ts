@@ -16,7 +16,7 @@ export type NotificationType =
   | "susu.withdrawal"
   | "susu.payout"
   | "susu.carry-forward"
-  | "susu.correction"
+  | "txn.correction"
   | "savings.deposit"
   | "savings.withdrawal"
   | "customer.reassigned"
@@ -64,7 +64,7 @@ export const TYPE_LABELS: Record<NotificationType, string> = {
   "susu.withdrawal": "Susu withdrawal",
   "susu.payout": "Susu payout",
   "susu.carry-forward": "Susu carried forward",
-  "susu.correction": "Deposit correction",
+  "txn.correction": "Correction",
   "savings.deposit": "Savings deposit",
   "savings.withdrawal": "Savings withdrawal",
   "customer.reassigned": "Customer reassigned",
@@ -88,7 +88,7 @@ export const TYPE_TONE: Record<
   "susu.carry-forward": "info",
   // Somebody is waiting on it — the office for a decision, or the teller for
   // the answer — so it is drawn to be noticed.
-  "susu.correction": "warning",
+  "txn.correction": "warning",
   "savings.deposit": "success",
   "savings.withdrawal": "muted",
   "customer.reassigned": "info",
@@ -123,6 +123,14 @@ export function dataId(
   return typeof value === "string" && value ? value : null;
 }
 
+/** Where each kind of corrected entry's record lives. */
+const CORRECTION_TARGET_PATHS: Record<string, string> = {
+  "susu-deposit": "/susu",
+  "savings-txn": "/savings",
+  "loan-repayment": "/loans",
+  "hp-payment": "/hire-purchase",
+};
+
 /**
  * Where a notification points, or null when it points nowhere in this app.
  *
@@ -142,10 +150,16 @@ export function linkFor(n: AppNotification): string | null {
     case "susu.payout":
     case "susu.carry-forward":
       return susu ? `/susu/${susu}` : null;
-    // The account page is where a waiting correction is decided, and where
-    // the deposit it changed can be read afterwards.
-    case "susu.correction":
-      return susu ? `/susu/${susu}` : "/susu/corrections";
+    // The record's page is where a waiting correction is decided, and where
+    // the figure it changed can be read afterwards; the queue when the
+    // notification does not say which record.
+    case "txn.correction": {
+      const kind = n.data?.kind;
+      const target = dataId(n, "targetId");
+      if (!target || typeof kind !== "string") return "/corrections";
+      const base = CORRECTION_TARGET_PATHS[kind];
+      return base ? `${base}/${target}` : "/corrections";
+    }
     case "savings.deposit":
     case "savings.withdrawal":
       return savings ? `/savings/${savings}` : null;

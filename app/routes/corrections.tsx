@@ -1,7 +1,7 @@
 import {
   CheckIcon,
   ClockIcon,
-  CoinsIcon,
+  ExternalLinkIcon,
   Undo2Icon,
   XIcon,
 } from "lucide-react";
@@ -9,15 +9,15 @@ import { useEffect, useState } from "react";
 import { data, Link, useFetcher, useNavigate, useNavigation } from "react-router";
 import { toast } from "sonner";
 
-import { ApiError } from "~/api/error";
 import {
   approveCorrection,
   cancelCorrection,
   listCorrections,
   rejectCorrection,
-} from "~/api/susu";
+} from "~/api/corrections";
+import { ApiError } from "~/api/error";
 import { FilterMenu, StatusPill } from "~/components/listing";
-import { BackLink, Page } from "~/components/page";
+import { Page } from "~/components/page";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -37,31 +37,34 @@ import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
 import { isOffice } from "~/lib/auth";
 import {
-  formatAccraDateTime,
-  formatAmount,
-  formatCount,
-  formatPesewas,
-} from "~/lib/format";
-import { requireCounter, withAuth } from "~/lib/session.server";
-import {
+  CORRECTION_KINDS,
   CORRECTION_STATUS_BLURBS,
   CORRECTION_STATUS_LABELS,
   CORRECTION_STATUS_TONE,
   CORRECTION_STATUSES,
+  KIND_LABELS,
   checkCorrectionReason,
+  targetPath,
+  type CorrectionKind,
   type CorrectionStatus,
-  type DepositCorrection,
-} from "~/lib/susu";
+  type TxnCorrection,
+} from "~/lib/corrections";
+import {
+  formatAccraDateTime,
+  formatAmount,
+  formatCount,
+} from "~/lib/format";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
-import type { Route } from "./+types/susu-corrections";
+import type { Route } from "./+types/corrections";
 
 export function meta(_: Route.MetaArgs) {
-  return [{ title: "Deposit corrections · Yadah Dynamic Enterprise" }];
+  return [{ title: "Corrections · Yadah Dynamic Enterprise" }];
 }
 
 /** What the layout header calls this page. */
 export const handle = {
-  title: "Deposit corrections",
+  title: "Corrections",
 };
 
 /** Ten rows, as the ledger and the payout queue page them. */
@@ -76,29 +79,39 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
-function readTab(url: URL): Tab {
-  const raw = url.searchParams.get("status");
-  // The queue opens on what needs a decision, not on everything ever asked.
-  if (raw === "all") return raw;
-  return raw && (CORRECTION_STATUSES as string[]).includes(raw)
-    ? (raw as Tab)
-    : "pending";
+interface Filters {
+  status: Tab;
+  kind: CorrectionKind | "";
 }
 
-function hrefFor(tab: Tab, page = 1): string {
+function readFilters(url: URL): Filters {
+  const status = url.searchParams.get("status");
+  const kind = url.searchParams.get("kind") as CorrectionKind | null;
+  return {
+    // The queue opens on what needs a decision, not on everything ever asked.
+    status:
+      status === "all" || (status && (CORRECTION_STATUSES as string[]).includes(status))
+        ? (status as Tab)
+        : "pending",
+    kind: kind && CORRECTION_KINDS.includes(kind) ? kind : "",
+  };
+}
+
+function hrefFor(f: Filters, page = 1): string {
   const p = new URLSearchParams();
-  if (tab !== "pending") p.set("status", tab);
+  if (f.status !== "pending") p.set("status", f.status);
+  if (f.kind) p.set("kind", f.kind);
   if (page > 1) p.set("page", String(page));
   const s = p.toString();
-  return `/susu/corrections${s ? `?${s}` : ""}`;
+  return `/corrections${s ? `?${s}` : ""}`;
 }
 
 /**
- * `GET /susu/corrections` — the queue. Counter and office both read it: a
- * teller has to see that a request is already waiting on a deposit, and what
- * became of their own. Only the office decides, and only the asker (or the
- * office) takes one back — the menu offers what the reader may do, and the
- * API refuses the rest.
+ * `GET /corrections` — the queue. Counter and office both read it: a teller
+ * has to see that a request is already waiting on an entry, and what became
+ * of their own. Only the office decides, and only the asker (or the office)
+ * takes one back — the menu offers what the reader may do, and the API
+ * refuses the rest.
  *
  * The counts come the way every other listing here gets them: one one-row
  * request per status, each carrying its total.
@@ -106,18 +119,20 @@ function hrefFor(tab: Tab, page = 1): string {
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireCounter(request);
   const url = new URL(request.url);
-  const tab = readTab(url);
+  const filters = readFilters(url);
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
+    const scope = { kind: filters.kind || undefined };
     const [list, ...counts] = await Promise.all([
       listCorrections(token, {
+        ...scope,
         page,
         limit: PAGE_SIZE,
-        status: tab === "all" ? undefined : tab,
+        status: filters.status === "all" ? undefined : filters.status,
       }),
       ...CORRECTION_STATUSES.map((status) =>
-        listCorrections(token, { page: 1, limit: 1, status }),
+        listCorrections(token, { ...scope, page: 1, limit: 1, status }),
       ),
     ]);
     return { list, counts };
@@ -129,7 +144,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return data(
     {
-      tab,
+      filters,
       page,
       total: result.list.total,
       counts: {
@@ -184,16 +199,16 @@ export async function action({ request }: Route.ActionArgs) {
   try {
     const { data: result, headers } = await withAuth(request, async (token) => {
       if (intent === "approve") {
-        const { correction, deposit } = await approveCorrection(token, id);
+        const { correction } = await approveCorrection(token, id);
         return {
-          message: `Applied. The deposit is now GH₵ ${formatAmount(deposit.amount)}.`,
+          message: `Applied. The figure is now GH₵ ${formatAmount(correction.amount)}.`,
           description: `${correction.requestedByName ?? "The teller"} has been told.`,
         };
       }
       if (intent === "reject") {
         const { correction } = await rejectCorrection(token, id, reason);
         return {
-          message: "Declined. The deposit is unchanged.",
+          message: "Declined. The figure is unchanged.",
           description: `${correction.requestedByName ?? "The teller"} reads the reason.`,
         };
       }
@@ -219,15 +234,18 @@ export async function action({ request }: Route.ActionArgs) {
 
 interface Row {
   id: string;
-  accountId: string;
-  accountNumber: string;
-  accountRef: string;
+  kind: CorrectionKind;
+  kindLabel: string;
+  targetTo: string;
+  targetNumber: string;
+  targetLabel: string;
   customerId: string;
   customerName: string;
   before: number;
   after: number;
-  daysBefore: number;
-  days: number;
+  /** Susu: the days before and after; null for the other kinds. */
+  unitsBefore: number | null;
+  units: number | null;
   reason: string;
   status: CorrectionStatus;
   pending: boolean;
@@ -240,18 +258,20 @@ interface Row {
   at: string;
 }
 
-function toRow(c: DepositCorrection): Row {
+function toRow(c: TxnCorrection): Row {
   return {
     id: c.id,
-    accountId: c.accountId,
-    accountNumber: c.accountNumber ?? "",
-    accountRef: c.accountRef ?? "",
+    kind: c.kind,
+    kindLabel: KIND_LABELS[c.kind],
+    targetTo: targetPath(c),
+    targetNumber: c.targetNumber ? `#${c.targetNumber}` : "",
+    targetLabel: c.targetLabel ?? "",
     customerId: c.customerId,
     customerName: c.customerName ?? "Customer",
     before: c.amountBefore,
     after: c.amount,
-    daysBefore: c.daysBefore,
-    days: c.days,
+    unitsBefore: c.unitsBefore ?? null,
+    units: c.units ?? null,
     reason: c.reason,
     status: c.status,
     pending: c.status === "pending",
@@ -267,14 +287,14 @@ function toRow(c: DepositCorrection): Row {
 /* -------------------------------------------------------------------- page --- */
 
 /**
- * The queue, drawn as the payout queue is drawn: the status filter over the
- * table, the same ⋯ menu on every row. What is particular here is that a row
- * is a change to a figure already on the ledger, so it names both figures and
- * the reason side by side — the office decides from the row, not from a
- * page behind it.
+ * The queue, drawn as the payout queue is drawn: the filters over the table,
+ * the same ⋯ menu on every row. What is particular here is that a row is a
+ * change to a figure already on the ledger, so it names both figures and the
+ * reason side by side — the office decides from the row, not from a page
+ * behind it.
  */
-export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
-  const { tab, page, total, counts, canDecide, userId, rows } = loaderData;
+export default function Corrections({ loaderData }: Route.ComponentProps) {
+  const { filters, page, total, counts, canDecide, userId, rows } = loaderData;
   const navigation = useNavigation();
   const navigate = useNavigate();
   const fetcher = useFetcher<ActionResult>();
@@ -296,7 +316,7 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
 
   const busy =
     navigation.state === "loading" &&
-    navigation.location?.pathname === "/susu/corrections";
+    navigation.location?.pathname === "/corrections";
 
   const columns: Column<Row>[] = [
     {
@@ -316,15 +336,20 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
       cell: (row) => (
         <>
           <Link
-            to={`/susu/${row.accountId}`}
+            to={row.targetTo}
             prefetch="intent"
             className="font-medium underline-offset-4 hover:underline"
           >
             {row.customerName}
           </Link>
-          {/* The number is the customer's; the ref is this book's. */}
-          <p className="tabular text-xs text-muted-foreground">
-            #{row.accountNumber} · {row.accountRef}
+          <p className="text-xs text-muted-foreground">
+            {row.kindLabel}
+            {row.targetNumber && (
+              <span className="tabular"> · {row.targetNumber}</span>
+            )}
+            {row.targetLabel && (
+              <span className="tabular"> · {row.targetLabel}</span>
+            )}
           </p>
         </>
       ),
@@ -341,9 +366,11 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
             </span>{" "}
             <span className="font-medium">{formatAmount(row.after)}</span>
           </p>
-          <p className="tabular text-xs text-muted-foreground">
-            {row.daysBefore} to {row.days} day{row.days === 1 ? "" : "s"}
-          </p>
+          {row.units !== null && row.unitsBefore !== null && (
+            <p className="tabular text-xs text-muted-foreground">
+              {row.unitsBefore} to {row.units} day{row.units === 1 ? "" : "s"}
+            </p>
+          )}
         </>
       ),
     },
@@ -386,24 +413,34 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page className="max-w-none">
-      <BackLink to="/susu" className="mb-4">
-        All susu accounts
-      </BackLink>
-
       <TotalsBand counts={counts} />
 
       <DataTable
         filters={
-          <FilterMenu
-            label="Status"
-            items={TABS.map((t) => ({
-              key: t.key,
-              label: t.label,
-              count: counts[t.key],
-              to: hrefFor(t.key),
-            }))}
-            active={tab}
-          />
+          <>
+            <FilterMenu
+              label="Status"
+              items={TABS.map((t) => ({
+                key: t.key,
+                label: t.label,
+                count: counts[t.key],
+                to: hrefFor({ ...filters, status: t.key }),
+              }))}
+              active={filters.status}
+            />
+            <FilterMenu
+              label="Kind"
+              items={[
+                { key: "", label: "All kinds", to: hrefFor({ ...filters, kind: "" }) },
+                ...CORRECTION_KINDS.map((k) => ({
+                  key: k,
+                  label: KIND_LABELS[k],
+                  to: hrefFor({ ...filters, kind: k }),
+                })),
+              ]}
+              active={filters.kind}
+            />
+          </>
         }
         columns={columns}
         rows={rows}
@@ -413,7 +450,7 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
           pageSize: PAGE_SIZE,
           total,
           onPageChange: (next) =>
-            navigate(hrefFor(tab, next), {
+            navigate(hrefFor(filters, next), {
               replace: true,
               preventScrollReset: true,
             }),
@@ -422,9 +459,9 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
         rowActions={(row) => (
           <>
             <DropdownMenuItem asChild>
-              <Link to={`/susu/${row.accountId}`} prefetch="intent">
-                <CoinsIcon />
-                Open the account
+              <Link to={row.targetTo} prefetch="intent">
+                <ExternalLinkIcon />
+                Open the record
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -475,8 +512,8 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
         noun={{ one: "correction", many: "corrections" }}
         pageSize={PAGE_SIZE}
         empty={
-          tab === "pending"
-            ? "Nothing is waiting. When a teller asks for a deposit to be corrected, it shows up here for a decision."
+          filters.status === "pending"
+            ? "Nothing is waiting. When a teller asks for a figure to be corrected, it shows up here for a decision."
             : "Nothing here yet."
         }
       />
@@ -493,12 +530,13 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
                   Apply {deciding.row.requestedBy}'s correction?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  The deposit on {deciding.row.customerName}'s #
-                  {deciding.row.accountNumber} becomes GH₵{" "}
-                  {formatAmount(deciding.row.after)} — {deciding.row.days} day
-                  {deciding.row.days === 1 ? "" : "s"} — from GH₵{" "}
-                  {formatAmount(deciding.row.before)}. The cycle count moves
-                  with it, and {deciding.row.requestedBy} is told.
+                  The {deciding.row.kindLabel.toLowerCase()} on{" "}
+                  {deciding.row.customerName}'s record becomes GH₵{" "}
+                  {formatAmount(deciding.row.after)}
+                  {deciding.row.units !== null &&
+                    ` — ${deciding.row.units} day${deciding.row.units === 1 ? "" : "s"} —`}{" "}
+                  from GH₵ {formatAmount(deciding.row.before)}. Everything built
+                  on it moves with it, and {deciding.row.requestedBy} is told.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -525,7 +563,7 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
                   Decline {deciding.row.requestedBy}'s correction?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  The deposit stays at GH₵ {formatAmount(deciding.row.before)}.{" "}
+                  The figure stays at GH₵ {formatAmount(deciding.row.before)}.{" "}
                   {deciding.row.requestedBy} reads this reason.
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -575,7 +613,7 @@ export default function SusuCorrections({ loaderData }: Route.ComponentProps) {
               <AlertDialogHeader>
                 <AlertDialogTitle>Take the request back?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Nothing changes. The deposit stays at GH₵{" "}
+                  Nothing changes. The figure stays at GH₵{" "}
                   {formatAmount(deciding.row.before)} and can be asked about
                   again.
                 </AlertDialogDescription>
