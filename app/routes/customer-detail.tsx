@@ -62,6 +62,9 @@ export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: `${name} · Yadah Dynamic Enterprise` }];
 }
 
+/** What the layout header calls this page. */
+export const handle = { title: "Customer" };
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireUser(request);
 

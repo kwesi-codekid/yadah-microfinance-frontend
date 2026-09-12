@@ -234,7 +234,12 @@ export interface SusuHolding {
   status: string;
   dailyAmount: number;
   depositsCount: number;
+  /** Gross paid in over the cycle. Withdrawals never reduce it. */
   totalDeposited: number;
+  /** Handed back through partial withdrawals, without stopping the cycle. */
+  withdrawnAmount?: number;
+  /** `totalDeposited − withdrawnAmount` — what the cycle actually holds. */
+  balance?: number;
   payoutRemaining: number;
 }
 

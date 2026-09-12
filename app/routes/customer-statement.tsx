@@ -70,6 +70,9 @@ const PAGE_SIZE = 10;
  * `GET /customers/:id/statement` — the customer's unified ledger for a range of
  * Accra days. Office only, which the API enforces and this re-checks.
  */
+/** What the layout header calls this page. The rail calls it Transactions. */
+export const handle = { title: "Transactions" };
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   await requireCounter(request);
   const url = new URL(request.url);

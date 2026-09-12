@@ -40,13 +40,25 @@ export default [
     // Resource routes: they proxy a binary body from the API, which the
     // browser cannot fetch itself because it holds no access token.
     route("customers/export", "routes/customers-export.tsx"),
-    route("customers/:id", "routes/customer-detail.tsx", [
-      // Admin-only, and the only way `assignedCollectorId` ever changes — a
-      // profile update ignores the field.
-      route("collector", "routes/customer-collector.tsx"),
+    /* One customer's three pages behind a rail: who they are, what they hold,
+       and everything that has moved. The accounts page is why the rail
+       exists — the counter was leaving the customer to search the susu or
+       savings listing for an account they already had open. */
+    layout("routes/customer-layout.tsx", [
+      route("customers/:id", "routes/customer-detail.tsx", [
+        // Admin-only, and the only way `assignedCollectorId` ever changes — a
+        // profile update ignores the field.
+        route("collector", "routes/customer-collector.tsx"),
+      ]),
+      // One product per page: the counter works on one at a time, and each
+      // table pages against its own module's endpoint rather than a summary.
+      route("customers/:id/susu", "routes/customer-susu.tsx"),
+      route("customers/:id/savings", "routes/customer-savings.tsx"),
+      route("customers/:id/loans", "routes/customer-loans.tsx"),
+      route("customers/:id/hire-purchase", "routes/customer-hp.tsx"),
+      route("customers/:id/statement", "routes/customer-statement.tsx"),
     ]),
     route("customers/:id/edit", "routes/customer-edit.tsx"),
-    route("customers/:id/statement", "routes/customer-statement.tsx"),
     route("customers/:id/statement/export", "routes/customer-statement-export.tsx"),
     route("customers/:id/registration-form", "routes/customer-print.tsx"),
     route("uploads", "routes/uploads.tsx"),
