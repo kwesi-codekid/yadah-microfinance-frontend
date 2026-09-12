@@ -230,7 +230,12 @@ export type TxDirection = Direction;
 
 export interface SusuHolding {
   accountId: string;
+  /** The customer's susu number — every book they hold carries it. */
   accountNumber: string;
+  /** The month this book is called. */
+  cycleMonth?: string;
+  /** This book's own distinct identity, for when two panels share a number. */
+  ref?: string;
   status: string;
   dailyAmount: number;
   depositsCount: number;

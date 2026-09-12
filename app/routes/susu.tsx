@@ -216,6 +216,7 @@ export const shouldRevalidate = drawerParentShouldRevalidate;
 interface Row {
   id: string;
   accountNumber: string;
+  ref: string;
   customerId: string;
   customerName: string;
   dailyAmount: number;
@@ -233,6 +234,7 @@ function toRow(a: SusuAccount, now: Date): Row {
   return {
     id: a.id,
     accountNumber: a.accountNumber,
+    ref: a.ref,
     customerId: a.customerId,
     customerName: a.customerName ?? "—",
     dailyAmount: a.dailyAmount,
@@ -310,6 +312,10 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <Th>Account</Th>
+                  {/* The number the branch quotes, in its own column. It names
+                      the CUSTOMER, so two of their cycles read the same here —
+                      the ref under the name is what separates them. */}
+                  <Th>Number</Th>
                   <Th className="hidden md:table-cell">Cycle</Th>
                   <Th className="text-right">Daily</Th>
                   <Th className="text-right">Deposited</Th>
@@ -388,8 +394,12 @@ function AccountRow({
           {row.customerName}
         </Link>
         <p className="tabular truncate text-xs text-muted-foreground">
-          #{row.accountNumber}
+          {row.ref}
         </p>
+      </TableCell>
+
+      <TableCell className="px-4 py-3">
+        <span className="tabular text-sm">#{row.accountNumber}</span>
       </TableCell>
 
       <TableCell className="hidden px-4 py-3 md:table-cell">
@@ -456,8 +466,10 @@ function AccountRow({
                 className="size-8 text-muted-foreground hover:text-foreground"
               >
                 <MoreHorizontalIcon />
+                {/* Named by ref, not by number: two of one customer's books
+                    would otherwise announce two different menus identically. */}
                 <span className="sr-only">
-                  Actions for account {row.accountNumber}
+                  Actions for {row.customerName}, account {row.ref}
                 </span>
               </Button>
             </DropdownMenuTrigger>

@@ -77,6 +77,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       return {
         id: account.id,
         accountNumber: account.accountNumber,
+        ref: account.ref,
         status: account.status,
         pending,
         depositsCount: account.depositsCount,
@@ -248,6 +249,12 @@ export default function LoanRepaySusu({ loaderData }: Route.ComponentProps) {
                           {s.pending
                             ? "Stopped, awaiting payout"
                             : `${s.depositsCount} of ${s.cycleTarget} deposits · ${formatPesewas(s.totalDeposited)} in`}
+                        </span>
+                        {/* This closes a cycle for good, and the customer's
+                            books all carry the same number — so the choice
+                            has to be made on something that differs. */}
+                        <span className="tabular block text-xs text-muted-foreground">
+                          {s.ref}
                         </span>
                       </span>
                       <span className="tabular shrink-0 text-sm font-semibold">

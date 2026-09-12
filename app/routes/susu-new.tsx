@@ -84,8 +84,11 @@ export async function action({ request, params: _ }: Route.ActionArgs) {
     `/susu/${result.account.id}`,
     {
       tone: "success",
-      message: `${result.account.accountNumber} opened at GH₵ ${formatAmount(dailyAmount)} a day.`,
-      description: `${CYCLE_TARGET} deposits to a full cycle.`,
+      // Not "SU26090009-SEP opened": if this is their second book of the month
+      // that number is one they already hold, and announcing it as new reads
+      // as a duplicate rather than a success.
+      message: `Cycle opened at GH₵ ${formatAmount(dailyAmount)} a day.`,
+      description: `${result.account.accountNumber} · ${CYCLE_TARGET} deposits to a full cycle.`,
     },
     headers,
   );

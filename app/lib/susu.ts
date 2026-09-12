@@ -50,11 +50,25 @@ export function currentCycleMonth(): CycleMonth {
 export interface SusuAccount {
   id: string;
   /**
-   * `SU` + YYMM + a 4-digit monthly sequence + the cycle month, e.g.
-   * `SU26090005-SEP`. Accounts opened before the cycle month carry no suffix;
-   * accounts opened before the scheme keep their legacy 6 random digits.
+   * The CUSTOMER's susu number with this cycle's month, e.g. `SU26090005-SEP`.
+   *
+   * NOT unique, and not this account's own (client decision, 12 Sep 2026): a
+   * customer is assigned one number for life and their books are separated by
+   * month inside it, the way the branch's paper passbooks work. Two books
+   * opened for one customer in one month render the identical string, so this
+   * can never be used to tell two of them apart — use `id`, and show `ref`
+   * wherever both can be on screen at once.
+   *
+   * Customers registered before the scheme keep their legacy 6 digits as their
+   * number, suffixed the same way.
    */
   accountNumber: string;
+  /**
+   * The account's real identity, rendered for people: the second it was opened
+   * plus a tail of its id — `260912134501-a3f9`. Always distinct, and shaped
+   * deliberately unlike an account number so the two are never confused.
+   */
+  ref: string;
   customerId: string;
   /** Present on list responses, for display. */
   customerName?: string;

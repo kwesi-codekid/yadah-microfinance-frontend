@@ -29,9 +29,17 @@ export interface AccountListParams {
   limit?: number;
   customerId?: string;
   status?: SusuStatus;
-  /** The full `SU` number, or the bare six digits: `^(SU\d{8}|\d{6})$`. */
+  /**
+   * The full `SU` number, or the bare six digits: `^(SU\d{8}|\d{6})$`.
+   *
+   * A susu number belongs to the customer, so this matches every book they
+   * hold — pass it to find the family, never to find one account.
+   */
   accountNumber?: string;
-  /** Fuzzy and typo-tolerant: customer name, phone, or account-number prefix. */
+  /**
+   * Fuzzy and typo-tolerant: customer name, phone, or account-number prefix.
+   * Matching on a number returns that customer's whole susu history.
+   */
   search?: string;
   /** Inclusive Accra day, `YYYY-MM-DD`, on when the account was opened. */
   from?: string;
