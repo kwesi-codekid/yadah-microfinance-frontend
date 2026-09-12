@@ -115,7 +115,9 @@ export async function loader({ request }: Route.LoaderArgs) {
           id: a.id,
           kind: "susu",
           title: `Susu ${a.accountNumber}`,
-          subtitle: "Awaiting payout",
+          // The number belongs to the customer, so two of their books read the
+          // same here — and choosing one of these stops an account.
+          subtitle: `Awaiting payout · ${a.ref}`,
           amount: a.payoutRemaining,
           pendingPayout: true,
         });
@@ -127,7 +129,7 @@ export async function loader({ request }: Route.LoaderArgs) {
           id: a.id,
           kind: "susu",
           title: `Susu ${a.accountNumber}`,
-          subtitle: `${a.depositsCount} of ${a.cycleTarget} days paid in`,
+          subtitle: `${a.depositsCount} of ${a.cycleTarget} days paid in · ${a.ref}`,
           amount: payoutIfClosedNow(a),
           commission: commissionOf(a),
         });
@@ -137,7 +139,9 @@ export async function loader({ request }: Route.LoaderArgs) {
           id: a.id,
           kind: "susu",
           title: `Susu ${a.accountNumber}`,
-          subtitle: `GH₵ ${formatAmount(a.dailyAmount)} a day`,
+          // Two active books at the same daily amount would otherwise render
+          // an identical title AND subtitle, and this moves money.
+          subtitle: `GH₵ ${formatAmount(a.dailyAmount)} a day · ${a.ref}`,
           amount: a.totalDeposited,
         });
       }
@@ -541,10 +545,23 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
 
               {preview && !fault && (
                 <>
+                  {/* Titles alone are not enough to confirm against: two susu
+                      books of one customer share theirs, so the subtitle —
+                      which carries the ref — comes with them. */}
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-sm">
-                    <span className="font-medium">{source!.title}</span>
-                    <ArrowRightIcon className="size-4 text-muted-foreground" />
-                    <span className="font-medium">{target.title}</span>
+                    <span className="min-w-0">
+                      <span className="block font-medium">{source!.title}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {source!.subtitle}
+                      </span>
+                    </span>
+                    <ArrowRightIcon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0">
+                      <span className="block font-medium">{target.title}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {target.subtitle}
+                      </span>
+                    </span>
                   </div>
                   <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <Figure

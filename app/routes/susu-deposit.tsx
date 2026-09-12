@@ -81,15 +81,16 @@ export async function action({ request, params }: Route.ActionArgs) {
     const days = result.deposit.daysCovered;
     const [opened] = result.openedAccounts;
     // A payment that ran past the end of the cycle finished this one and
-    // started the next. The collector is standing in front of the customer,
-    // so the new account number is the thing they need to read out.
+    // started the next. The new book carries the customer's own number — the
+    // same one already on this screen — so reading it out would tell the
+    // collector nothing. What changed is the cycle, so say that.
     await redirectWithToast(
       `/susu/${params.id}`,
       opened
         ? {
             tone: "success",
             message: `GH₵ ${formatAmount(result.totalAmount)} received — cycle complete.`,
-            description: `${days} day${days === 1 ? "" : "s"} finished this cycle; the balance opened ${opened.accountNumber}.`,
+            description: `${days} day${days === 1 ? "" : "s"} finished this cycle; the balance opened their next book${opened.cycleMonth ? ` (${opened.cycleMonth})` : ""}.`,
           }
         : {
             tone: "success",

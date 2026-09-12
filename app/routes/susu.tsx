@@ -216,6 +216,7 @@ export const shouldRevalidate = drawerParentShouldRevalidate;
 interface Row {
   id: string;
   accountNumber: string;
+  ref: string;
   customerId: string;
   customerName: string;
   dailyAmount: number;
@@ -233,6 +234,7 @@ function toRow(a: SusuAccount, now: Date): Row {
   return {
     id: a.id,
     accountNumber: a.accountNumber,
+    ref: a.ref,
     customerId: a.customerId,
     customerName: a.customerName ?? "—",
     dailyAmount: a.dailyAmount,
@@ -310,6 +312,11 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <Th>Account</Th>
+                  {/* The account number belongs to the customer, not to this
+                      book, so two of one customer's cycles read the same on
+                      the line above. This is the column that tells them
+                      apart. */}
+                  <Th className="hidden xl:table-cell">Ref</Th>
                   <Th className="hidden md:table-cell">Cycle</Th>
                   <Th className="text-right">Daily</Th>
                   <Th className="text-right">Deposited</Th>
@@ -392,6 +399,10 @@ function AccountRow({
         </p>
       </TableCell>
 
+      <TableCell className="hidden px-4 py-3 xl:table-cell">
+        <span className="tabular text-xs text-muted-foreground">{row.ref}</span>
+      </TableCell>
+
       <TableCell className="hidden px-4 py-3 md:table-cell">
         <CycleBar count={row.depositsCount} target={row.cycleTarget} />
       </TableCell>
@@ -456,8 +467,10 @@ function AccountRow({
                 className="size-8 text-muted-foreground hover:text-foreground"
               >
                 <MoreHorizontalIcon />
+                {/* Named by ref, not by number: two of one customer's books
+                    would otherwise announce two different menus identically. */}
                 <span className="sr-only">
-                  Actions for account {row.accountNumber}
+                  Actions for {row.customerName}, account {row.ref}
                 </span>
               </Button>
             </DropdownMenuTrigger>

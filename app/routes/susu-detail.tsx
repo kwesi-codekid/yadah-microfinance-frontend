@@ -113,7 +113,12 @@ import type { Route } from "./+types/susu-detail";
 
 export function meta({ loaderData }: Route.MetaArgs) {
   const n = loaderData?.account.accountNumber ?? "Account";
-  return [{ title: `Susu #${n} · Yadah Dynamic Enterprise` }];
+  // The month, because the number alone is the customer's and two of their
+  // books would otherwise give two browser tabs the same name.
+  const month = loaderData?.account.cycleMonth;
+  return [
+    { title: `Susu #${n}${month ? ` ${month}` : ""} · Yadah Dynamic Enterprise` },
+  ];
 }
 
 /**
@@ -413,6 +418,10 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             <span className="tabular">#{account.accountNumber}</span>
+            {/* This page closes, terminates and pays out cycles, and the
+                number above belongs to the customer rather than to this book.
+                The ref is the only thing on screen that names THIS one. */}
+            <span className="tabular"> · {account.ref}</span>
             {account.closedAt
               ? ` · Closed ${formatAccraDate(account.closedAt)}`
               : ` · Opened ${formatAccraDate(account.openedAt)}`}
@@ -799,6 +808,11 @@ function AccountActions({
                   ? "Terminate and refund?"
                   : "Move this account to the trash?"}
             </AlertDialogTitle>
+            {/* Names the book being acted on. None of these can be undone, and
+                the customer may hold another with the same number. */}
+            <p className="tabular text-xs text-muted-foreground">
+              #{account.accountNumber} · {account.ref}
+            </p>
             <AlertDialogDescription>
               {confirm === "close" ? (
                 <>
@@ -924,7 +938,8 @@ function PayoutDialog({
         <DialogHeader>
           <DialogTitle>Pay out</DialogTitle>
           <DialogDescription>
-            GH₵ {formatAmount(account.payoutRemaining)} is owed on this account.
+            GH₵ {formatAmount(account.payoutRemaining)} is owed on this account
+            (#{account.accountNumber} · {account.ref}).
           </DialogDescription>
         </DialogHeader>
 

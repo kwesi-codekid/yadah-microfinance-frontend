@@ -84,6 +84,15 @@ export default function CustomerSusu({ loaderData }: Route.ComponentProps) {
       ),
     },
     {
+      // Every row on this page belongs to one customer, so every account
+      // number on it is the same string. This is the only thing separating
+      // two cycles of the same month.
+      key: "ref",
+      header: "Ref",
+      className: "tabular hidden text-xs text-muted-foreground lg:table-cell",
+      cell: (a) => a.ref,
+    },
+    {
       key: "daily",
       header: "Daily",
       align: "end",

@@ -69,10 +69,18 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
 }
 
-/** The `{ required, breakdown }` an `AMOUNT_MISMATCH` carries. */
+/**
+ * The `{ required, breakdown }` an `AMOUNT_MISMATCH` carries.
+ *
+ * Labelled by cycle month and reference rather than by account number: every
+ * book in a collect-all belongs to one customer, so every number here is the
+ * same string and a list of them would say nothing. (The API never sent
+ * `accountNumber` for these rows either, so this list used to print a dash
+ * against every line.)
+ */
 interface Mismatch {
   required?: number;
-  breakdown?: { accountNumber?: string; dailyAmount?: number }[];
+  breakdown?: { ref?: string; cycleMonth?: string; dailyAmount?: number }[];
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -293,8 +301,11 @@ function Breakdown({ details }: { details?: Mismatch }) {
       {details.breakdown?.length ? (
         <ul className="list-disc space-y-0.5 pl-4">
           {details.breakdown.slice(0, 10).map((row, i) => (
-            <li key={i} className="tabular">
-              #{row.accountNumber ?? "—"} · {formatAmount(row.dailyAmount ?? 0)}
+            <li key={row.ref ?? i} className="tabular">
+              {row.cycleMonth ?? "Cycle"} · GH₵ {formatAmount(row.dailyAmount ?? 0)}
+              {row.ref ? (
+                <span className="ml-1 text-muted-foreground">{row.ref}</span>
+              ) : null}
             </li>
           ))}
         </ul>
