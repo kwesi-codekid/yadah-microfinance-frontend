@@ -312,11 +312,10 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <Th>Account</Th>
-                  {/* The account number belongs to the customer, not to this
-                      book, so two of one customer's cycles read the same on
-                      the line above. This is the column that tells them
-                      apart. */}
-                  <Th className="hidden xl:table-cell">Ref</Th>
+                  {/* The number the branch quotes, in its own column. It names
+                      the CUSTOMER, so two of their cycles read the same here —
+                      the ref under the name is what separates them. */}
+                  <Th>Number</Th>
                   <Th className="hidden md:table-cell">Cycle</Th>
                   <Th className="text-right">Daily</Th>
                   <Th className="text-right">Deposited</Th>
@@ -395,12 +394,12 @@ function AccountRow({
           {row.customerName}
         </Link>
         <p className="tabular truncate text-xs text-muted-foreground">
-          #{row.accountNumber}
+          {row.ref}
         </p>
       </TableCell>
 
-      <TableCell className="hidden px-4 py-3 xl:table-cell">
-        <span className="tabular text-xs text-muted-foreground">{row.ref}</span>
+      <TableCell className="px-4 py-3">
+        <span className="tabular text-sm">#{row.accountNumber}</span>
       </TableCell>
 
       <TableCell className="hidden px-4 py-3 md:table-cell">

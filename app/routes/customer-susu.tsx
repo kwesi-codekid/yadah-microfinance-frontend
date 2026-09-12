@@ -74,23 +74,20 @@ export default function CustomerSusu({ loaderData }: Route.ComponentProps) {
     {
       key: "account",
       header: "Account",
+      // Every row here belongs to one customer, so every number on the page
+      // is the same string. The ref underneath is what separates two cycles
+      // of the same month.
       cell: (a) => (
-        <Link
-          to={`/susu/${a.id}`}
-          className="tabular font-medium underline-offset-4 hover:underline"
-        >
-          #{a.accountNumber}
-        </Link>
+        <>
+          <Link
+            to={`/susu/${a.id}`}
+            className="tabular font-medium underline-offset-4 hover:underline"
+          >
+            #{a.accountNumber}
+          </Link>
+          <p className="tabular text-xs text-muted-foreground">{a.ref}</p>
+        </>
       ),
-    },
-    {
-      // Every row on this page belongs to one customer, so every account
-      // number on it is the same string. This is the only thing separating
-      // two cycles of the same month.
-      key: "ref",
-      header: "Ref",
-      className: "tabular hidden text-xs text-muted-foreground lg:table-cell",
-      cell: (a) => a.ref,
     },
     {
       key: "daily",
