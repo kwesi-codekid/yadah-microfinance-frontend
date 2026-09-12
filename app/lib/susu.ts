@@ -231,6 +231,30 @@ export function isOpen(account: SusuAccount): boolean {
 }
 
 /**
+ * What the cycle is still holding for the customer — which is NOT the same
+ * question as `isOpen`.
+ *
+ * A completed cycle takes no more deposits but holds every pesewa until it is
+ * closed and paid out; one waiting on a staged payout holds whatever has not
+ * been handed over yet. A stopped cycle holds nothing, even though `balance`
+ * survives closure: that figure is deposits less PARTIAL withdrawals, and the
+ * closing payout is recorded separately, so it has to be read with the status
+ * beside it or it claims money the branch has already given back.
+ */
+export function heldBalance(account: SusuAccount): number {
+  if (account.status === "active" || account.status === "completed") {
+    return account.balance;
+  }
+  if (account.status === "pending-payout") return account.payoutRemaining;
+  return 0;
+}
+
+/** True once the cycle has been paid out and holds nothing. */
+export function isStopped(account: SusuAccount): boolean {
+  return account.status === "closed" || account.status === "terminated";
+}
+
+/**
  * How far through the cycle, 0–1. Deposits can exceed the target only if the
  * API ever lets them, so it is clamped rather than trusted.
  */
