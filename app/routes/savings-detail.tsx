@@ -92,6 +92,7 @@ import {
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
 import { isCounter, isOffice } from "~/lib/auth";
+import { backdatingEnabled } from "~/lib/backdating.server";
 import type { CorrectionKind } from "~/lib/corrections";
 import {
   accraDay,
@@ -212,6 +213,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       canManage: office,
       /** Asking for a correction — the counter's door to one. */
       canCorrect: counter,
+      /**
+       * Whether a transaction may be dated to the day it happened. Read here
+       * rather than in the two drawers over this page: one of them has no
+       * loader at all, deliberately, so that it opens on the click.
+       */
+      backdating: backdatingEnabled(),
       /** Closing, paying out and withdrawing — counter work. */
       canServe: counter,
       account: {

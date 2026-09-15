@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { recordDeposit } from "~/api/savings";
+import { OccurredOnField } from "~/components/occurred-on-field";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
 import { Figure } from "~/components/savings-bits";
 import { Button } from "~/components/ui/button";
@@ -33,6 +34,7 @@ import {
   type SavingsChannel,
 } from "~/lib/savings";
 import { requireUser, withAuth } from "~/lib/session.server";
+import { occurredOnFromForm } from "~/lib/backdating.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { loader as detailLoader } from "./savings-detail";
@@ -65,6 +67,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const amount = parseCedis(String(form.get("amount") ?? ""));
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
   const channel = String(form.get("channel") ?? "cash") as SavingsChannel;
+  const occurredOn = occurredOnFromForm(form);
 
   const issue = checkDepositAmount(amount);
   if (issue) return data({ error: issue }, { status: 400 });
@@ -74,7 +77,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   try {
     const { data: result, headers } = await withAuth(request, (token) =>
-      recordDeposit(token, params.id, { amount: amount!, idempotencyKey, channel }),
+      recordDeposit(token, params.id, {
+        amount: amount!,
+        idempotencyKey,
+        channel,
+        ...(occurredOn ? { occurredOn } : {}),
+      }),
     );
     // A replay is not a failure, but it is not a second deposit either — the
     // person at the counter has to know which of the two just happened.
@@ -231,6 +239,8 @@ export default function SavingsDeposit() {
               </SelectContent>
             </Select>
           </div>
+
+          <OccurredOnField enabled={detail.backdating} noun="deposit" />
 
           {/* Below the minimum the balance is real but untouchable, which is
               worth saying before the customer asks for it back tomorrow. */}

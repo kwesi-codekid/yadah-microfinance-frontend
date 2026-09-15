@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { recordWithdrawal } from "~/api/savings";
+import { OccurredOnField } from "~/components/occurred-on-field";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
 import { BalanceMeter, Figure } from "~/components/savings-bits";
 import { Button } from "~/components/ui/button";
@@ -25,6 +26,7 @@ import {
   checkWithdrawalAmount,
 } from "~/lib/savings";
 import { requireCounter, withAuth } from "~/lib/session.server";
+import { occurredOnFromForm } from "~/lib/backdating.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { loader as detailLoader } from "./savings-detail";
@@ -52,6 +54,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   const amount = parseCedis(String(form.get("amount") ?? ""));
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
+  const occurredOn = occurredOnFromForm(form);
 
   if (amount == null || amount <= 0) {
     return data({ error: "Enter what the customer is taking." }, { status: 400 });
@@ -62,7 +65,11 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   try {
     const { data: result, headers } = await withAuth(request, (token) =>
-      recordWithdrawal(token, params.id, { amount, idempotencyKey }),
+      recordWithdrawal(token, params.id, {
+        amount,
+        idempotencyKey,
+        ...(occurredOn ? { occurredOn } : {}),
+      }),
     );
     if (result.replayed) {
       return data(
@@ -207,6 +214,8 @@ export default function SavingsWithdraw() {
               Everything available · {formatAmount(account.availableToWithdraw)}
             </Button>
           )}
+
+          <OccurredOnField enabled={detail.backdating} noun="withdrawal" />
 
           {/* What the drawer and the account each end up with. The fee is the
               part customers dispute, so it is a line of its own, not a footnote. */}
