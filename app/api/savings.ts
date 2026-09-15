@@ -219,7 +219,17 @@ export function restoreTxn(
 export function recordDeposit(
   accessToken: string,
   id: string,
-  input: { amount: number; idempotencyKey: string; channel?: SavingsChannel },
+  input: {
+    amount: number;
+    idempotencyKey: string;
+    channel?: SavingsChannel;
+  /**
+   * The Accra day the money changed hands, for history typed in after the
+   * fact. Omitted on an ordinary same-day collection; refused by the API
+   * unless backdating is switched on for the data-population stage.
+   */
+  occurredOn?: string;
+  },
 ): Promise<{ txn: SavingsTxn; account: SavingsAccount; replayed: boolean }> {
   return apiFetch(`/savings/accounts/${id}/deposits`, {
     method: "POST",
@@ -238,7 +248,16 @@ export function recordDeposit(
 export function recordWithdrawal(
   accessToken: string,
   id: string,
-  input: { amount: number; idempotencyKey: string },
+  input: {
+    amount: number;
+    idempotencyKey: string;
+  /**
+   * The Accra day the money changed hands, for history typed in after the
+   * fact. Omitted on an ordinary same-day collection; refused by the API
+   * unless backdating is switched on for the data-population stage.
+   */
+  occurredOn?: string;
+  },
 ): Promise<{ txn: SavingsTxn; account: SavingsAccount; replayed: boolean }> {
   return apiFetch(`/savings/accounts/${id}/withdrawals`, {
     method: "POST",

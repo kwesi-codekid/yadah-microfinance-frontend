@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
 import { getAccount, recordDeposit } from "~/api/susu";
+import { OccurredOnField } from "~/components/occurred-on-field";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -18,6 +19,7 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { formatAmount, parseCedis, toCedisInput } from "~/lib/format";
+import { backdatingEnabled, occurredOnFromForm } from "~/lib/backdating.server";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import { requireUser, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
@@ -49,7 +51,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       throwAsRouteError(error);
     }
   });
-  return data({ account: result.account }, { headers });
+  return data(
+    { account: result.account, backdating: backdatingEnabled() },
+    { headers },
+  );
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -58,6 +63,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const amount = parseCedis(String(form.get("amount") ?? ""));
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
   const channel = String(form.get("channel") ?? "cash") as DepositChannel;
+  const occurredOn = occurredOnFromForm(form);
 
   if (amount == null || amount <= 0) {
     return data({ error: "Enter the cash received." }, { status: 400 });
@@ -68,7 +74,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   try {
     const { data: result, headers } = await withAuth(request, (token) =>
-      recordDeposit(token, params.id, { amount, idempotencyKey, channel }),
+      recordDeposit(token, params.id, {
+        amount,
+        idempotencyKey,
+        channel,
+        ...(occurredOn ? { occurredOn } : {}),
+      }),
     );
     // A replay is not a failure, but it is not a second deposit either — the
     // collector has to know which of the two just happened.
@@ -111,7 +122,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
-  const { account } = loaderData;
+  const { account, backdating } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -238,6 +249,8 @@ export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
               </SelectContent>
             </Select>
           </div>
+
+          <OccurredOnField enabled={backdating} noun="deposit" />
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">

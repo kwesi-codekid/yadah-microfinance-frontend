@@ -173,7 +173,17 @@ export function listTrashedDeposits(
 export function recordDeposit(
   accessToken: string,
   id: string,
-  input: { amount: number; idempotencyKey: string; channel?: DepositChannel },
+  input: {
+    amount: number;
+    idempotencyKey: string;
+    channel?: DepositChannel;
+  /**
+   * The Accra day the money changed hands, for history typed in after the
+   * fact. Omitted on an ordinary same-day collection; refused by the API
+   * unless backdating is switched on for the data-population stage.
+   */
+  occurredOn?: string;
+  },
 ): Promise<DepositResult> {
   return apiFetch(`/susu/accounts/${id}/deposits`, {
     method: "POST",
@@ -224,6 +234,12 @@ export function collectAll(
     amount: number;
     idempotencyKey: string;
     channel?: DepositChannel;
+  /**
+   * The Accra day the money changed hands, for history typed in after the
+   * fact. Omitted on an ordinary same-day collection; refused by the API
+   * unless backdating is switched on for the data-population stage.
+   */
+  occurredOn?: string;
   },
 ): Promise<{
   batchId: string;

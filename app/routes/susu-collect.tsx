@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ApiError } from "~/api/error";
 import { collectAll, listAccounts } from "~/api/susu";
 import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
+import { OccurredOnField } from "~/components/occurred-on-field";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -19,6 +20,7 @@ import {
 } from "~/components/ui/select";
 import { formatAmount, parseCedis, toCedisInput } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
+import { backdatingEnabled, occurredOnFromForm } from "~/lib/backdating.server";
 import { requireUser, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { CHANNEL_OPTIONS, type DepositChannel } from "~/lib/susu";
@@ -40,8 +42,9 @@ export function meta(_: Route.MetaArgs) {
  */
 export async function loader({ request }: Route.LoaderArgs) {
   await requireUser(request);
+  const backdating = backdatingEnabled();
   const customerId = new URL(request.url).searchParams.get("customerId")?.trim();
-  if (!customerId) return { preset: null };
+  if (!customerId) return { preset: null, backdating };
 
   const { data: result, headers } = await withAuth(request, (token) =>
     listAccounts(token, { customerId, status: "active", limit: 100 }),
@@ -55,6 +58,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return data(
     {
+      backdating,
       preset: {
         customer: {
           id: customerId,
@@ -90,6 +94,7 @@ export async function action({ request }: Route.ActionArgs) {
   const amount = parseCedis(String(form.get("amount") ?? ""));
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
   const channel = String(form.get("channel") ?? "cash") as DepositChannel;
+  const occurredOn = occurredOnFromForm(form);
 
   if (!customerId) {
     return data({ error: "Choose the customer paying in." }, { status: 400 });
@@ -103,7 +108,13 @@ export async function action({ request }: Route.ActionArgs) {
 
   try {
     const { data: result, headers } = await withAuth(request, (token) =>
-      collectAll(token, { customerId, amount, idempotencyKey, channel }),
+      collectAll(token, {
+        customerId,
+        amount,
+        idempotencyKey,
+        channel,
+        ...(occurredOn ? { occurredOn } : {}),
+      }),
     );
     // A replay means the round already went through — say so rather than
     // letting the collector think the second press recorded a second day.
@@ -135,7 +146,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function SusuCollect({ loaderData }: Route.ComponentProps) {
-  const { preset } = loaderData;
+  const { preset, backdating } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -270,6 +281,8 @@ export default function SusuCollect({ loaderData }: Route.ComponentProps) {
               </SelectContent>
             </Select>
           </div>
+
+          <OccurredOnField enabled={backdating} noun="collection" />
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">
