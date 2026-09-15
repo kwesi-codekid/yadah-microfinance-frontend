@@ -46,7 +46,20 @@ export function existing(url?: string): Slot {
   return url ? { status: "done", url, preview: url } : IDLE;
 }
 
-const MAX_BYTES = 5 * 1024 * 1024;
+const MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * What the file picker offers.
+ *
+ * `image/*` rather than a list of three types, and deliberately: on iOS a
+ * narrow list is what stops the photo library being offered at all, and it is
+ * also what stops iOS quietly converting a HEIC to a JPEG on the way out. The
+ * two extensions are for the Files app, which goes by name rather than type.
+ * Anything this lets through that the API will not take comes back as a
+ * sentence the clerk can read, which is better than a picker that shows a
+ * customer's photos greyed out and explains nothing.
+ */
+const ACCEPTED = "image/*,.heic,.heif";
 
 /** Upload into a slot. Resolves to whether the image is now on the server. */
 async function uploadTo(
@@ -55,7 +68,7 @@ async function uploadTo(
   set: (s: Slot) => void,
 ): Promise<boolean> {
   if (file.size > MAX_BYTES) {
-    set({ status: "error", error: "That file is larger than 5 MB." });
+    set({ status: "error", error: "That file is larger than 10 MB." });
     return false;
   }
   const preview = URL.createObjectURL(file);
@@ -219,7 +232,7 @@ export function ScanDrop({
           <UploadIcon className="size-5 text-muted-foreground" />
           <span className="text-sm font-medium">Choose a file</span>
           <span className="text-xs text-muted-foreground">
-            JPEG, PNG or WebP · up to 5 MB
+            Any photo from a phone or camera · up to 10 MB
           </span>
         </button>
       )}
@@ -264,7 +277,7 @@ export function ScanDrop({
       <input
         ref={inputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept={ACCEPTED}
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
