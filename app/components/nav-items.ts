@@ -13,6 +13,7 @@ import {
   ReceiptIcon,
   ReceiptTextIcon,
   RepeatIcon,
+  ScrollTextIcon,
   Trash2Icon,
   UserCogIcon,
   UsersIcon,
@@ -211,6 +212,17 @@ export const NAV: NavItem[] = [
     label: "Staff",
     icon: UserCogIcon,
     blurb: "Accounts, roles and access.",
+    roles: OFFICE,
+  },
+  // Who did what, across every module. Beside Staff because the two questions
+  // arrive together — "who has access" and "what did they do with it" — and
+  // office only because the trail names changes to staff accounts and to the
+  // company's own books, which the counter never sees.
+  {
+    to: "/audit",
+    label: "Audit log",
+    icon: ScrollTextIcon,
+    blurb: "Every change, who made it, and what it looked like before.",
     roles: OFFICE,
   },
   // Where the lists send what was switched off, so it can be brought back.

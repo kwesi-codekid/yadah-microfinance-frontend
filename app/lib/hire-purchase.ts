@@ -44,6 +44,8 @@ export interface HpItem {
   brand?: LabelRef;
   category?: LabelRef;
   description?: string;
+  /** A picture of the item, when one was taken. */
+  imageUrl?: string;
   quantityInStock: number;
   /** What Yadah paid. Office-only — this must never reach a customer-facing view. */
   costPrice: number;

@@ -8,6 +8,7 @@ import { ApiError } from "~/api/error";
 import { allLabels, listItems, updateItem } from "~/api/hire-purchase";
 import { ItemLabels, labelIdFrom } from "~/components/item-labels";
 import { Figure } from "~/components/listing";
+import { existing, ScanDrop, type Slot } from "~/components/scan-drop";
 import {
   RouteSheet,
   SheetActions,
@@ -73,6 +74,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const brandId = labelIdFrom(form.get("brandId"));
   const categoryId = labelIdFrom(form.get("categoryId"));
   const description = String(form.get("description") ?? "").trim();
+  const imageUrl = String(form.get("imageUrl") ?? "").trim();
   const status = String(form.get("status") ?? "active") as ItemStatus;
   const costPrice = parseCedis(String(form.get("costPrice") ?? "").trim());
   const sellingPrice = parseCedis(
@@ -96,6 +98,8 @@ export async function action({ request, params }: Route.ActionArgs) {
         brandId: brandId ?? null,
         categoryId: categoryId ?? null,
         description,
+        // Empty means the picture was removed.
+        imageUrl: imageUrl || null,
         costPrice,
         sellingPrice,
         status,
@@ -122,6 +126,7 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
   const submitting = navigation.state === "submitting";
 
   const [selling, setSelling] = useState(toCedisInput(item.sellingPrice));
+  const [image, setImage] = useState<Slot>(() => existing(item.imageUrl));
   const sellingPesewas = parseCedis(selling);
   const changed =
     sellingPesewas != null && sellingPesewas !== item.sellingPrice;
@@ -133,6 +138,7 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
   return (
     <RouteSheet backTo="/inventory" title={item.name} description="Edit item">
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
+        <input type="hidden" name="imageUrl" value={image.url ?? ""} />
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
           {actionData?.error && (
             <div
@@ -164,6 +170,15 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
             brands={labels.brands}
             categories={labels.categories}
             defaults={{ brandId: item.brand?.id ?? "", categoryId: item.category?.id ?? "" }}
+          />
+
+          <ScanDrop
+            label="Picture (optional)"
+            kind="photo"
+            slot={image}
+            onChange={setImage}
+            captureTitle="Photograph the item"
+            frame="aspect-[4/3] w-full"
           />
 
           <div className="space-y-1.5">
@@ -256,7 +271,7 @@ export default function InventoryEdit({ loaderData }: Route.ComponentProps) {
 
         <SheetActions>
           <SheetCancel />
-          <Button type="submit" disabled={submitting}>
+          <Button type="submit" disabled={submitting || image.status === "uploading"}>
             {submitting && <Loader2Icon className="animate-spin" />}
             Save changes
           </Button>

@@ -3,6 +3,7 @@ import {
   EyeIcon,
   EyeOffIcon,
   HistoryIcon,
+  ImageIcon,
   MoreHorizontalIcon,
   PackageIcon,
   PackageXIcon,
@@ -250,6 +251,7 @@ interface Row {
   /** Brand, category and condition, joined for the line under the name. */
   detail: string;
   description: string;
+  imageUrl?: string;
   condition: string;
   quantityInStock: number;
   costPrice: number;
@@ -269,6 +271,7 @@ function toRow(item: HpItem): Row {
       .filter(Boolean)
       .join(" · "),
     description: item.description ?? "",
+    imageUrl: item.imageUrl,
     condition: CONDITION_LABELS[item.condition],
     quantityInStock: item.quantityInStock,
     costPrice: item.costPrice,
@@ -499,10 +502,26 @@ function ItemRow({
     <>
       <TableRow className="group">
         <TableCell className="px-4 py-3">
-          <p className="truncate font-medium text-foreground">{row.name}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {[row.detail, row.description].filter(Boolean).join(" · ") || row.condition}
-          </p>
+          <div className="flex min-w-0 items-center gap-3">
+            {row.imageUrl ? (
+              <img
+                src={row.imageUrl}
+                alt=""
+                loading="lazy"
+                className="size-10 shrink-0 rounded-md border object-cover"
+              />
+            ) : (
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
+                <ImageIcon className="size-4" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate font-medium text-foreground">{row.name}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {[row.detail, row.description].filter(Boolean).join(" · ") || row.condition}
+              </p>
+            </div>
+          </div>
         </TableCell>
 
         <TableCell

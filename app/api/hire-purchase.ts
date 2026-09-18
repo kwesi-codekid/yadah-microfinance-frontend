@@ -101,6 +101,7 @@ export function createItem(
     brandId?: string;
     categoryId?: string;
     description?: string;
+    imageUrl?: string;
     quantityInStock: number;
     costPrice: number;
     sellingPrice: number;
@@ -130,6 +131,8 @@ export function updateItem(
     brandId?: string | null;
     categoryId?: string | null;
     description?: string;
+    /** Null takes the picture off. */
+    imageUrl?: string | null;
     costPrice?: number;
     sellingPrice?: number;
     status?: ItemStatus;

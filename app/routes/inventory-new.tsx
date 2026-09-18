@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { ApiError } from "~/api/error";
 import { allLabels, createItem } from "~/api/hire-purchase";
 import { Figure } from "~/components/listing";
+import { IDLE, ScanDrop, type Slot } from "~/components/scan-drop";
 import {
   RouteSheet,
   SheetActions,
@@ -47,6 +48,7 @@ export async function action({ request }: Route.ActionArgs) {
   const brandId = labelIdFrom(form.get("brandId"));
   const categoryId = labelIdFrom(form.get("categoryId"));
   const description = String(form.get("description") ?? "").trim();
+  const imageUrl = String(form.get("imageUrl") ?? "").trim();
   const quantityInStock = Number(form.get("quantityInStock") ?? 0);
   const costPrice = parseCedis(String(form.get("costPrice") ?? "").trim());
   const sellingPrice = parseCedis(
@@ -72,6 +74,7 @@ export async function action({ request }: Route.ActionArgs) {
         ...(brandId ? { brandId } : {}),
         ...(categoryId ? { categoryId } : {}),
         description: description || undefined,
+        ...(imageUrl ? { imageUrl } : {}),
         quantityInStock,
         costPrice,
         sellingPrice,
@@ -99,6 +102,7 @@ export default function InventoryNew({ loaderData }: Route.ComponentProps) {
 
   const [cost, setCost] = useState("");
   const [selling, setSelling] = useState("");
+  const [image, setImage] = useState<Slot>(IDLE);
 
   const costPesewas = parseCedis(cost);
   const sellingPesewas = parseCedis(selling);
@@ -116,6 +120,7 @@ export default function InventoryNew({ loaderData }: Route.ComponentProps) {
       title="Add an item"
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
+        <input type="hidden" name="imageUrl" value={image.url ?? ""} />
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
           {actionData?.error && (
             <div
@@ -144,6 +149,15 @@ export default function InventoryNew({ loaderData }: Route.ComponentProps) {
           </div>
 
           <ItemLabels brands={labels.brands} categories={labels.categories} />
+
+          <ScanDrop
+            label="Picture (optional)"
+            kind="photo"
+            slot={image}
+            onChange={setImage}
+            captureTitle="Photograph the item"
+            frame="aspect-[4/3] w-full"
+          />
 
           <div className="space-y-1.5">
             <Label
@@ -257,7 +271,7 @@ export default function InventoryNew({ loaderData }: Route.ComponentProps) {
 
         <SheetActions>
           <SheetCancel />
-          <Button type="submit" disabled={submitting}>
+          <Button type="submit" disabled={submitting || image.status === "uploading"}>
             {submitting && <Loader2Icon className="animate-spin" />}
             Add item
           </Button>

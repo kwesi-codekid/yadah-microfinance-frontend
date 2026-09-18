@@ -332,6 +332,11 @@ export default [
       route(":id/edit", "routes/staff-edit.tsx"),
       route(":id/round", "routes/staff-round.tsx"),
     ]),
+    /* The trail: who did what, across every module. Read-only, office only.
+       The export is a sibling — a download should not run the page's own
+       queries to answer it. */
+    route("audit/export", "routes/audit-export.tsx"),
+    route("audit", "routes/audit.tsx"),
     /* Every role, and strictly the reader's own: the API has no way to ask for
        somebody else's, so there is no scoping to do here. */
     route("notifications", "routes/notifications.tsx"),
