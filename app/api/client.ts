@@ -31,13 +31,20 @@ function urlFor(path: string): string {
   return `${env.apiBaseUrl}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-async function errorFrom(response: Response): Promise<ApiError> {
+/**
+ * The API's message alone does not say which call failed, and an upstream 500
+ * says the same thing on every endpoint. The request is attached as `cause`,
+ * which Node prints under the stack, so a pasted trace names its own endpoint.
+ */
+async function errorFrom(response: Response, method = "GET"): Promise<ApiError> {
   const payload = await response.json().catch(() => null);
   const body: ApiErrorBody =
     payload && typeof payload === "object" && "error" in payload
       ? (payload.error as ApiErrorBody)
       : { code: "UNKNOWN", message: response.statusText || "Request failed." };
-  return new ApiError(response.status, body);
+  const error = new ApiError(response.status, body);
+  error.cause = `${method} ${response.url} → ${response.status} ${body.code}`;
+  return error;
 }
 
 async function send(url: string, init: RequestInit): Promise<Response> {
@@ -82,7 +89,7 @@ export async function apiFetch<T>(
     body: json !== undefined ? JSON.stringify(json) : (formData ?? undefined),
   });
 
-  if (!response.ok) throw await errorFrom(response);
+  if (!response.ok) throw await errorFrom(response, init.method);
   if (response.status === 204) return undefined as T;
 
   const isJson = response.headers
@@ -104,6 +111,6 @@ export async function apiFetchRaw(
   if (accessToken) finalHeaders.set("Authorization", `Bearer ${accessToken}`);
 
   const response = await send(urlFor(path), { ...init, headers: finalHeaders });
-  if (!response.ok) throw await errorFrom(response);
+  if (!response.ok) throw await errorFrom(response, init.method);
   return response;
 }

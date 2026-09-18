@@ -12,6 +12,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [tailwindcss(), reactRouter()],
+    // Listen on all interfaces so the dev server prints its LAN IP
+    // (e.g. http://192.168.x.x:5173) for logging in from a phone.
+    server: { host: true },
     resolve: {
       tsconfigPaths: true,
     },

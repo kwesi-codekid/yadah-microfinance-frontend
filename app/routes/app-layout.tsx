@@ -7,6 +7,7 @@ import * as authApi from "~/api/auth";
 import { ApiError } from "~/api/error";
 import { listNotifications } from "~/api/notifications";
 import { AppSidebar } from "~/components/app-sidebar";
+import { MobileNav } from "~/components/mobile-nav";
 import { navItemFor } from "~/components/nav-items";
 import { ProfileMenu } from "~/components/profile-menu";
 import { ThemeToggle } from "~/components/theme-toggle";
@@ -326,7 +327,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
           {/* The dashboard reference's header, on every page: trigger and
               title on the left, then the search, date and account pills. */}
           <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
-            <SidebarTrigger className="shrink-0 text-muted-foreground" />
+            <SidebarTrigger className="hidden shrink-0 text-muted-foreground md:inline-flex" />
             <div className="min-w-0">
               <h1 className="truncate font-heading text-lg font-bold tracking-tight">
                 {title}
@@ -362,10 +363,12 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
             </div>
           </header>
 
-          <div ref={mainRef} className="flex-1 overflow-y-auto">
+          <div ref={mainRef} className="flex-1 overflow-y-auto pb-24 md:pb-0">
             <Outlet />
           </div>
         </SidebarInset>
+
+        <MobileNav user={user} />
       </SidebarProvider>
     </TooltipProvider>
   );
