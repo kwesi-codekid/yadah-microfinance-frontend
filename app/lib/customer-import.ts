@@ -158,8 +158,6 @@ export function canonicalEnum(raw: string, allowed: Iterable<string>): string | 
   return null;
 }
 
-const MIN_AGE_YEARS = 10;
-
 function dateIssue(raw: string): string | null {
   const v = raw.trim();
   if (v === "") return null;
@@ -167,9 +165,7 @@ function dateIssue(raw: string): string | null {
   if (!iso) return "Use the form 1990-04-12";
   const at = Date.parse(`${v}T00:00:00Z`);
   if (Number.isNaN(at)) return "Not a real date";
-  const cutoff = new Date();
-  cutoff.setFullYear(cutoff.getFullYear() - MIN_AGE_YEARS);
-  if (at > cutoff.getTime()) return `Customer must be at least ${MIN_AGE_YEARS} years old`;
+  if (at > Date.now()) return "Date of birth cannot be in the future";
   return null;
 }
 
