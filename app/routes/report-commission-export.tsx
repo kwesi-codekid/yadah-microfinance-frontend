@@ -11,7 +11,7 @@ import type { Route } from "./+types/report-commission-export";
  * A sibling of the report rather than a child: nesting would run the report's
  * own queries just to answer a file.
  */
-const DAY_RE = /^d{4}-d{2}-d{2}$/;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireOffice(request);

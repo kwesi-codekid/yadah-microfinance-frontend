@@ -7,6 +7,7 @@ import {
   type UnifiedTransaction,
 } from "~/lib/customers";
 import { formatAccraDate, formatAmount } from "~/lib/format";
+import { RECORDED_BY_LABELS } from "~/lib/reports";
 import { cn } from "~/lib/utils";
 
 /**
@@ -75,9 +76,17 @@ export function TransactionAdvice({
           ["Module", MODULE_LABELS[tx.module]],
           ["Description", tx.detail || "n/a"],
           ["Channel", channelLabel(tx.channel) ?? "n/a"],
-          // Only savings withdrawals and transfers carry one.
+          // Savings withdrawals and closures, and the one-day commission on a
+          // susu cycle that was stopped.
           ["Commission", tx.fee > 0 ? ghs(tx.fee) : "n/a"],
-          ["Recorded By", tx.recordedByName || "n/a"],
+          [
+            "Recorded By",
+            tx.recordedByKind === "staff"
+              ? tx.recordedByName || "n/a"
+              : tx.recordedByKind === "customer"
+                ? "Customer (self-service)"
+                : RECORDED_BY_LABELS[tx.recordedByKind],
+          ],
           ["Transaction Location", "Yadah Dynamic Enterprise"],
           // The API runs a balance on savings accounts only, so susu, loan,
           // hire-purchase and transfer advices have none to quote.

@@ -20,7 +20,6 @@ export function meta(_: Route.MetaArgs) {
 /** This page has no rail item of its own, so it names itself for the header. */
 export const handle = {
   title: "Change password",
-  description: "Changing it here signs you out of every other device.",
 };
 
 type ActionData = {

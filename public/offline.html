@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#033F6F" />
+    <title>No connection · Yadah Dynamic Enterprise</title>
+    <!--
+      Served by the service worker when a page load cannot reach the network.
+      It is deliberately self-contained — no bundle, no font file, no second
+      request — because the one thing it can count on is that nothing else
+      will load. The navy and the white disc are the splash screen's, so the
+      hand-off from opening the app to this looks like one screen, not two.
+    -->
+    <style>
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2rem;
+        padding: 2rem max(1.5rem, env(safe-area-inset-left))
+          max(2rem, env(safe-area-inset-bottom)) max(1.5rem, env(safe-area-inset-right));
+        background: #033f6f;
+        color: #fff;
+        text-align: center;
+        font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+          Roboto, sans-serif;
+        /* The splash's single soft light source, so the navy is not flat. */
+        background-image: radial-gradient(
+          circle at 50% 42%,
+          rgba(116, 165, 215, 0.18),
+          transparent 60%
+        );
+      }
+
+      .mark {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 6rem;
+        height: 6rem;
+        padding: 0.85rem;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+      }
+
+      .mark img { width: 100%; height: 100%; object-fit: contain; }
+
+      h1 {
+        margin: 0 0 0.625rem;
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      p {
+        margin: 0;
+        max-width: 34ch;
+        line-height: 1.6;
+        color: rgba(255, 255, 255, 0.65);
+      }
+
+      button {
+        font: inherit;
+        font-weight: 600;
+        color: #033f6f;
+        background: #fff;
+        border: 0;
+        border-radius: 0.625rem;
+        padding: 0.7rem 1.5rem;
+        cursor: pointer;
+      }
+
+      button:hover { background: #eaf1f9; }
+
+      button:focus-visible {
+        outline: 2px solid #74a5d7;
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <span class="mark">
+      <img src="/icons/icon-192.png" alt="Yadah Dynamic Enterprise" />
+    </span>
+
+    <div>
+      <h1>No connection</h1>
+      <p>
+        Yadah reads every figure from the office as you open it, so it needs a
+        network to show you anything. Reconnect, then try again.
+      </p>
+    </div>
+
+    <button type="button" onclick="location.reload()">Try again</button>
+
+    <script>
+      // Come back on our own the moment the device says it is online again,
+      // so nobody is left pressing a button at a screen that already works.
+      addEventListener("online", () => location.reload());
+    </script>
+  </body>
+</html>

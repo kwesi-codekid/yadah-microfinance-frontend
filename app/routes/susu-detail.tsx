@@ -7,7 +7,6 @@ import {
   DownloadIcon,
   FileTextIcon,
   MoreHorizontalIcon,
-  PencilIcon,
   RotateCcwIcon,
   SmartphoneIcon,
   Trash2Icon,
@@ -22,8 +21,15 @@ import { ApiError } from "~/api/error";
 import { getCustomer } from "~/api/customers";
 import { listUsers } from "~/api/users";
 import {
+  approveCorrection,
+  cancelCorrection,
+  correctTransaction,
+  listCorrections,
+  proposeCorrection,
+  rejectCorrection,
+} from "~/api/corrections";
+import {
   closeAccount,
-  correctDeposit,
   getAccount,
   listDeposits,
   listTrashedDeposits,
@@ -39,6 +45,13 @@ import {
   SusuStatusPill,
   Th,
 } from "~/components/susu-bits";
+import {
+  TxnRowMenu,
+  toPending,
+  whyNotCorrectable,
+  type CorrectionOutcome,
+  type PendingCorrection,
+} from "~/components/txn-correction";
 import { BackLink, Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -68,6 +81,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import type { CorrectionKind } from "~/lib/corrections";
 import { Input } from "~/components/ui/input";
 import {
   Table,
@@ -100,7 +114,6 @@ import { requireCounter, requireUser, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import {
   CHANNEL_LABELS,
-  checkDepositAmount,
   commissionOf,
   commissionUncovered,
   payoutIfClosedNow,
@@ -113,7 +126,12 @@ import type { Route } from "./+types/susu-detail";
 
 export function meta({ loaderData }: Route.MetaArgs) {
   const n = loaderData?.account.accountNumber ?? "Account";
-  return [{ title: `Susu #${n} · Yadah Dynamic Enterprise` }];
+  // The month, because the number alone is the customer's and two of their
+  // books would otherwise give two browser tabs the same name.
+  const month = loaderData?.account.cycleMonth;
+  return [
+    { title: `Susu #${n}${month ? ` ${month}` : ""} · Yadah Dynamic Enterprise` },
+  ];
 }
 
 /**
@@ -128,12 +146,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireUser(request);
   const url = new URL(request.url);
   const office = isOffice(user);
+  const counter = isCounter(user);
   const showTrashed = url.searchParams.get("trashed") === "1" && office;
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const { account } = await getAccount(token, params.id);
-      const [customer, deposits, trashed, staff] = await Promise.all([
+      const [customer, deposits, trashed, staff, corrections] = await Promise.all([
         getCustomer(token, account.customerId)
           .then((r) => r.customer)
           .catch(() => null),
@@ -149,8 +168,18 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         office
           ? listUsers(token, { limit: ALL_DEPOSITS }).catch(() => null)
           : Promise.resolve(null),
+        // Corrections asked for on this account and not yet answered, so a
+        // row can say one is waiting. Soft: the deposits must not go down
+        // with it. Collectors cannot ask, so they are not asked.
+        counter
+          ? listCorrections(token, {
+              targetId: params.id,
+              status: "pending",
+              limit: ALL_DEPOSITS,
+            }).catch(() => null)
+          : Promise.resolve(null),
       ]);
-      return { account, customer, deposits, trashed, staff };
+      return { account, customer, deposits, trashed, staff, corrections };
     } catch (error) {
       throwAsRouteError(error);
     }
@@ -172,12 +201,24 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     balances.set(d.id, running);
   }
 
+  // One open request per deposit is the API's rule, so a map by deposit holds
+  // everything a row needs to say about it.
+  const pending = new Map<string, PendingCorrection>(
+    result.corrections?.items.map((c) => [c.txnId, toPending(c, user.id)]) ??
+      [],
+  );
+
   return data(
     {
-      /** Correcting a deposit, and the trashed view. Office only. */
+      /**
+       * Correcting a deposit outright, trashing one, deciding what a teller
+       * asked, and the trashed view. Office only.
+       */
       canManage: office,
+      /** Asking for a correction — the counter's door to one. */
+      canCorrect: counter,
       /** Closing, paying out and withdrawing — counter work. */
-      canServe: isCounter(user),
+      canServe: counter,
       account: {
         ...result.account,
         // The detail endpoint omits it; the customer record is the only source.
@@ -190,6 +231,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           ...toRow(d),
           balance: balances.get(d.id) ?? 0,
           recordedBy: nameOf(d.collectorId),
+          pending: pending.get(d.id) ?? null,
         })),
       },
       trashed:
@@ -227,10 +269,13 @@ interface DepositRow {
   batched: boolean;
   /** Created by an internal transfer. The API will not let these be edited. */
   transfer: boolean;
+  /** Paid through Paystack: the amount is what was charged, not what was typed. */
+  paystack: boolean;
   at: string;
   /** Running total after this deposit. */
   balance: number;
   recordedBy: string;
+  pending: PendingCorrection | null;
 }
 
 function toRow(d: SusuDeposit) {
@@ -243,27 +288,37 @@ function toRow(d: SusuDeposit) {
     channel: CHANNEL_LABELS[d.channel] ?? d.channel,
     batched: Boolean(d.collectAllBatchId),
     transfer: d.channel === "transfer",
+    paystack: d.channel === "paystack",
     at: formatAccraDateTime(d.createdAt),
   };
 }
 
-interface ActionResult {
-  ok: boolean;
-  message: string;
-  /** `COMMISSION_NOT_COVERED`, `EXCEEDS_PAYOUT` and friends carry figures. */
-  details?: Record<string, unknown>;
-}
+/**
+ * What every action here answers with. The shared correction dialogs post
+ * here too and read the same shape back, so it is theirs by definition.
+ * `COMMISSION_NOT_COVERED`, `EXCEEDS_PAYOUT` and friends carry figures.
+ */
+type ActionResult = CorrectionOutcome;
 
 /**
- * Everything that changes the account or its deposits. All office-only, and
- * all of it moves money or rewrites a record, so each one confirms first.
+ * Everything that changes the account or its deposits. Counter work and office
+ * work both post here — the API refuses what the caller may not do, and the
+ * menu only offers what they may — and all of it moves money or rewrites a
+ * record, so each one confirms first.
  */
 export async function action({ request, params }: Route.ActionArgs) {
   await requireCounter(request);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const depositId = String(form.get("depositId") ?? "");
+  const correctionId = String(form.get("correctionId") ?? "");
+  // The shared correction dialogs name the entry they are about themselves.
+  const kind = String(form.get("kind") ?? "") as CorrectionKind;
+  const txnId = String(form.get("txnId") ?? "");
   const reason = trimmedReason(form.get("reason"));
+  // The reason behind a correction, or a refusal of one. Read raw: the API
+  // wants at least three characters here and says so itself.
+  const why = String(form.get("reason") ?? "").trim();
 
   try {
     const { data: result, headers } = await withAuth(request, async (token) => {
@@ -300,13 +355,47 @@ export async function action({ request, params }: Route.ActionArgs) {
           await trashAccount(token, params.id, reason);
           return { message: "Account moved to the trash.", gone: true };
         }
-        case "correct-deposit": {
+        case "correct-txn": {
           const amount = parseCedis(String(form.get("amount") ?? ""));
           if (amount == null || amount <= 0) {
             throw new Response("Enter the corrected amount.", { status: 400 });
           }
-          await correctDeposit(token, params.id, depositId, amount);
+          await correctTransaction(token, kind, params.id, txnId, amount);
           return { message: "Deposit corrected.", gone: false };
+        }
+        // The counter's door to a correction: nothing changes until the
+        // office answers, and the office is told there is something to answer.
+        case "propose-correction": {
+          const amount = parseCedis(String(form.get("amount") ?? ""));
+          if (amount == null || amount <= 0) {
+            throw new Response("Enter the corrected amount.", { status: 400 });
+          }
+          await proposeCorrection(token, kind, params.id, txnId, {
+            amount,
+            reason: why,
+          });
+          return {
+            message: "Sent to the office. Nothing changes until they answer.",
+            gone: false,
+          };
+        }
+        case "approve-correction": {
+          const { correction } = await approveCorrection(token, correctionId);
+          return {
+            message: `Correction applied. The deposit is now GH₵ ${formatAmount(correction.amount)}.`,
+            gone: false,
+          };
+        }
+        case "reject-correction": {
+          await rejectCorrection(token, correctionId, why);
+          return {
+            message: "Correction declined. The deposit is unchanged.",
+            gone: false,
+          };
+        }
+        case "cancel-correction": {
+          await cancelCorrection(token, correctionId);
+          return { message: "Request taken back.", gone: false };
         }
         case "trash-deposit": {
           await trashDeposit(token, params.id, depositId, reason);
@@ -359,8 +448,15 @@ function trimmedReason(value: FormDataEntryValue | null): string | undefined {
 /* -------------------------------------------------------------------- page --- */
 
 export default function SusuDetail({ loaderData }: Route.ComponentProps) {
-  const { canManage, canServe, account, showTrashed, deposits, trashed } =
-    loaderData;
+  const {
+    canManage,
+    canCorrect,
+    canServe,
+    account,
+    showTrashed,
+    deposits,
+    trashed,
+  } = loaderData;
   // `?payout=1` arrives from the listing's row button, so paying out is one
   // click from the list rather than a page and then a menu.
   const [searchParams] = useSearchParams();
@@ -413,9 +509,26 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             <span className="tabular">#{account.accountNumber}</span>
+            {/* This page closes, terminates and pays out cycles, and the
+                number above belongs to the customer rather than to this book.
+                The ref is the only thing on screen that names THIS one. */}
+            <span className="tabular"> · {account.ref}</span>
             {account.closedAt
               ? ` · Closed ${formatAccraDate(account.closedAt)}`
               : ` · Opened ${formatAccraDate(account.openedAt)}`}
+            {/* A cycle that exists because an earlier one overflowed. The link
+                matters: the two halves of one payment sit on either side. */}
+            {account.carriedFromAccountId && (
+              <>
+                {" · "}
+                <Link
+                  to={`/susu/${account.carriedFromAccountId}`}
+                  className="underline-offset-4 hover:underline"
+                >
+                  carried forward
+                </Link>
+              </>
+            )}
           </p>
         </div>
       </header>
@@ -542,6 +655,7 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
             rows={visible}
             newestId={deposits.items[0]?.id ?? null}
             canManage={canManage}
+            canCorrect={canCorrect}
             account={account}
             fetcher={fetcher}
           />
@@ -786,6 +900,11 @@ function AccountActions({
                   ? "Terminate and refund?"
                   : "Move this account to the trash?"}
             </AlertDialogTitle>
+            {/* Names the book being acted on. None of these can be undone, and
+                the customer may hold another with the same number. */}
+            <p className="tabular text-xs text-muted-foreground">
+              #{account.accountNumber} · {account.ref}
+            </p>
             <AlertDialogDescription>
               {confirm === "close" ? (
                 <>
@@ -911,7 +1030,8 @@ function PayoutDialog({
         <DialogHeader>
           <DialogTitle>Pay out</DialogTitle>
           <DialogDescription>
-            GH₵ {formatAmount(account.payoutRemaining)} is owed on this account.
+            GH₵ {formatAmount(account.payoutRemaining)} is owed on this account
+            (#{account.accountNumber} · {account.ref}).
           </DialogDescription>
         </DialogHeader>
 
@@ -966,19 +1086,24 @@ function DepositTable({
   rows,
   newestId,
   canManage,
+  canCorrect,
   account,
   fetcher,
 }: {
   rows: DepositRow[];
   /** The newest deposit on the account — not merely the newest on this page. */
   newestId: string | null;
+  /** The office: corrects outright, trashes, and decides what a teller asked. */
   canManage: boolean;
+  /** The counter: may at least ask for a correction. */
+  canCorrect: boolean;
   account: SusuAccount;
   fetcher: Fetcher;
 }) {
   // The API takes a correction only on the newest deposit of an account still
-  // open to changes, and never on one a transfer created. Anything else comes
-  // back 422, so the reason is worked out here and shown rather than guessed at.
+  // open to changes, and never on one a transfer or Paystack created. Anything
+  // else comes back 422, so the reason is worked out here and shown rather
+  // than guessed at.
   const open = account.status === "active" || account.status === "completed";
 
   return (
@@ -991,7 +1116,7 @@ function DepositTable({
           <Th className="hidden text-right sm:table-cell">Balance</Th>
           <Th className="hidden md:table-cell">Channel</Th>
           <Th className="hidden lg:table-cell">Recorded by</Th>
-          {canManage && <Th className="w-12 text-right">Actions</Th>}
+          {canCorrect && <Th className="w-12 text-right">Actions</Th>}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -1012,6 +1137,13 @@ function DepositTable({
             </TableCell>
             <TableCell className="tabular px-4 py-3 text-right font-medium whitespace-nowrap">
               {formatPesewas(row.amount)}
+              {/* A correction somebody asked for and the office has not yet
+                  answered. The figure above is still what the ledger says. */}
+              {row.pending && (
+                <p className="text-xs font-normal text-warning">
+                  {formatPesewas(row.pending.amount)} waiting
+                </p>
+              )}
             </TableCell>
             <TableCell className="tabular hidden px-4 py-3 text-right whitespace-nowrap text-muted-foreground sm:table-cell">
               {formatPesewas(row.balance)}
@@ -1025,13 +1157,26 @@ function DepositTable({
             <TableCell className="hidden px-4 py-3 text-muted-foreground lg:table-cell">
               {row.recordedBy}
             </TableCell>
-            {canManage && (
+            {canCorrect && (
               <TableCell className="px-4 py-3 text-right">
                 <DepositActions
                   row={row}
                   account={account}
                   fetcher={fetcher}
-                  blocked={whyNotEditable(row, newestId, open)}
+                  canManage={canManage}
+                  blocked={whyNotCorrectable({
+                    pending: row.pending,
+                    locked: row.transfer
+                      ? "This came from a transfer between accounts. Correct it on the transfer, not here."
+                      : row.paystack
+                        ? "This was paid through Paystack, so the amount is what was charged."
+                        : null,
+                    closed: open
+                      ? null
+                      : "This account is closed, so its deposits are final.",
+                    newest: row.id === newestId,
+                    noun: "deposit",
+                  })}
                 />
               </TableCell>
             )}
@@ -1043,171 +1188,71 @@ function DepositTable({
 }
 
 /**
- * Why this deposit cannot be corrected, or null when it can. Said the way the
- * branch would say it — the clerk needs to know what to do instead, not which
- * endpoint refused.
+ * The row menu: the shared correction, with the trash beneath it for the
+ * office. Trashing is the one thing here that is this page's own.
  */
-function whyNotEditable(
-  row: DepositRow,
-  newestId: string | null,
-  open: boolean,
-): string | null {
-  if (row.transfer) {
-    return "This came from a transfer between accounts. Correct it on the transfer, not here.";
-  }
-  if (!open) return "This account is closed, so its deposits are final.";
-  if (row.id !== newestId) {
-    return "Only the newest deposit can be corrected. Remove the ones after it first.";
-  }
-  return null;
-}
-
 function DepositActions({
   row,
   account,
   fetcher,
+  canManage,
   blocked,
 }: {
   row: DepositRow;
   account: SusuAccount;
   fetcher: Fetcher;
-  /** Why the actions are unavailable, or null when they are not. */
+  /** The office. Everyone else here is the counter asking. */
+  canManage: boolean;
+  /** Why the correction is unavailable, or null when it is not. */
   blocked: string | null;
 }) {
-  const editable = blocked === null;
-  const [correcting, setCorrecting] = useState(false);
   const [trashing, setTrashing] = useState(false);
-  const [amount, setAmount] = useState(toCedisInput(row.amount));
   const [reason, setReason] = useState("");
 
-  const pesewas = parseCedis(amount);
-  // The corrected amount has to sit on a day boundary too, and the cycle it is
-  // re-derived into is the one *without* this deposit in it.
-  const issue =
-    pesewas == null
-      ? "Enter an amount."
-      : checkDepositAmount(
-          {
-            ...account,
-            depositsCount: account.depositsCount - row.daysCovered,
-          },
-          pesewas,
-        );
-
   useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
-      setCorrecting(false);
-      setTrashing(false);
-    }
+    if (fetcher.state === "idle" && fetcher.data?.ok) setTrashing(false);
   }, [fetcher.state, fetcher.data]);
 
   return (
     <>
-      {/* Every row carries the menu, including the ones that cannot be
-          changed — an actions column that is blank on all but one row reads as
-          broken. The state decides whether the items are usable, not whether
-          the trigger exists. */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <MoreHorizontalIcon />
-            <span className="sr-only">Actions for this deposit</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          {blocked && (
-            <>
-              <DropdownMenuLabel className="max-w-56 font-normal text-wrap text-muted-foreground">
-                {blocked}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-            </>
-          )}
-          <DropdownMenuItem
-            disabled={!editable}
-            onSelect={(e) => {
-              e.preventDefault();
-              setAmount(toCedisInput(row.amount));
-              setCorrecting(true);
-            }}
-          >
-            <PencilIcon />
-            Correct the amount
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            disabled={!editable}
-            onSelect={(e) => {
-              e.preventDefault();
-              setReason("");
-              setTrashing(true);
-            }}
-          >
-            <Trash2Icon />
-            Move to trash
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <Dialog open={correcting} onOpenChange={setCorrecting}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Correct the deposit</DialogTitle>
-            <DialogDescription>
-              A data-entry fix. The days covered and the cycle count are worked
-              out again from the new amount.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-1.5">
-            <Label
-              htmlFor="correct-amount"
-              className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
-            >
-              Amount · GH₵
-            </Label>
-            <Input
-              id="correct-amount"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-              autoComplete="off"
-              aria-invalid={issue ? true : undefined}
-              className="tabular"
-            />
-            <p
-              className={cn(
-                "text-xs",
-                issue ? "text-destructive" : "text-muted-foreground",
-              )}
-            >
-              {issue ??
-                `${pesewas! / account.dailyAmount} day${pesewas! / account.dailyAmount === 1 ? "" : "s"} at GH₵ ${formatAmount(account.dailyAmount)}.`}
-            </p>
-          </div>
-
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setCorrecting(false)}>
-              Cancel
-            </Button>
-            <Button
-              disabled={Boolean(issue) || fetcher.state !== "idle"}
-              onClick={() =>
-                fetcher.submit(
-                  { intent: "correct-deposit", depositId: row.id, amount },
-                  { method: "post" },
-                )
+      <TxnRowMenu
+        txn={{ id: row.id, amount: row.amount }}
+        // The cycle the corrected amount is re-derived into is the one
+        // *without* this deposit in it.
+        context={
+          row.transfer || row.paystack
+            ? null
+            : {
+                kind: "susu-deposit",
+                dailyAmount: account.dailyAmount,
+                depositsCount: account.depositsCount - row.daysCovered,
+                cycleTarget: account.cycleTarget,
+                daysCovered: row.daysCovered,
               }
+        }
+        targetId={account.id}
+        pending={row.pending}
+        blocked={blocked}
+        canDecide={canManage}
+        fetcher={fetcher}
+        srLabel="Actions for this deposit"
+        after={
+          canManage && (
+            <DropdownMenuItem
+              variant="destructive"
+              disabled={blocked !== null}
+              onSelect={(e) => {
+                e.preventDefault();
+                setReason("");
+                setTrashing(true);
+              }}
             >
-              Save correction
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <Trash2Icon />
+              Move to trash
+            </DropdownMenuItem>
+          )
+        }
+      />
 
       <AlertDialog open={trashing} onOpenChange={setTrashing}>
         <AlertDialogContent>
@@ -1261,7 +1306,7 @@ function TrashedDeposits({
 }: {
   // No running balance: a trashed deposit has been taken back out of the
   // account, so there is no position after it to state.
-  rows: (Omit<DepositRow, "balance"> & {
+  rows: (Omit<DepositRow, "balance" | "pending"> & {
     deletedAt: string;
     reason: string | null;
   })[];

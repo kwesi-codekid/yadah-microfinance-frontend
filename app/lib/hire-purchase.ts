@@ -19,9 +19,30 @@ export type ItemCondition = "new" | "used";
 
 export type ItemStatus = "active" | "discontinued";
 
+/** The two managed lists an item is filed under: who makes it, what kind of thing it is. */
+export type LabelKind = "brand" | "category";
+
+export interface ItemLabel {
+  id: string;
+  kind: LabelKind;
+  name: string;
+  description?: string;
+  /** Items on the shelf filed under it, trashed ones excluded. */
+  itemCount: number;
+  createdAt: string;
+}
+
+/** A label as an item carries it: enough to show and to filter by. */
+export interface LabelRef {
+  id: string;
+  name: string;
+}
+
 export interface HpItem {
   id: string;
   name: string;
+  brand?: LabelRef;
+  category?: LabelRef;
   description?: string;
   quantityInStock: number;
   /** What Yadah paid. Office-only — this must never reach a customer-facing view. */
@@ -32,6 +53,153 @@ export interface HpItem {
   condition: ItemCondition;
   status: ItemStatus;
   createdAt: string;
+}
+
+/* ---------------------------------------------------------------- damages --- */
+
+export const DAMAGE_CAUSES = [
+  "delivery",
+  "in-shop",
+  "storage",
+  "defective",
+  "missing",
+  "other",
+] as const;
+export type DamageCause = (typeof DAMAGE_CAUSES)[number];
+
+/** What each cause means, in the words somebody at the counter would use. */
+export const DAMAGE_CAUSE_LABELS: Record<DamageCause, string> = {
+  delivery: "Broken on delivery",
+  "in-shop": "Broken in the shop",
+  storage: "Water, fire or pests",
+  defective: "Faulty from new",
+  missing: "Missing from the shelf",
+  other: "Something else",
+};
+
+export const DAMAGE_STATUSES = ["pending", "approved", "rejected"] as const;
+export type DamageStatus = (typeof DAMAGE_STATUSES)[number];
+
+export const DAMAGE_STATUS_LABELS: Record<DamageStatus, string> = {
+  pending: "Awaiting approval",
+  approved: "Written off",
+  rejected: "Rejected",
+};
+
+/**
+ * Stock that can no longer be sold.
+ *
+ * Reported at the counter, decided by the office. Nothing leaves the shelf
+ * until it is approved, and the cost is struck at that moment and never
+ * recomputed — a loss that re-priced itself whenever somebody edited the shelf
+ * would quietly restate months that were already closed.
+ */
+export interface HpDamage {
+  id: string;
+  itemId: string;
+  /** The item's name when it was reported. It may have been renamed since. */
+  itemName: string;
+  quantity: number;
+  cause: DamageCause;
+  description: string;
+  /** The Accra day it happened, which need not be the day it was reported. */
+  occurredOn: string;
+  status: DamageStatus;
+  /** Pesewas, set at approval. Absent while pending, and on a rejection. */
+  costValue?: number;
+  unitCost?: number;
+  photoUrls: string[];
+  reportedById: string;
+  reportedByName?: string;
+  reviewedById?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+  createdAt: string;
+}
+
+export interface TrashedHpDamage extends HpDamage {
+  deletedAt: string;
+  deletedById?: string;
+  deleteReason?: string;
+}
+
+export interface DamageSummary {
+  from: string | null;
+  to: string | null;
+  totalCostValue: number;
+  totalQuantity: number;
+  byCause: { cause: DamageCause; count: number; quantity: number; costValue: number }[];
+}
+
+/** The tone a damage's status pill takes, matching the rest of the app. */
+export function damageTone(status: DamageStatus): "warning" | "danger" | "muted" {
+  if (status === "pending") return "warning";
+  if (status === "approved") return "danger";
+  return "muted";
+}
+
+/* ---------------------------------------------------------------- pricing --- */
+
+export const PRICE_KINDS = ["cost", "selling"] as const;
+export type PriceKind = (typeof PRICE_KINDS)[number];
+
+/**
+ * One time an item's cost or selling price moved, and why.
+ *
+ * The shelf carries a single current price, which is what the till charges and
+ * what stock is valued at. That one number answers "what is it worth now" and
+ * destroys the answer to "why did it change" — a delivery invoiced at a new
+ * cost silently revalues everything already on the shelf. These rows are what
+ * make that readable afterwards.
+ */
+export interface PriceChange {
+  id: string;
+  itemId: string;
+  kind: PriceKind;
+  /** Pesewas, before the change. */
+  previous: number;
+  /** Pesewas, after. Never equal to `previous`. */
+  current: number;
+  /** `current − previous`. Negative when the price came down. */
+  delta: number;
+  reason?: string;
+  /** Set when the change arrived with a delivery rather than an edit. */
+  quantityReceived?: number;
+  supplier?: string;
+  invoiceRef?: string;
+  receivedOn?: string;
+  changedById: string;
+  changedByName?: string;
+  createdAt: string;
+}
+
+/** What a delivery would do to the shelf, before it is booked. */
+export interface DeliveryEffect {
+  /** Pesewas the cost is moving by. Zero when the invoice matches. */
+  costDelta: number;
+  /** What the item makes per unit afterwards. Negative is refused by the API. */
+  marginAfter: number;
+  /** Margin as a percentage of the selling price, for the line under it. */
+  marginPercent: number;
+}
+
+/**
+ * What booking a delivery at this unit cost would mean. Kept here rather than
+ * in the screen so the arithmetic is in one place and can be read at a glance.
+ */
+export function deliveryEffect(
+  item: Pick<HpItem, "costPrice" | "sellingPrice">,
+  unitCost: number,
+  sellingPrice?: number,
+): DeliveryEffect {
+  const selling = sellingPrice ?? item.sellingPrice;
+  const marginAfter = selling - unitCost;
+  return {
+    costDelta: unitCost - item.costPrice,
+    marginAfter,
+    marginPercent: selling > 0 ? Math.round((marginAfter / selling) * 100) : 0,
+  };
 }
 
 export interface TrashedHpItem extends HpItem {
@@ -68,7 +236,15 @@ export interface HpAgreement {
   customerName?: string;
   /** Snapshotted at signing. Later edits to the item never reach back here. */
   item: { name: string; description?: string; sellingPrice: number };
-  /** Exactly half the selling price. Must be paid to the pesewa. */
+  /**
+   * What the customer agreed to pay. The price is bargained at the counter, so
+   * this is the figure the whole agreement is built on — the deposit, what is
+   * financed, and the instalments all come off it, not off the shelf price.
+   */
+  agreedPrice: number;
+  /** What the shelf listed it at when this was signed. Reference only. */
+  listedPrice: number;
+  /** Exactly half the agreed price. Must be paid to the pesewa. */
   depositRequired: number;
   /** The other half — what interest is charged on. */
   financedAmount: number;
@@ -92,6 +268,8 @@ export interface HpAgreement {
   redemptionDeadline?: string;
   closedAt?: string;
   rejectionReason?: string;
+  /** A picture of the customer's signature on the agreement. */
+  signatureUrl?: string;
   createdAt: string;
 }
 
@@ -139,17 +317,22 @@ export interface HpEligibility {
 
 /* -------------------------------------------------------------- the halves --- */
 
-/** The deposit is exactly half the selling price. Nothing about that is configurable. */
+/** The deposit is exactly half the price. Nothing about that is configurable. */
 export const DEPOSIT_SHARE = 0.5;
 
-/** What the deposit on an item will be, for the sign-up form's preview. */
-export function depositFor(sellingPrice: number): number {
-  return Math.round(sellingPrice * DEPOSIT_SHARE);
+/**
+ * What the deposit will be, for the sign-up form's preview.
+ *
+ * It halves the price agreed with the customer, not the shelf price: a fridge
+ * listed at GH₵3,000 and settled at GH₵2,600 is a GH₵1,300 deposit.
+ */
+export function depositFor(agreedPrice: number): number {
+  return Math.round(agreedPrice * DEPOSIT_SHARE);
 }
 
 /** What is financed once the deposit is down. */
-export function financedFor(sellingPrice: number): number {
-  return sellingPrice - depositFor(sellingPrice);
+export function financedFor(agreedPrice: number): number {
+  return agreedPrice - depositFor(agreedPrice);
 }
 
 /* ------------------------------------------------------------------ labels --- */

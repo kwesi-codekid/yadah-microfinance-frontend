@@ -36,7 +36,24 @@ const storage = createCookieSessionStorage<PortalSessionData>({
     httpOnly: true,
     secure: env.sessionCookieSecure,
     sameSite: "lax",
-    path: "/portal",
+    /**
+     * `/`rather than `/portal`, which looks tighter and silently broke login.
+     *
+     * A cookie path matches only an identical path, or one that continues with
+     * `/`. React Router asks for a route's data at `<pathname>.data`, so the
+     * portal home is fetched as `/portal.data` — which starts with `/portal`
+     * but continues with a dot, and so falls outside `Path=/portal`. Every
+     * other screen survives (`/portal/transactions.data` keeps the slash); the
+     * home does not. The browser withheld the session on exactly the one
+     * request made right after the OTP, and the customer was posted back to
+     * the login page.
+     *
+     * There is no path that covers both `/portal` and `/portal.data`. The
+     * isolation that matters is not the path anyway: this is a separate cookie
+     * with its own name, secret and token family, and `token-isolation.test.ts`
+     * is what holds the line between a customer and a member of staff.
+     */
+    path: "/",
     domain: env.sessionCookieDomain,
     secrets: [env.sessionSecret, env.sessionSecretPrevious].filter(Boolean),
     maxAge: IDLE_TIMEOUT_SECONDS,

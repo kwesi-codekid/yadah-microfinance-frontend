@@ -114,7 +114,7 @@ export default function LoanConfig({ loaderData }: Route.ComponentProps) {
     <RouteSheet
       backTo="/loans"
       title="Loan settings"
-      description="The rates and limits new lending runs on. Loans already approved keep the rate and schedule they were given."
+      description="Applies to applications from now on."
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
@@ -135,10 +135,6 @@ export default function LoanConfig({ loaderData }: Route.ComponentProps) {
               <RateField id="ratePercent6" label="6 months" defaultValue={loaderData.ratePercent6} />
               <RateField id="ratePercent12" label="12 months" defaultValue={loaderData.ratePercent12} />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Applied once to the principal at approval. Escalation on arrears
-              climbs from here.
-            </p>
           </fieldset>
 
           <fieldset className="space-y-4">
@@ -148,10 +144,6 @@ export default function LoanConfig({ loaderData }: Route.ComponentProps) {
               <AmountField id="smallMax" label="Small, up to" defaultValue={loaderData.smallMax} />
               <AmountField id="bigMax" label="Big, up to" defaultValue={loaderData.bigMax} />
             </div>
-            <p className="text-xs text-muted-foreground">
-              A big loan starts where a small one stops. The application form
-              reads these limits the moment a customer is picked.
-            </p>
           </fieldset>
         </div>
 

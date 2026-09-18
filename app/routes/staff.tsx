@@ -32,7 +32,6 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { disableUser, enableUser, listUsers, resetUserPassword } from "~/api/users";
-import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -69,6 +68,7 @@ import {
 } from "~/components/ui/empty";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
+import { FilterMenu } from "~/components/listing";
 import {
   Popover,
   PopoverContent,
@@ -346,29 +346,19 @@ export default function StaffRoute({ loaderData }: Route.ComponentProps) {
   );
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter staff by status"
-          sections={[
-            {
-              label: "Status",
-              items: TABS.map((tab) => ({
-                key: tab.key,
-                label: tab.label,
-                count: counts[tab.key],
-                to: hrefFor({ ...filters, status: tab.key }),
-              })),
-            },
-          ]}
-          active={filters.status}
-          horizontal={horizontal}
-        />
-      )}
-    >
     <Page className="max-w-none">
       <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-end">
+        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
+          <FilterMenu
+            label="Status"
+            items={TABS.map((tab) => ({
+              key: tab.key,
+              label: tab.label,
+              count: counts[tab.key],
+              to: hrefFor({ ...filters, status: tab.key }),
+            }))}
+            active={filters.status}
+          />
           <div className="flex flex-wrap items-center gap-2">
             <SearchBox filters={filters} busy={busy} />
             <RoleFilter filters={filters} />
@@ -448,7 +438,6 @@ export default function StaffRoute({ loaderData }: Route.ComponentProps) {
           away from it. */}
       <Outlet />
     </Page>
-    </RailFrame>
   );
 }
 
@@ -651,10 +640,6 @@ function DateRangeFilter({ filters }: { filters: Filters }) {
         </div>
         {/* The API filters on this date but never returns it, so there is no
             column to check the range against. The chip above is the receipt. */}
-        <p className="text-xs text-muted-foreground">
-          The API filters on this date but does not return it, so it cannot be
-          shown as a column.
-        </p>
         <div className="flex items-center justify-between gap-2 pt-1">
           <Button
             type="button"
@@ -950,9 +935,8 @@ function RowActions({
           <AlertDialogHeader>
             <AlertDialogTitle>Disable {row.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              They are signed out everywhere immediately and cannot sign in
-              again until an admin re-enables them. Their name stays on every
-              record they touched. Nothing is deleted.
+              They are signed out everywhere and cannot sign in until
+              re-enabled. Nothing is deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

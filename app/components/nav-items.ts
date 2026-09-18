@@ -4,10 +4,12 @@ import {
   BookOpenTextIcon,
   ChartColumnIcon,
   CoinsIcon,
+  HandCoinsIcon,
   ScaleIcon,
   ShoppingCartIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
+  ListChecksIcon,
   ReceiptIcon,
   ReceiptTextIcon,
   RepeatIcon,
@@ -135,13 +137,14 @@ export const NAV: NavItem[] = [
     blurb: "Every sale rung up, with its receipt.",
     roles: COUNTER,
   },
-  // Its own section: the shelf is stocked whether or not anything is signed for.
+  // Its own section: the shelf is stocked whether or not anything is signed
+  // for. The counter keeps it — whoever sells off it stocks it.
   {
     to: "/inventory",
     label: "Inventory",
     icon: WarehouseIcon,
     blurb: "Stock on the shelf and what is reserved.",
-    roles: OFFICE,
+    roles: COUNTER,
   },
   // No `roles`: this is the one place a collector and the office each hold
   // half. The collector declares their day, the office counts it, and the API
@@ -162,6 +165,16 @@ export const NAV: NavItem[] = [
     blurb: "Withdrawals customers asked for, waiting on a decision.",
     roles: OFFICE,
   },
+  // Corrections to a figure already on the ledger. The counter asks, the
+  // office decides; the queue cuts across every module, so it is its own
+  // item rather than a corner of one.
+  {
+    to: "/corrections",
+    label: "Corrections",
+    icon: ListChecksIcon,
+    blurb: "Figures tellers asked to change, waiting on a decision.",
+    roles: COUNTER,
+  },
   // A hub, not a module: each report cuts across several of the books above,
   // which is why none of them lives on a module screen.
   {
@@ -171,14 +184,25 @@ export const NAV: NavItem[] = [
     blurb: "Collections, arrears and what the branch kept.",
     roles: OFFICE,
   },
+  // What the business spends on itself. Its own module rather than a corner of
+  // accounting, because the two are used by different people at different
+  // times: the counter records an expense the moment the money leaves the
+  // drawer, and the statements are read at month end by somebody else.
+  {
+    to: "/expenses",
+    label: "Expenses",
+    icon: HandCoinsIcon,
+    blurb: "Petty cash and bills, from recorded to paid.",
+    roles: COUNTER,
+  },
   // The company's own books, as opposed to its customers': what it holds in
-  // the drawer and the bank, what it spends, what it owns, what the owner put
-  // in — and the balance sheet and profit and loss built from all of it.
+  // the drawer and the bank, what it owns, what the owner put in — and the
+  // balance sheet and profit and loss built from all of it.
   {
     to: "/accounting",
     label: "Accounting",
     icon: BookOpenTextIcon,
-    blurb: "Cash, expenses, assets, capital and the two statements.",
+    blurb: "Cash, assets, capital and the two statements.",
     roles: OFFICE,
     hidden: true,
   },

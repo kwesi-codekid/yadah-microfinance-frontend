@@ -9,9 +9,10 @@ import type { Route } from "./+types/uploads";
  * Resource route for image uploads. The browser has no access token, so it
  * cannot call the API's `/uploads/images` directly — it posts the file here and
  * this action forwards it with the session's bearer token. Used by the customer
- * registration form for the photo and the two ID-document scans.
+ * form for the photo and the two ID-document scans, and by loan applications
+ * and hire-purchase agreements for the customer's signature.
  *
- *   POST   /uploads?kind=photo|document   (multipart, field `image`) → { url, publicId }
+ *   POST   /uploads?kind=photo|document|signature   (multipart, field `image`) → { url, publicId }
  *   DELETE /uploads?publicId=...          → 204
  */
 export async function action({ request }: Route.ActionArgs) {
@@ -30,8 +31,9 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   if (request.method === "POST") {
+    const asked = url.searchParams.get("kind");
     const kind: UploadKind =
-      url.searchParams.get("kind") === "document" ? "document" : "photo";
+      asked === "document" || asked === "signature" ? asked : "photo";
 
     let form: FormData;
     try {

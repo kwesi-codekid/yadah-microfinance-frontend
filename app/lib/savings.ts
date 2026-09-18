@@ -4,7 +4,7 @@
  * into the client. The fetch functions live in `~/api/savings`.
  *
  * A savings account is an open balance rather than a cycle: money goes in from
- * GHS 5 upwards, comes out once a day at a flat GHS 10 fee, and GHS 50 has to
+ * GHS 5 upwards, comes out once a day at a flat GHS 10 fee, and GHS 10 has to
  * stay behind until the account is closed. Those three numbers are the whole
  * module — every figure on every savings screen is derived from them.
  */
@@ -12,8 +12,8 @@
 /** The API's floor on a deposit: GHS 5, in pesewas. Lowered API-side, Aug 2026. */
 export const MIN_DEPOSIT = 500;
 
-/** What must stay in the account. Released only by closing it. */
-export const MIN_BALANCE = 5000;
+/** What must stay in the account. Released only by closing it. GHS 10. */
+export const MIN_BALANCE = 1000;
 
 /** Flat, charged on every withdrawal and on the closing payout. */
 export const WITHDRAWAL_FEE = 1000;
@@ -148,8 +148,8 @@ export function checkDepositAmount(pesewas: number | null): string | null {
 
 /**
  * A withdrawal is checked against `availableToWithdraw` rather than the
- * balance: the fee comes off on top of what the customer receives, and GHS 50
- * has to survive it. The API sends that figure with every account, so this
+ * balance: the fee comes off on top of what the customer receives, and the
+ * minimum balance has to survive it. The API sends that figure with every account, so this
  * refuses exactly what `EXCEEDS_AVAILABLE` would — before the round trip.
  */
 export function checkWithdrawalAmount(

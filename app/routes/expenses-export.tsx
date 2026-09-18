@@ -1,4 +1,4 @@
-import { exportExpenses, type ExportFormat } from "~/api/accounting";
+import { exportExpenses, type ExportFormat } from "~/api/expenses";
 import { asDownload, downloadFailure } from "~/lib/download.server";
 import {
   EXPENSE_CATEGORIES,
@@ -7,11 +7,11 @@ import {
   type ExpenseStatus,
 } from "~/lib/accounting";
 import { accraDay } from "~/lib/format";
-import { requireOffice, withAuth } from "~/lib/session.server";
-import type { Route } from "./+types/accounting-expenses-export";
+import { requireCounter, withAuth } from "~/lib/session.server";
+import type { Route } from "./+types/expenses-export";
 
 /**
- * `GET /accounting/expenses?format=csv|xlsx` as a download, proxied with the
+ * `GET /expenses?format=csv|xlsx` as a download, proxied with the
  * session's bearer token — the browser holds none of its own.
  *
  * The filters are read the way the listing reads them, so the file holds
@@ -21,7 +21,7 @@ import type { Route } from "./+types/accounting-expenses-export";
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const url = new URL(request.url);
 
   const format: ExportFormat =

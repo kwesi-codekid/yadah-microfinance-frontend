@@ -1,0 +1,38 @@
+{
+  "id": "/portal",
+  "name": "Yadah — My account",
+  "short_name": "My Yadah",
+  "description": "Your susu, savings and loans with Yadah Dynamic Enterprise.",
+  "lang": "en-GH",
+  "dir": "ltr",
+  "start_url": "/portal",
+  "scope": "/portal",
+  "display": "standalone",
+  "background_color": "#F3F3F3",
+  "theme_color": "#033F6F",
+  "categories": ["finance"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Pay in", "url": "/portal/pay" },
+    { "name": "Withdrawals", "url": "/portal/requests" }
+  ]
+}

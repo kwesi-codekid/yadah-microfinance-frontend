@@ -218,7 +218,7 @@ export default function ReconciliationDetail({ loaderData }: Route.ComponentProp
                   : `${VARIANCE_LABELS[settledKind]} ${formatPesewas(Math.abs(row.variance ?? 0))}`
               }
               tone={VARIANCE_TONE[settledKind]}
-              hint="The real gap against the books"
+              hint="Against the books"
             />
             <Figure
               label="Counted vs declared"
@@ -234,7 +234,7 @@ export default function ReconciliationDetail({ loaderData }: Route.ComponentProp
                   ? VARIANCE_TONE[varianceKind(row.declaredVsReceived)]
                   : "muted"
               }
-              hint="Whether what was handed over matched what was said"
+              hint="Against what was declared"
             />
           </dl>
           {row.varianceReason && (

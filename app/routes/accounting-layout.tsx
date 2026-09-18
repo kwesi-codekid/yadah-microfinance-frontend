@@ -42,7 +42,7 @@ const SECTIONS: RailSection[] = [
     label: "Overview",
     icon: WalletIcon,
     items: [
-      // Only the front page must match exactly; `/accounting/expenses/new` is still Expenses.
+      // Only the front page must match exactly.
       { key: "cash", to: "/accounting", label: "Cash position", icon: LandmarkIcon, end: true },
     ],
   },
@@ -50,7 +50,6 @@ const SECTIONS: RailSection[] = [
     label: "Books",
     icon: BookOpenIcon,
     items: [
-      { key: "expenses", to: "/accounting/expenses", label: "Expenses", icon: ReceiptIcon },
       { key: "assets", to: "/accounting/assets", label: "Fixed assets", icon: PackageIcon },
       { key: "capital", to: "/accounting/capital", label: "Capital", icon: PiggyBankIcon },
     ],

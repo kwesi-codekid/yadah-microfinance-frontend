@@ -62,6 +62,9 @@ export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: `${name} · Yadah Dynamic Enterprise` }];
 }
 
+/** What the layout header calls this page. */
+export const handle = { title: "Customer" };
+
 export async function loader({ request, params }: Route.LoaderArgs) {
   const user = await requireUser(request);
 
@@ -109,9 +112,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       // one off or moves it to the trash.
       canEdit: isCounter(user),
       canAdminister: isOffice(user),
-      // Moving a round is admin-only: a manager may edit a customer but must
-      // not silently change who collects from them.
-      canReassign: user.role === "admin",
+      // Moving one customer between rounds is counter work, like registering
+      // them was. Handing over a whole round is not, and lives on the staff page.
+      canReassign: isCounter(user),
       registeredBy,
       collectorName,
     },
@@ -489,9 +492,9 @@ function HeaderActions({
                 Activate
               </DropdownMenuItem>
             )}
-            {/* Drawn for everyone who can reach this menu and disabled for a
-              manager, rather than hidden — the same way every other row menu in
-              this app says "not yours to do". */}
+            {/* Drawn for everyone who can reach this menu and disabled where it
+              is not theirs, rather than hidden — the same way every other row
+              menu in this app says "not yours to do". */}
             <DropdownMenuItem asChild disabled={!canReassign}>
               <Link
                 to={`/customers/${customer.id}/collector`}
@@ -529,10 +532,8 @@ function HeaderActions({
                   Move {customer.fullName} to the trash?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  They disappear from the listings and from lookups, and can be
-                  restored from Trash. Their phone number stays reserved. This
-                  is refused while they still hold an open susu account, savings
-                  account, loan or hire-purchase agreement.
+                  They leave the listings and can be restored from Trash.
+                  Refused while they hold an open account, loan or agreement.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <div className="space-y-1.5">
@@ -568,8 +569,8 @@ function HeaderActions({
                   Deactivate {customer.fullName}?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  They stay visible and their records are kept, but the profile
-                  and its accounts cannot be edited until reactivated.
+                  The profile and its accounts cannot be edited until
+                  reactivated.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

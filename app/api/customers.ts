@@ -168,7 +168,8 @@ export function activateCustomer(
 export function reassignCustomerCollector(
   accessToken: string,
   id: string,
-  input: { collectorId: string; reason?: string },
+  /** `collectorId: null` takes the customer off every round — they pay at the office. */
+  input: { collectorId: string | null; reason?: string },
 ): Promise<{ customer: Customer }> {
   return apiFetch(`/customers/${id}/collector`, {
     method: "PATCH",

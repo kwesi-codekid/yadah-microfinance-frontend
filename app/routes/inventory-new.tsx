@@ -1,10 +1,11 @@
 import { EyeOffIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { data, Form, useActionData, useNavigation } from "react-router";
+import { ItemLabels, labelIdFrom } from "~/components/item-labels";
 import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
-import { createItem } from "~/api/hire-purchase";
+import { allLabels, createItem } from "~/api/hire-purchase";
 import { Figure } from "~/components/listing";
 import {
   RouteSheet,
@@ -17,7 +18,7 @@ import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
 import { formatPesewas, parseCedis } from "~/lib/format";
 import { depositFor, financedFor, marginPercent } from "~/lib/hire-purchase";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/inventory-new";
@@ -26,15 +27,25 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Add an item · Yadah Dynamic Enterprise" }];
 }
 
+/** The managed brands and categories, for the two pickers. */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
-  return null;
+  await requireCounter(request);
+  const { data: labels, headers } = await withAuth(request, async (token) => {
+    const [brands, categories] = await Promise.all([
+      allLabels(token, "brand"),
+      allLabels(token, "category"),
+    ]);
+    return { brands, categories };
+  });
+  return data({ labels }, { headers });
 }
 
 export async function action({ request }: Route.ActionArgs) {
-  await requireOffice(request);
+  await requireCounter(request);
   const form = await request.formData();
   const name = String(form.get("name") ?? "").trim();
+  const brandId = labelIdFrom(form.get("brandId"));
+  const categoryId = labelIdFrom(form.get("categoryId"));
   const description = String(form.get("description") ?? "").trim();
   const quantityInStock = Number(form.get("quantityInStock") ?? 0);
   const costPrice = parseCedis(String(form.get("costPrice") ?? "").trim());
@@ -58,6 +69,8 @@ export async function action({ request }: Route.ActionArgs) {
     ({ headers } = await withAuth(request, (token) =>
       createItem(token, {
         name,
+        ...(brandId ? { brandId } : {}),
+        ...(categoryId ? { categoryId } : {}),
         description: description || undefined,
         quantityInStock,
         costPrice,
@@ -78,7 +91,8 @@ export async function action({ request }: Route.ActionArgs) {
   );
 }
 
-export default function InventoryNew() {
+export default function InventoryNew({ loaderData }: Route.ComponentProps) {
+  const { labels } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -100,7 +114,6 @@ export default function InventoryNew() {
     <RouteSheet
       backTo="/inventory"
       title="Add an item"
-      description="Both prices are stored. Only the selling price is ever shown to a customer."
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
@@ -130,6 +143,7 @@ export default function InventoryNew() {
             />
           </div>
 
+          <ItemLabels brands={labels.brands} categories={labels.categories} />
 
           <div className="space-y-1.5">
             <Label
@@ -144,9 +158,6 @@ export default function InventoryNew() {
               rows={2}
               maxLength={500}
             />
-            <p className="text-xs text-muted-foreground">
-              Model, size, colour — whatever tells two units apart on the shelf.
-            </p>
           </div>
 
           <div className="space-y-1.5">
@@ -165,10 +176,6 @@ export default function InventoryNew() {
               defaultValue={1}
               className="tabular"
             />
-            <p className="text-xs text-muted-foreground">
-              After this, stock only moves through an audited adjustment with a
-              reason on it.
-            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -213,19 +220,12 @@ export default function InventoryNew() {
             </div>
           </div>
 
-          <p
-            className={cn(
-              "flex items-start gap-2 text-xs",
-              belowCost ? "text-destructive" : "text-muted-foreground",
-            )}
-          >
-            <EyeOffIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>
-              {belowCost
-                ? "The selling price is below cost. That is allowed, but check it."
-                : "Cost price is Yadah’s figure and must never be shown to a customer. If the item sells at cost, enter the same number twice."}
-            </span>
-          </p>
+          {belowCost && (
+            <p className="flex items-start gap-2 text-xs text-destructive">
+              <EyeOffIcon className="mt-0.5 size-3.5 shrink-0" />
+              <span>The selling price is below cost.</span>
+            </p>
+          )}
 
           {/* What signing against this item will actually ask of a customer.
               Both figures are fixed by the selling price, so they are worth
@@ -235,12 +235,12 @@ export default function InventoryNew() {
               <Figure
                 label="Deposit"
                 value={formatPesewas(depositFor(sellingPesewas))}
-                hint="Exactly half, before the item leaves"
+                hint="Half the price"
               />
               <Figure
                 label="Financed"
                 value={formatPesewas(financedFor(sellingPesewas))}
-                hint="The half interest is charged on"
+                hint="The rest"
               />
               {costPesewas != null && costPesewas > 0 && (
                 <Figure

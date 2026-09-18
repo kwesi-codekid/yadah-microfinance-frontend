@@ -75,7 +75,7 @@ export default function HpConfig({ loaderData }: Route.ComponentProps) {
     <RouteSheet
       backTo="/hire-purchase"
       title="Hire purchase settings"
-      description="The flat interest charged on the financed half. Each agreement snapshots the rate at signing, so changing it never reaches back."
+      description="Applies to agreements signed from now on."
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
@@ -111,9 +111,6 @@ export default function HpConfig({ loaderData }: Route.ComponentProps) {
                 %
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Applied once, at activation, to the half left after the deposit.
-            </p>
           </div>
         </div>
 

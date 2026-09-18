@@ -69,10 +69,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Fixed assets · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Fixed assets",
-  description: "What the business owns outright, depreciating month by month.",
 };
 
 const PAGE_SIZE = 10;
@@ -540,9 +539,8 @@ export default function AccountingAssets({ loaderData }: Route.ComponentProps) {
               <AlertDialogHeader>
                 <AlertDialogTitle>Dispose of {disposing.name}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  It leaves the balance sheet from the day named here, at a book value
-                  of {formatPesewas(disposing.netBookValue)}. Anything it fetched is
-                  money back in — never a negative expense.
+                  It leaves the balance sheet from this day, at a book value of{" "}
+                  {formatPesewas(disposing.netBookValue)}.
                 </AlertDialogDescription>
               </AlertDialogHeader>
 

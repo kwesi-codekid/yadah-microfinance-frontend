@@ -104,31 +104,42 @@ export function exportCollections(
 }
 
 /** GET /reports/loans/outstanding — every open loan, soonest due first. */
+/**
+ * The loan book. `from`/`to` narrow it to loans DISBURSED in that range — how
+ * much was put out in a period and what is still owed on it. Unlike the other
+ * report windows, leaving them off means the whole book rather than 30 days.
+ */
 export function getOutstandingLoans(
   accessToken: string,
+  range: { from?: string; to?: string } = {},
 ): Promise<OutstandingReport> {
-  return apiFetch("/reports/loans/outstanding", { accessToken });
+  return apiFetch(`/reports/loans/outstanding${queryOf(range)}`, { accessToken });
 }
 
 export function exportOutstandingLoans(
   accessToken: string,
   format: ExportFormat,
+  range: { from?: string; to?: string } = {},
 ): Promise<Response> {
-  return apiFetchRaw(`/reports/loans/outstanding${queryOf({}, format)}`, {
+  return apiFetchRaw(`/reports/loans/outstanding${queryOf(range, format)}`, {
     accessToken,
   });
 }
 
 /** GET /reports/loans/aging — arrears in the 1–30 / 31–90 / 90+ buckets. */
-export function getLoanAging(accessToken: string): Promise<AgingReport> {
-  return apiFetch("/reports/loans/aging", { accessToken });
+export function getLoanAging(
+  accessToken: string,
+  range: { from?: string; to?: string } = {},
+): Promise<AgingReport> {
+  return apiFetch(`/reports/loans/aging${queryOf(range)}`, { accessToken });
 }
 
 export function exportLoanAging(
   accessToken: string,
   format: ExportFormat,
+  range: { from?: string; to?: string } = {},
 ): Promise<Response> {
-  return apiFetchRaw(`/reports/loans/aging${queryOf({}, format)}`, { accessToken });
+  return apiFetchRaw(`/reports/loans/aging${queryOf(range, format)}`, { accessToken });
 }
 
 /**

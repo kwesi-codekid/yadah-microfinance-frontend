@@ -332,7 +332,6 @@ function OfficeDashboard({
           <Card
             title="Collections Performance"
             detailTo="/reports/collections"
-            note="Field cash recorded against what the office confirmed receiving. Reconciled collector days only, so the newest buckets fill in as handovers are confirmed."
           >
             {series ? (
               <CollectionsChart key={period} series={series} />
@@ -435,7 +434,6 @@ function OfficeDashboard({
           <Card
             title="Collections Reconciliation"
             detailTo="/reconciliation"
-            note="The share of each bucket's recorded field cash that the office confirmed receiving."
           >
             {series ? (
               <ReconTrend key={period} series={series} />
@@ -521,6 +519,7 @@ function searchText(tx: UnifiedTransaction): string {
     tx.status,
     tx.detail ?? "",
     tx.recordedByName ?? "",
+    tx.recordedByKind,
   ]
     .join(" ")
     .toLowerCase();
@@ -530,7 +529,7 @@ function searchText(tx: UnifiedTransaction): string {
 function exportCsv(rows: UnifiedTransaction[]) {
   const cell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
   const lines = [
-    "Reference,Recorded,Customer,Account,Type,Direction,Amount (GHS),Fee (GHS),Status,Recorded by",
+    "Reference,Recorded,Customer,Account,Type,Direction,Amount (GHS),Fee (GHS),Status,Recorded by,Recorded by type",
     ...rows.map((tx) =>
       [
         tx.id,
@@ -543,6 +542,8 @@ function exportCsv(rows: UnifiedTransaction[]) {
         (tx.fee / 100).toFixed(2),
         tx.status,
         tx.recordedByName ?? "",
+        // Appended, never inserted: the office reads these by column.
+        tx.recordedByKind,
       ]
         .map(cell)
         .join(","),

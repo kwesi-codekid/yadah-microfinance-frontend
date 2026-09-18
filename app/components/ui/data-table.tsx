@@ -75,6 +75,7 @@ export type Paging = {
  * holding one permanently-pressed button.
  */
 export function RegisterToolbar({
+  filters,
   tabs,
   activeTab,
   onTabChange,
@@ -86,6 +87,8 @@ export function RegisterToolbar({
   searchSlot,
   actions,
 }: {
+  /** The one-of filter over the table — a `FilterMenu`, usually. Sits left. */
+  filters?: React.ReactNode;
   tabs?: TableTab[];
   activeTab?: string;
   onTabChange?: (value: string) => void;
@@ -110,6 +113,7 @@ export function RegisterToolbar({
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
+      {filters ? <div className="flex flex-wrap items-center gap-2">{filters}</div> : null}
       {/* Buttons rather than a tablist: there is no tabpanel to own, and a
           tablist promises arrow-key navigation this doesn't implement. */}
       {tabs && tabs.length > 0 ? (
@@ -177,6 +181,7 @@ export function RegisterToolbar({
 }
 
 export function DataTable<T>({
+  filters,
   tabs,
   activeTab,
   onTabChange,
@@ -199,6 +204,8 @@ export function DataTable<T>({
   rowActions,
   empty,
 }: {
+  /** The one-of filter over the table — a `FilterMenu`, usually. */
+  filters?: React.ReactNode;
   /** Omit on a list with nothing to filter — the toolbar is then search alone. */
   tabs?: TableTab[];
   activeTab?: string;
@@ -292,6 +299,7 @@ export function DataTable<T>({
             narrow, not to the page above it. */}
         <div className="border-b border-border p-3">
           <RegisterToolbar
+            filters={filters}
             tabs={tabs}
             activeTab={activeTab}
             onTabChange={onTabChange}

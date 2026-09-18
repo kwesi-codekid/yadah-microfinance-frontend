@@ -18,14 +18,15 @@ import {
   subscribePush,
   unsubscribePush,
 } from "~/api/notifications";
-import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
 import { PushToggle } from "~/components/push-toggle";
 import {
   FilterBar,
   FilterChip,
+  FilterMenu,
   ListingCard,
   ListingFooter,
   ListingToolbar,
+  type MenuChoice,
   StatusPill,
 } from "~/components/listing";
 import { Page } from "~/components/page";
@@ -55,10 +56,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Notifications · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Notifications",
-  description: "What happened, and where to look at it properly.",
 };
 
 const PAGE_SIZE = 25;
@@ -254,9 +254,9 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
   const narrowed = Boolean(filters.unreadOnly || filters.type);
   const busy = navigation.state !== "idle";
 
-  // Two rails, not one: "Show" and "Kind" are independent filters, so each
+  // Two menus, not one: "Show" and "Kind" are independent filters, so each
   // needs its own lit item. `total` is only right for the view you are in.
-  const showItems: RailItem[] = [
+  const showItems: MenuChoice[] = [
     {
       key: "all",
       label: "Everything",
@@ -270,7 +270,7 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
       onSelect: () => apply({ unreadOnly: true }),
     },
   ];
-  const kindItems: RailItem[] = [
+  const kindItems: MenuChoice[] = [
     { key: "", label: "Every kind", onSelect: () => apply({ type: "" }) },
     ...TYPE_OPTIONS.map((o) => ({
       key: o.value,
@@ -280,24 +280,6 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
   ];
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <div className={horizontal ? "flex flex-wrap gap-x-4 gap-y-2" : "space-y-3"}>
-          <FilterRail
-            label="Show"
-            sections={[{ label: "Show", items: showItems }]}
-            active={filters.unreadOnly ? "unread" : "all"}
-            horizontal={horizontal}
-          />
-          <FilterRail
-            label="Kind"
-            sections={[{ label: "Kind", items: kindItems }]}
-            active={filters.type}
-            horizontal={horizontal}
-          />
-        </div>
-      )}
-    >
     <Page className="max-w-none">
       {pushKey && (
         <div className="mb-4">
@@ -307,18 +289,14 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
       <ListingCard>
         <ListingToolbar
           tabs={
-            <p className="text-sm text-muted-foreground">
-              {unread > 0 ? (
-                <>
-                  <span className="font-semibold text-foreground">
-                    {formatCount(unread)}
-                  </span>{" "}
-                  unread
-                </>
-              ) : (
-                "Nothing unread"
-              )}
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <FilterMenu
+                label="Show"
+                items={showItems}
+                active={filters.unreadOnly ? "unread" : "all"}
+              />
+              <FilterMenu label="Kind" items={kindItems} active={filters.type} />
+            </div>
           }
         >
           <Button
@@ -441,6 +419,5 @@ export default function Notifications({ loaderData }: Route.ComponentProps) {
         />
       </ListingCard>
     </Page>
-    </RailFrame>
   );
 }

@@ -25,11 +25,11 @@ import {
   ExportMenu,
   FilterBar,
   FilterChip,
+  FilterMenu,
   ListingFooter,
   StatusPill,
   Th,
 } from "~/components/listing";
-import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import {
   BreakdownChart,
@@ -90,10 +90,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Cash handover · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Cash handover",
-  description: "Declare a day's cash, count it, record the gap.",
 };
 
 const PAGE_SIZE = 8;
@@ -377,16 +376,6 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
   }));
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter handover days by status"
-          sections={[{ label: "Status", items: railItems }]}
-          active={filters.status}
-          horizontal={horizontal}
-        />
-      )}
-    >
     <Page className="max-w-none">
       {/* The three figures the office asks for first, in the reference's order:
           what is done, what went wrong, what is still waiting. */}
@@ -416,7 +405,6 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
         <div className="flex flex-col gap-4 xl:col-span-7">
           <Card
             title="Handover volume"
-            subtitle="Closed days each month, over the last year"
             actions={
               <>
                 <Button asChild variant="outline" size="xs">
@@ -444,9 +432,9 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
           <Card
             flush
             title="Handover book"
-            subtitle="What each collector declared, and what the office counted"
             actions={
               <>
+                <FilterMenu label="Status" items={railItems} active={filters.status} />
                 {office && collectors.length > 0 && (
                   <ChoiceFilter
                     value={filters.collectorId}
@@ -601,7 +589,6 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
         <div className="flex flex-col gap-4 xl:col-span-5">
           <Card
             title="Where the gaps fall"
-            subtitle="Shortfall by weekday, over the last year"
             actions={
               <>
                 {office && (
@@ -626,7 +613,6 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
           <Card
             flush
             title="Gaps to explain"
-            subtitle="Counted days that did not balance, latest first"
             actions={
               <>
                 <Button asChild variant="outline" size="xs">
@@ -692,7 +678,6 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
             <Card
               flush
               title="By collector"
-              subtitle="Over the last year, worst first"
               actions={
                 <ExportMenu
                   path="/reconciliation/variances/export"
@@ -733,7 +718,6 @@ export default function ReconciliationBook({ loaderData }: Route.ComponentProps)
       {/* The declare drawer opens over the book. */}
       <Outlet />
     </Page>
-    </RailFrame>
   );
 }
 

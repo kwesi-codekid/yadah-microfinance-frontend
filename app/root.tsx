@@ -1,4 +1,5 @@
 import { ThemeProvider } from "next-themes";
+import { useEffect } from "react";
 import {
   isRouteErrorResponse,
   Link,
@@ -7,6 +8,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
 } from "react-router";
 
 import { RouteProgress } from "~/components/route-progress";
@@ -16,8 +18,10 @@ import type { Route } from "./+types/root";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [
-  { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
-  { rel: "apple-touch-icon", href: "/logo.png" },
+  { rel: "icon", href: "/favicon.ico", sizes: "16x16 32x32 48x48" },
+  { rel: "icon", href: "/icons/favicon-32.png", type: "image/png", sizes: "32x32" },
+  // 180px, on white: iOS ignores transparency and would otherwise fill it black.
+  { rel: "apple-touch-icon", href: "/icons/apple-touch-icon.png", sizes: "180x180" },
 ];
 
 export const meta: Route.MetaFunction = () => [
@@ -29,9 +33,35 @@ export const meta: Route.MetaFunction = () => [
   },
   // The splash and the sidebar are navy in both themes; match the browser chrome.
   { name: "theme-color", content: "#033F6F" },
+  // iOS reads neither the manifest's `display` nor its `theme_color`, so the
+  // standalone window is asked for the old way.
+  { name: "apple-mobile-web-app-capable", content: "yes" },
+  { name: "mobile-web-app-capable", content: "yes" },
+  { name: "apple-mobile-web-app-status-bar-style", content: "default" },
 ];
 
+/**
+ * Catch Chromium's install prompt before React exists.
+ *
+ * `beforeinstallprompt` fires once, early, and usually lands before hydration.
+ * Miss it and there is no install button until the next page load — so this
+ * runs in the document head, keeps the event, and tells the app it has one.
+ */
+const CATCH_INSTALL_PROMPT = `
+window.__yadahInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", function (event) {
+  event.preventDefault();
+  window.__yadahInstallPrompt = event;
+  window.dispatchEvent(new Event("yadah:installable"));
+});
+`;
+
 export function Layout({ children }: { children: React.ReactNode }) {
+  // Two products on one host install as two apps: staff open the whole branch
+  // at the splash, a customer opens their own accounts at the portal. Pointing
+  // both at one manifest would land customers on the staff sign-in.
+  const portal = useLocation().pathname.startsWith("/portal");
+
   return (
     // next-themes writes the theme class before paint, which the server cannot
     // predict — so the mismatch on <html> is expected, not a bug to chase.
@@ -39,6 +69,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link
+          rel="manifest"
+          href={portal ? "/portal.webmanifest" : "/manifest.webmanifest"}
+        />
+        {/* What iOS writes under the home-screen icon. */}
+        <meta
+          name="apple-mobile-web-app-title"
+          content={portal ? "My Yadah" : "Yadah"}
+        />
+        <script dangerouslySetInnerHTML={{ __html: CATCH_INSTALL_PROMPT }} />
         <Meta />
         <Links />
       </head>
@@ -61,7 +101,31 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Register the service worker — the one behind push, and the reason the app
+ * can be installed at all. It waits for `load` so it never competes with the
+ * first screen's own requests, and a failure costs push and the offline page
+ * and nothing else, so it is swallowed.
+ */
+function useServiceWorker() {
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+
+    const register = () => {
+      navigator.serviceWorker.register("/sw.js").catch(() => {});
+    };
+
+    if (document.readyState === "complete") {
+      register();
+      return;
+    }
+    window.addEventListener("load", register);
+    return () => window.removeEventListener("load", register);
+  }, []);
+}
+
 export default function App() {
+  useServiceWorker();
   return <Outlet />;
 }
 

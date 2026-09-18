@@ -21,7 +21,6 @@ export function meta(_: Route.MetaArgs) {
 
 export const handle = {
   title: "Background workers",
-  description: "Whether the jobs that run on their own — SMS, escalation, arrears, recovery — are alive.",
 };
 
 /** The API's worker keys, in the words the office would use for them. */

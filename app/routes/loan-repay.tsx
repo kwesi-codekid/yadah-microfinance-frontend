@@ -1,4 +1,4 @@
-import { InfoIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { data, Form, useActionData, useNavigation } from "react-router";
 import { toast } from "sonner";
@@ -262,16 +262,6 @@ export default function LoanRepay({ loaderData }: Route.ComponentProps) {
             </Select>
           </div>
 
-          <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <InfoIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>
-              Payments fill the oldest instalment first
-              {nextInstallment
-                ? `, starting with instalment ${nextInstallment.installmentNumber}`
-                : ""}
-              . More than the balance is refused rather than taken and refunded.
-            </span>
-          </div>
         </div>
 
         <SheetActions>

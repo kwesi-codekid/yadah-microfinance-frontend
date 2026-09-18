@@ -4,27 +4,65 @@ import {
   ArrowRightLeftIcon,
   ArrowUpRightIcon,
   HourglassIcon,
+  PencilIcon,
   PrinterIcon,
   ScaleIcon,
   UserIcon,
   WalletIcon,
 } from "lucide-react";
-import { useState } from "react";
-import { data, Link, useNavigation, useSubmit } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import {
+  data,
+  Link,
+  useFetcher,
+  useNavigation,
+  useSubmit,
+} from "react-router";
+import { toast } from "sonner";
 
+import { correctTransaction, proposeCorrection } from "~/api/corrections";
 import { getCustomer } from "~/api/customers";
+import { ApiError } from "~/api/error";
 import { listTransactions } from "~/api/reports";
-import { FilterRail, RailFrame, type RailItem } from "~/components/filter-rail";
+import {
+  CorrectTxnDialog,
+  whyNotCorrectable,
+  type CorrectionOutcome,
+} from "~/components/txn-correction";
 import {
   ExportMenu,
   FilterChip,
+  FilterMenu,
+  type MenuChoice,
   ModuleDot,
   PeriodFilter,
 } from "~/components/listing";
 import { Page } from "~/components/page";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { DataTable, type Column } from "~/components/ui/data-table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
 import { DropdownMenuItem } from "~/components/ui/dropdown-menu";
+import { isOffice } from "~/lib/auth";
+import {
+  KIND_NOUNS,
+  targetPath,
+  type CorrectionKind,
+} from "~/lib/corrections";
 import { channelLabel } from "~/lib/customers";
 import {
   accraDay,
@@ -35,31 +73,34 @@ import {
   formatCount,
   formatDayRange,
   formatPesewas,
+  parseCedis,
 } from "~/lib/format";
 import {
   MODULES,
   MODULE_LABELS,
+  RECORDED_BY_LABELS,
   TXN_TYPE_LABELS,
   netCash,
   receiptPathFor,
   refPath,
   type Direction,
+  type RecordedByKind,
   type TransactionTotals,
   type TxnModule,
   type UnifiedTransaction,
 } from "~/lib/reports";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
+import type { Correctable } from "./correctable";
 import type { Route } from "./+types/transactions";
 
 export function meta(_: Route.MetaArgs) {
   return [{ title: "Transactions · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Transactions",
-  description: "Every movement of money, across every module, newest first.",
 };
 
 /** Ten rows, as the customer's statement pages them. */
@@ -105,7 +146,7 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
 /**
  * `GET /reports/transactions` — every money event in the business as one list.
  *
- * Office only. The whole `/reports` surface is, which is why the rail hides
+ * Office only. The whole `/reports` surface is, which is why the sidebar hides
  * this module from collectors: a collector's own day is reconciled on the susu
  * summary, which is scoped to them and which they may read.
  *
@@ -115,7 +156,7 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
  * with no period beside it is a figure nobody can check.
  */
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  const user = await requireOffice(request);
   const url = new URL(request.url);
 
   const filters = readFilters(url);
@@ -161,12 +202,81 @@ export async function loader({ request }: Route.LoaderArgs) {
           button, and what decides whether Clear can be pressed. */
       explicit: Boolean(filters.from || filters.to),
       customerName: result.customer?.fullName ?? null,
+      /**
+       * The office corrects a deposit outright; the counter asks. The page is
+       * office-only today, so this is always true — it is here so the dialog
+       * asks the right question if the ledger is ever opened wider.
+       */
+      canManage: isOffice(user),
       total: feed.total,
       totals: feed.totals,
       rows: feed.items.map(toRow),
     },
     { headers },
   );
+}
+
+/**
+ * The one thing the ledger changes: a transaction's amount, the same way the
+ * record's own page does it. The shared dialog posts here with the kind, the
+ * record and the entry named, since unlike a record page this route has none
+ * of them in its path.
+ */
+export async function action({ request }: Route.ActionArgs) {
+  await requireOffice(request);
+  const form = await request.formData();
+  const intent = String(form.get("intent") ?? "");
+  const kind = String(form.get("kind") ?? "") as CorrectionKind;
+  const targetId = String(form.get("targetId") ?? "");
+  const txnId = String(form.get("txnId") ?? "");
+  const why = String(form.get("reason") ?? "").trim();
+  const amount = parseCedis(String(form.get("amount") ?? ""));
+
+  if (!kind || !targetId || !txnId) {
+    throw new Response("No entry named.", { status: 400 });
+  }
+  if (amount == null || amount <= 0) {
+    throw new Response("Enter the corrected amount.", { status: 400 });
+  }
+
+  try {
+    const { data: result, headers } = await withAuth(request, async (token) => {
+      switch (intent) {
+        case "correct-txn":
+          await correctTransaction(token, kind, targetId, txnId, amount);
+          return { message: "Corrected." };
+        case "propose-correction":
+          await proposeCorrection(token, kind, targetId, txnId, {
+            amount,
+            reason: why,
+          });
+          return {
+            message: "Sent to the office. Nothing changes until they answer.",
+          };
+        default:
+          throw new Response("Unknown action.", { status: 400 });
+      }
+    });
+    return data<CorrectionOutcome>(
+      { ok: true, message: result.message },
+      { headers },
+    );
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return data<CorrectionOutcome>(
+        {
+          ok: false,
+          message: error.message,
+          details:
+            typeof error.details === "object" && error.details
+              ? (error.details as Record<string, unknown>)
+              : undefined,
+        },
+        { status: error.status },
+      );
+    }
+    throw error;
+  }
 }
 
 /* -------------------------------------------------------------------- rows --- */
@@ -186,18 +296,51 @@ interface Row {
   where: string;
   wherePath: string | null;
   recordedBy: string;
+  recordedByKind: RecordedByKind;
   date: string;
   time: string;
   /** The Accra day this landed on — what the advice link searches. */
   day: string;
   /** The printable receipt, or null for a charge that has not landed. */
   receiptPath: string | null;
+  /**
+   * What kind of correctable entry this row is, or null when its figure can
+   * never be corrected from anywhere: a susu deposit, a savings deposit or
+   * withdrawal, a cash loan repayment, or a hire-purchase instalment that
+   * has landed and was typed at the counter. Whether it is also the newest
+   * on its record, and whether a request is already waiting, is read when
+   * the item is chosen.
+   */
+  kind: CorrectionKind | null;
+  /** The record behind it, for the correction dialog. */
+  targetId: string;
+}
+
+/** The correctable kind a ledger row is, or null. */
+function kindOf(t: UnifiedTransaction): CorrectionKind | null {
+  if (t.status !== "completed") return null;
+  if (t.channel === "transfer" || t.channel === "paystack") return null;
+  switch (t.type) {
+    case "susu-deposit":
+      return t.ref.kind === "susu-account" ? "susu-deposit" : null;
+    case "savings-deposit":
+    case "savings-withdrawal":
+      return t.ref.kind === "savings-account" ? "savings-txn" : null;
+    case "loan-repayment":
+      return t.ref.kind === "loan" && t.detail === "cash" ? "loan-repayment" : null;
+    case "hp-installment":
+      return t.ref.kind === "hp-agreement" ? "hp-payment" : null;
+    default:
+      return null;
+  }
 }
 
 function toRow(t: UnifiedTransaction): Row {
   return {
     id: t.id,
     module: t.module,
+    kind: kindOf(t),
+    targetId: t.ref.id,
     what: TXN_TYPE_LABELS[t.type] ?? t.type,
     direction: t.direction,
     amount: t.amount,
@@ -208,8 +351,14 @@ function toRow(t: UnifiedTransaction): Row {
     customerName: t.customerName,
     where: t.ref.accountNumber ? `#${t.ref.accountNumber}` : MODULE_LABELS[t.module],
     wherePath: refPath(t),
-    // `System` is the API's own word for the automated debt-recovery moves.
-    recordedBy: t.recordedByName ?? "System",
+    // A staff row is named; the other three are described. Naming a customer
+    // here would only repeat the Customer column, and the question this
+    // answers is which of them put the entry on the ledger.
+    recordedBy:
+      t.recordedByKind === "staff"
+        ? (t.recordedByName ?? "Staff")
+        : RECORDED_BY_LABELS[t.recordedByKind],
+    recordedByKind: t.recordedByKind,
     date: formatAccraDate(t.createdAt),
     // The full stamp reads `25 Aug 2026, 1:32 pm`; the date already has its
     // own line above, so only the clock time is kept here.
@@ -241,7 +390,7 @@ function haystack(row: Row): string {
  *
  * The two screens answer the same question at two scales — what moved, in what
  * order, through which product — so they share one table rather than each
- * inventing its own. The module rail narrows it, the search box picks through what
+ * inventing its own. The module menu narrows it, the search box picks through what
  * is on screen, and every row carries the same ⋯ menu.
  *
  * Paging is the API's here, not the table's: the ledger is unbounded, so a page
@@ -249,12 +398,37 @@ function haystack(row: Row): string {
  * under the table says so rather than letting a miss be read as an absence.
  */
 export default function Transactions({ loaderData }: Route.ComponentProps) {
-  const { filters, page, range, explicit, customerName, total, totals, rows } =
-    loaderData;
+  const {
+    filters,
+    page,
+    range,
+    explicit,
+    customerName,
+    canManage,
+    total,
+    totals,
+    rows,
+  } = loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
 
   const [search, setSearch] = useState("");
+
+  // The row being corrected, if any. One dialog over the table, opened by
+  // whichever menu asked; the ledger re-reads itself when the action answers.
+  const [correcting, setCorrecting] = useState<Row | null>(null);
+  const fetcher = useFetcher<CorrectionOutcome>();
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !fetcher.data) return;
+    if (fetcher.data.ok) {
+      toast.success(fetcher.data.message);
+      setCorrecting(null);
+    } else {
+      toast.error(fetcher.data.message, {
+        description: describe(fetcher.data.details),
+      });
+    }
+  }, [fetcher.state, fetcher.data]);
 
   const busy =
     navigation.state === "loading" &&
@@ -271,7 +445,7 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
 
   // Only the open view's total is ever known — the API counts what it was asked
   // for. A closed view carries no count rather than a misleading zero.
-  const items: RailItem[] = [
+  const items: MenuChoice[] = [
     {
       key: "all",
       label: "All modules",
@@ -347,7 +521,19 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
       key: "by",
       header: "Recorded by",
       className: "hidden text-muted-foreground lg:table-cell",
-      cell: (row) => row.recordedBy,
+      // Staff reads as a plain name, which is the common case and needs no
+      // decoration. The three that are not a member of staff are the ones
+      // worth noticing, so those carry the tint.
+      cell: (row) => (
+        <span
+          className={cn(
+            row.recordedByKind === "customer" && "text-foreground",
+            row.recordedByKind === "unknown" && "italic",
+          )}
+        >
+          {row.recordedBy}
+        </span>
+      ),
     },
     {
       key: "amount",
@@ -360,9 +546,10 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
       header: "Commission",
       align: "end",
       className: "tabular hidden md:table-cell",
-      // What the branch took on this entry — the flat savings withdrawal and
-      // transfer charge. Gold, which the theme reserves for money the company
-      // earns. A dash means this entry carried no charge, not that it is unknown.
+      // What the branch took on this entry: the savings withdrawal or closure
+      // fee, or the one-day commission charged when a susu cycle was stopped.
+      // Gold, which the theme reserves for money the company earns. A dash
+      // means this entry carried no charge, not that it is unknown.
       cell: (row) =>
         row.fee > 0 ? (
           <span className="font-medium text-revenue-foreground">
@@ -379,16 +566,6 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
   );
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter transactions by module"
-          sections={[{ label: "Module", items }]}
-          active={filters.module || "all"}
-          horizontal={horizontal}
-        />
-      )}
-    >
     <Page className="max-w-none">
       <TotalsBand totals={totals} range={range} />
 
@@ -410,6 +587,7 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
       )}
 
       <DataTable
+        filters={<FilterMenu label="Module" items={items} active={filters.module || "all"} />}
         actions={
           <>
             {/* Mobile-money charges Paystack has not settled yet. They are rows
@@ -480,6 +658,19 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
                 No record to open
               </DropdownMenuItem>
             )}
+            {/* A typed figure can be corrected from here as from its record's
+                page. Disabled rather than absent on every other row, for the
+                reason above. */}
+            <DropdownMenuItem
+              disabled={row.kind === null}
+              onSelect={(event) => {
+                event.preventDefault();
+                setCorrecting(row);
+              }}
+            >
+              <PencilIcon />
+              {row.kind ? "Correct the amount" : "Nothing to correct"}
+            </DropdownMenuItem>
             {/* The advice page finds its entry by re-reading the customer's
                 statement, so it is handed this row's own day to look in. */}
             <DropdownMenuItem asChild>
@@ -521,28 +712,139 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
         }
       />
 
-      {/* A dash carries a meaning in this table, and it is not "missing data".
-          The search's reach is stated for the same reason: a miss here is not
-          an absence from the ledger. */}
-      <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-        <div className="flex gap-1.5">
-          <dt className="tabular">—</dt>
-          <dd>
-            under <span className="font-medium">Commission</span>: no charge was
-            taken on that entry
-          </dd>
-        </div>
-        {rows.length > 0 && (
-          <div>
-            Search reads only the {formatCount(rows.length)}{" "}
-            {rows.length === 1 ? "transaction" : "transactions"} on this page.
-            Narrow the dates or the module to look further back.
-          </div>
-        )}
-      </dl>
+      {correcting && correcting.kind && (
+        <LedgerCorrection
+          key={correcting.id}
+          kind={correcting.kind}
+          targetId={correcting.targetId}
+          txnId={correcting.id}
+          canManage={canManage}
+          fetcher={fetcher}
+          onClose={() => setCorrecting(null)}
+        />
+      )}
     </Page>
-    </RailFrame>
   );
+}
+
+/* -------------------------------------------------------------- correcting --- */
+
+/**
+ * Correcting an entry from the ledger.
+ *
+ * The row knows the record and the entry, but not what the correction rules
+ * need — the daily amount, what the account held, what was still owed,
+ * whether this is the newest entry, whether a request is already waiting — so
+ * those are read when the item is chosen, from the resource route at
+ * `/corrections/check/:kind/:targetId/:txnId`. Nothing is fetched for rows
+ * nobody touches. What comes back decides which dialog opens: the correction
+ * itself, or the reason it cannot be made.
+ *
+ * A waiting request is decided on the record's page, not here: the ledger
+ * corrects figures, and deciding what a teller asked deserves the row it sits
+ * on, with the rest of the record around it.
+ */
+function LedgerCorrection({
+  kind,
+  targetId,
+  txnId,
+  canManage,
+  fetcher,
+  onClose,
+}: {
+  kind: CorrectionKind;
+  targetId: string;
+  txnId: string;
+  canManage: boolean;
+  fetcher: ReturnType<typeof useFetcher<CorrectionOutcome>>;
+  onClose: () => void;
+}) {
+  const probe = useFetcher<Correctable>();
+  // Asked once per opening — the component is keyed by the row, so a second
+  // opening is a fresh instance and a fresh read.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (asked.current) return;
+    asked.current = true;
+    probe.load(`/corrections/check/${kind}/${targetId}/${txnId}`);
+  }, [probe, kind, targetId, txnId]);
+
+  const found = probe.data;
+  const noun = KIND_NOUNS[kind];
+
+  if (!found) {
+    return (
+      <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Correct the {noun}</DialogTitle>
+            <DialogDescription>Reading the record…</DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  const blocked =
+    found.error ??
+    (found.txn
+      ? whyNotCorrectable({
+          pending: found.txn.pending,
+          locked: found.txn.locked,
+          closed: found.closed,
+          newest: found.newest,
+          noun,
+        })
+      : "This entry cannot be read right now.");
+
+  if (blocked || !found.context || !found.txn) {
+    return (
+      <AlertDialog open onOpenChange={(open) => !open && onClose()}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>This {noun} cannot be corrected here</AlertDialogTitle>
+            <AlertDialogDescription>{blocked}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            {/* A waiting request is decided where it sits. */}
+            {found.txn?.pending && (
+              <Button asChild variant="outline">
+                <Link to={targetPath({ kind, targetId })}>Open the record</Link>
+              </Button>
+            )}
+            <AlertDialogAction onClick={onClose}>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    );
+  }
+
+  return (
+    <CorrectTxnDialog
+      open
+      onOpenChange={(open) => !open && onClose()}
+      context={found.context}
+      targetId={targetId}
+      txn={found.txn}
+      asking={!canManage}
+      fetcher={fetcher}
+    />
+  );
+}
+
+/** The figures an error carries, as one line under the toast. */
+function describe(details?: Record<string, unknown>): string | undefined {
+  if (!details) return undefined;
+  const money = (k: string) =>
+    typeof details[k] === "number"
+      ? `GH₵ ${formatAmount(details[k] as number)}`
+      : null;
+  const parts = [
+    money("dailyAmount") && `daily ${money("dailyAmount")}`,
+    typeof details.remaining === "number" &&
+      `${details.remaining} day${details.remaining === 1 ? "" : "s"} left in the cycle`,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : undefined;
 }
 
 /* ------------------------------------------------------------------ totals --- */
@@ -590,14 +892,14 @@ function TotalsBand({
       <Stat
         label="Net"
         value={`${net > 0 ? "+" : net < 0 ? "−" : ""}${formatPesewas(Math.abs(net))}`}
-        note={`In less out. Fees collected: ${formatPesewas(totals.feesCollected)}`}
+        note={`In less out. Charges kept: ${formatPesewas(totals.feesCollected)}`}
         icon={ScaleIcon}
         tone={net > 0 ? "in" : net < 0 ? "out" : "internal"}
       />
       <Stat
         label="Internal moves"
         value={formatPesewas(totals.internal.amount)}
-        note={`${formatCount(totals.internal.count)} ${totals.internal.count === 1 ? "leg" : "legs"} between a customer's own accounts. Not cash — kept out of the three beside it.`}
+        note={`${formatCount(totals.internal.count)} ${totals.internal.count === 1 ? "leg" : "legs"} between a customer's own accounts`}
         icon={ArrowLeftRightIcon}
         tone="internal"
       />
@@ -735,9 +1037,12 @@ function Amount({ row }: { row: Row }) {
         <p className="text-[0.6875rem] tracking-wide text-internal uppercase">
           Internal
         </p>
-      ) : row.fee > 0 ? (
-        // The charge has its own column from `md` up; below that there is no
-        // room for one, so it rides under the amount instead of disappearing.
+      ) : null}
+      {/* The charge has its own column from `md` up; below that there is no
+          room for one, so it rides under the amount instead of disappearing.
+          Shown for internal rows too — a susu cycle closed straight into a
+          loan is internal AND charges its commission. */}
+      {row.fee > 0 ? (
         <p className="tabular text-xs text-revenue-foreground md:hidden">
           commission {formatAmount(row.fee)}
         </p>

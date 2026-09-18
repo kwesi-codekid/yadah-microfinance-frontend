@@ -1,5 +1,7 @@
 import {
   CalendarIcon,
+  CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DownloadIcon,
@@ -28,6 +30,7 @@ import { Label } from "~/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import { TableHead } from "~/components/ui/table";
 import { formatCount, formatDayRange } from "~/lib/format";
+import type { PeriodPreset } from "~/lib/period";
 import { MODULE_VAR, type TxnModule } from "~/lib/reports";
 import { cn } from "~/lib/utils";
 
@@ -543,6 +546,7 @@ export function PeriodFilter({
   title = "Period",
   apply,
   align = "end",
+  presets,
 }: {
   /** The resolved range — never blank, defaulted or not. */
   from: string;
@@ -553,6 +557,12 @@ export function PeriodFilter({
   /** Clear hands back two empty strings, which is the route's cue to default. */
   apply: (next: { from: string; to: string }) => void;
   align?: "start" | "end";
+  /**
+   * Named periods, offered above the two date fields. A report is nearly
+   * always asked one of a handful of questions, and typing two dates to ask
+   * one of them is work this can do instead. Omit for a plain range.
+   */
+  presets?: PeriodPreset[];
 }) {
   const [open, setOpen] = useState(false);
   const fieldsRef = useRef<HTMLDivElement>(null);
@@ -575,8 +585,33 @@ export function PeriodFilter({
         </Button>
       </PopoverTrigger>
       <PopoverContent align={align} className="w-72 space-y-3">
+        {presets && presets.length > 0 && (
+          <div className="grid grid-cols-2 gap-1.5">
+            {presets.map((preset) => {
+              const range = preset.range();
+              const chosen = active && range.from === from && range.to === to;
+              return (
+                <Button
+                  key={preset.id}
+                  type="button"
+                  variant={chosen ? "secondary" : "ghost"}
+                  size="sm"
+                  className="justify-start font-normal"
+                  onClick={() => commit(range)}
+                >
+                  {preset.label}
+                </Button>
+              );
+            })}
+          </div>
+        )}
         {/* Keyed on the applied range so reopening after a Clear shows it. */}
         <div ref={fieldsRef} key={`${from}|${to}`} className="space-y-3">
+          {presets && presets.length > 0 && (
+            <div className="border-t border-border pt-3">
+              <Label className="eyebrow text-muted-foreground">Or a custom range</Label>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label className="eyebrow text-muted-foreground">{title} from</Label>
             <DateField name="from" defaultValue={from} endMonth={new Date()} />
@@ -736,6 +771,97 @@ export function ChoiceFilter<T extends string>({
             {option.label}
           </DropdownMenuItem>
         ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/* ------------------------------------------------------------- filter menu --- */
+
+export interface MenuChoice {
+  key: string;
+  label: ReactNode;
+  /** Omit where a count would be meaningless or too costly to fetch. */
+  count?: number;
+  /** A place: the filter lives in the URL, survives a reload, can be sent on. */
+  to?: string;
+  /** A choice: the page keeps the view as its own state. */
+  onSelect?: () => void;
+  disabled?: boolean;
+}
+
+/**
+ * The one-of filter a listing narrows by — its status, its module, its kind —
+ * as a dropdown over the table. The button reads what is chosen and how many
+ * rows that is; the menu lists the rest with their counts, so every other view
+ * is one click away without a column of its own beside the page.
+ *
+ * The first item is the unnarrowed view. Anything else lights the button, the
+ * way every other filter in the toolbar does when it is applied.
+ */
+export function FilterMenu({
+  label,
+  items,
+  active,
+  icon,
+}: {
+  /** What is being chosen — "Status", "Module". Read out before the choice. */
+  label: string;
+  items: readonly MenuChoice[];
+  /** The chosen item's key. */
+  active: string;
+  icon?: ReactNode;
+}) {
+  const current = items.find((i) => i.key === active) ?? items[0];
+  const narrowed = current !== undefined && current !== items[0];
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn(narrowed && "border-primary/50 text-primary")}
+        >
+          {icon}
+          <span className="text-muted-foreground">{label}</span>
+          {current?.label}
+          {current?.count !== undefined && (
+            <span className="tabular rounded-full bg-muted px-1.5 py-px text-xs font-semibold text-muted-foreground">
+              {formatCount(current.count)}
+            </span>
+          )}
+          <ChevronDownIcon className="size-3.5 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        {items.map((item) => {
+          const lit = item.key === active;
+          const body = (
+            <>
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              {/* A count of zero on a view you are not in means "not counted",
+                  not "empty" — only the open view's total is ever known. */}
+              {item.count !== undefined && (item.count > 0 || lit) ? (
+                <span className="tabular text-xs text-muted-foreground">
+                  {formatCount(item.count)}
+                </span>
+              ) : null}
+              {lit ? <CheckIcon className="size-3.5" /> : null}
+            </>
+          );
+          return item.to ? (
+            <DropdownMenuItem key={item.key} asChild disabled={item.disabled}>
+              <Link to={item.to} prefetch="intent" preventScrollReset>
+                {body}
+              </Link>
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem key={item.key} disabled={item.disabled} onSelect={item.onSelect}>
+              {body}
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );

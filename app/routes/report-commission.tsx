@@ -3,7 +3,7 @@ import { data, useNavigation, useSubmit } from "react-router";
 import { getCommission } from "~/api/reports";
 import {
   DayRangeChip,
-  DayRangeFilter,
+  PeriodFilter,
   ExportMenu,
   Figure,
   FilterBar,
@@ -12,6 +12,12 @@ import {
 } from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
 import { formatCount, formatPesewas } from "~/lib/format";
+import {
+  PERIOD_PRESETS,
+  rangeQuery,
+  readDay,
+  resolveReportRange,
+} from "~/lib/period";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/report-commission";
 
@@ -19,10 +25,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Commission and fees · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Commission and fees",
-  description: "What the branch earned, as opposed to what passed through it.",
 };
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -41,12 +46,11 @@ export async function loader({ request }: Route.LoaderArgs) {
   await requireOffice(request);
   const url = new URL(request.url);
 
-  const day = (key: string) => {
-    const v = url.searchParams.get(key) ?? "";
-    return DAY_RE.test(v) ? v : "";
-  };
-  const from = day("from");
-  const to = day("to");
+  const from = readDay(url.searchParams, "from");
+  const to = readDay(url.searchParams, "to");
+  // A report with no dates is not showing everything — the API answers with
+  // the last thirty days — so the period is resolved here and printed.
+  const period = resolveReportRange(from, to);
 
   const { data: report, headers } = await withAuth(request, (token) =>
     getCommission(token, { from: from || undefined, to: to || undefined }),
@@ -77,15 +81,15 @@ export async function loader({ request }: Route.LoaderArgs) {
       // Trust the API's own total when it gives one — it knows about any source
       // of revenue this screen has not been taught to name.
       total: report.totalRevenue ?? susu.amount + savings.amount + sales.amount,
-      range: { from: report.from ?? from, to: report.to ?? to },
-      filters: { from, to },
+      range: { from: report.from ?? period.from, to: report.to ?? period.to },
+      period,
     },
     { headers },
   );
 }
 
 export default function ReportCommission({ loaderData }: Route.ComponentProps) {
-  const { susu, savings, sales, total, range, filters } = loaderData;
+  const { susu, savings, sales, total, range, period } = loaderData;
   const submit = useSubmit();
   const navigation = useNavigation();
   const busy = navigation.state === "loading";
@@ -97,9 +101,10 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
     submit(params, { method: "get", action: "/reports/commission" });
   };
 
-  const query = new URLSearchParams();
-  if (filters.from) query.set("from", filters.from);
-  if (filters.to) query.set("to", filters.to);
+  // The RESOLVED period, not the chosen one: a download with no dates would
+  // be re-defaulted by the API, and a file that quietly covers a different
+  // period from the screen it came off is worse than no file.
+  const query = new URLSearchParams(rangeQuery(period.from, period.to));
 
   const events = susu.count + savings.count + sales.count;
   // What the branch keeps out of each event it earned on — the figure that says
@@ -114,11 +119,13 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
 
       <ListingCard>
         <ListingToolbar>
-          <DayRangeFilter
-            from={filters.from}
-            to={filters.to}
+          <PeriodFilter
+            from={period.from}
+            to={period.to}
+            active={period.active}
             apply={apply}
             title="Earned"
+            presets={PERIOD_PRESETS}
           />
           <ExportMenu
             path="/reports/commission/export"

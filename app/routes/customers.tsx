@@ -39,9 +39,8 @@ import {
   listCustomers,
   trashCustomer,
 } from "~/api/customers";
+import { listCollectors } from "~/api/collectors";
 import { ApiError } from "~/api/error";
-import { listUsers } from "~/api/users";
-import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -87,6 +86,7 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
+import { FilterMenu } from "~/components/listing";
 import { initialsOf, isCounter, isOffice } from "~/lib/auth";
 import {
   ID_TYPE_LABELS,
@@ -162,9 +162,9 @@ function hrefFor(f: Filters, page = 1): string {
 /** Everyone signed in may read customers; only the office may register them. */
 export async function loader({ request }: Route.LoaderArgs) {
   const user = await requireUser(request);
-  // Moving a round is admin-only: a manager may edit a customer but must not
-  // silently change who collects from them.
-  const canReassign = user.role === "admin";
+  // Moving one customer between rounds is counter work: whoever registers a
+  // customer puts them on a round, and the same people may move them.
+  const canReassign = isCounter(user);
   const url = new URL(request.url);
 
   const filters = readFilters(url);
@@ -192,19 +192,16 @@ export async function loader({ request }: Route.LoaderArgs) {
       // on each opening made the panel wait on the server every single time,
       // for a list that is identical every single time.
       //
-      // Admin-only, both because only an admin may reassign and because
-      // `GET /users` is closed to everyone else — a manager asking would be a
-      // 403 that fails the whole listing.
+      // The roster behind `GET /collectors` rather than the staff directory:
+      // it is the one the counter may read, and a teller may now reassign.
+      // Collectors get nothing — they may not reassign, and the roster is not
+      // theirs to read.
       //
       // Soft, for the same reason the bell in the layout is: a page of
-      // customers must not go down because the staff list is briefly away.
+      // customers must not go down because the roster is briefly away.
       // Without it the drawer falls back to the route that fetches for itself.
       canReassign
-        ? listUsers(token, {
-            role: "collector",
-            status: "active",
-            limit: 100,
-          }).catch((error: unknown) => {
+        ? listCollectors(token).catch((error: unknown) => {
             // A 401 belongs to `withAuth`, which renews the token and retries.
             if (error instanceof ApiError && error.status === 401) throw error;
             return null;
@@ -214,7 +211,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     return {
       list,
       collectors:
-        collectors?.items.map(({ id, name }) => ({ id, name })) ?? null,
+        collectors?.collectors.map(({ id, name }) => ({ id, name })) ?? null,
       counts: {
         all: active.total + inactive.total,
         active: active.total,
@@ -229,8 +226,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   return data(
     {
       // Serving whoever is at the counter — registering them, correcting the
-      // record, reading their statement. Switching a record off, importing a
-      // whole book and moving somebody between rounds are not that.
+      // record, reading their statement, moving them between rounds. Switching
+      // a record off and importing a whole book are not that.
       canServe: isCounter(user),
       canManage: isOffice(user),
       canReassign,
@@ -399,131 +396,120 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
   const filtered = Boolean(filters.search || filters.from || filters.to);
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter customers by status"
-          sections={[
-            {
-              label: "Status",
-              items: TABS.map((tab) => ({
-                key: tab.key,
-                label: tab.label,
-                count: counts[tab.key],
-                to: hrefFor({ ...filters, status: tab.key }),
-              })),
-            },
-          ]}
-          active={filters.status}
-          horizontal={horizontal}
-        />
-      )}
-    >
-      <Page className="max-w-none">
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-end">
-            <div className="flex flex-wrap items-center gap-2">
-              <SearchBox filters={filters} busy={busy} />
-              <DateRangeFilter filters={filters} />
-              <ExportMenu filters={filters} total={total} />
-              {/* A whole book at once, for when the office is loading the branch
-                rather than signing one person up at the counter. */}
-              {canManage && (
-                <Button asChild size="sm" variant="outline">
-                  <Link to="/customers/import">
-                    <UploadIcon />
-                    Import
-                  </Link>
-                </Button>
-              )}
-              {canServe && (
-                <Button asChild size="sm">
-                  <Link to="/customers/new">
-                    <UserPlusIcon />
-                    Register customer
-                  </Link>
-                </Button>
-              )}
-            </div>
+    <Page className="max-w-none">
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
+          <FilterMenu
+            label="Status"
+            items={TABS.map((tab) => ({
+              key: tab.key,
+              label: tab.label,
+              count: counts[tab.key],
+              to: hrefFor({ ...filters, status: tab.key }),
+            }))}
+            active={filters.status}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <SearchBox filters={filters} busy={busy} />
+            <DateRangeFilter filters={filters} />
+            <ExportMenu filters={filters} total={total} />
+            {/* A whole book at once, for when the office is loading the branch
+              rather than signing one person up at the counter. */}
+            {canManage && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/customers/import">
+                  <UploadIcon />
+                  Import
+                </Link>
+              </Button>
+            )}
+            {canServe && (
+              <Button asChild size="sm">
+                <Link to="/customers/new">
+                  <UserPlusIcon />
+                  Register customer
+                </Link>
+              </Button>
+            )}
           </div>
-
-          {filtered && <ActiveFilters filters={filters} total={total} />}
-
-          {rows.length === 0 ? (
-            <CustomersEmpty filters={filters} />
-          ) : (
-            <div className={cn("transition-opacity", busy && "opacity-60")}>
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <Th>Customer</Th>
-                    <Th className="hidden lg:table-cell">Age / Sex</Th>
-                    <Th className="hidden sm:table-cell">Contact</Th>
-                    <Th className="hidden xl:table-cell">Identification</Th>
-                    <Th>Status</Th>
-                    <Th className="hidden md:table-cell">Registered</Th>
-                    <Th className="w-16 text-right">Actions</Th>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row) => (
-                    <CustomerRow
-                      key={row.id}
-                      row={row}
-                      canServe={canServe}
-                      canManage={canManage}
-                      canReassign={canReassign}
-                      search={search}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-
-          {total > 0 && (
-            <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
-              <p>
-                Showing{" "}
-                <span className="tabular font-medium text-foreground">
-                  {first}
-                </span>
-                –
-                <span className="tabular font-medium text-foreground">
-                  {last}
-                </span>{" "}
-                of{" "}
-                <span className="tabular font-medium text-foreground">
-                  {formatCount(total)}
-                </span>
-              </p>
-              <div className="flex items-center gap-2">
-                <PagerButton
-                  to={hrefFor(filters, page - 1)}
-                  disabled={page <= 1}
-                  label="Previous page"
-                >
-                  <ChevronLeftIcon />
-                  Prev
-                </PagerButton>
-                <PagerButton
-                  to={hrefFor(filters, page + 1)}
-                  disabled={last >= total}
-                  label="Next page"
-                >
-                  Next
-                  <ChevronRightIcon />
-                </PagerButton>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* The reassign drawer renders here — over the rows, not a page away
-          from them. */}
-        <Outlet />
-      </Page>
-    </RailFrame>
+        {filtered && <ActiveFilters filters={filters} total={total} />}
+
+        {rows.length === 0 ? (
+          <CustomersEmpty filters={filters} />
+        ) : (
+          <div className={cn("transition-opacity", busy && "opacity-60")}>
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <Th>Customer</Th>
+                  <Th className="hidden lg:table-cell">Age / Sex</Th>
+                  <Th className="hidden sm:table-cell">Contact</Th>
+                  <Th className="hidden xl:table-cell">Identification</Th>
+                  <Th>Status</Th>
+                  <Th className="hidden md:table-cell">Registered</Th>
+                  <Th className="w-16 text-right">Actions</Th>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <CustomerRow
+                    key={row.id}
+                    row={row}
+                    canServe={canServe}
+                    canManage={canManage}
+                    canReassign={canReassign}
+                    search={search}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {total > 0 && (
+          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
+            <p>
+              Showing{" "}
+              <span className="tabular font-medium text-foreground">
+                {first}
+              </span>
+              –
+              <span className="tabular font-medium text-foreground">
+                {last}
+              </span>{" "}
+              of{" "}
+              <span className="tabular font-medium text-foreground">
+                {formatCount(total)}
+              </span>
+            </p>
+            <div className="flex items-center gap-2">
+              <PagerButton
+                to={hrefFor(filters, page - 1)}
+                disabled={page <= 1}
+                label="Previous page"
+              >
+                <ChevronLeftIcon />
+                Prev
+              </PagerButton>
+              <PagerButton
+                to={hrefFor(filters, page + 1)}
+                disabled={last >= total}
+                label="Next page"
+              >
+                Next
+                <ChevronRightIcon />
+              </PagerButton>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* The reassign drawer renders here — over the rows, not a page away
+        from them. */}
+      <Outlet />
+    </Page>
   );
 }
 
@@ -1039,9 +1025,9 @@ function RowActions({
           )}
           {canManage && (
             <>
-              {/* Drawn for everyone who can reach this half and disabled for a
-                  manager, rather than hidden — the same way every other row menu
-                  in this app says "not yours to do". */}
+              {/* Drawn for everyone who can reach this half and disabled where
+                  it is not theirs, rather than hidden — the same way every other
+                  row menu in this app says "not yours to do". */}
               <DropdownMenuItem asChild disabled={!canReassign}>
                 <Link
                   to={`/customers/${row.id}/reassign${search}`}
@@ -1097,10 +1083,8 @@ function RowActions({
                   Move {row.fullName} to the trash?
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  They disappear from the listings and from lookups, and can be
-                  restored from Trash. Their phone number stays reserved. This
-                  is refused while they still hold an open susu account, savings
-                  account, loan or hire-purchase agreement.
+                  They leave the listings and can be restored from Trash.
+                  Refused while they hold an open account, loan or agreement.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <div className="space-y-1.5">
@@ -1134,8 +1118,8 @@ function RowActions({
               <AlertDialogHeader>
                 <AlertDialogTitle>Deactivate {row.fullName}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  They stay visible and their records are kept, but the profile
-                  and its accounts cannot be edited until reactivated.
+                  The profile and its accounts cannot be edited until
+                  reactivated.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

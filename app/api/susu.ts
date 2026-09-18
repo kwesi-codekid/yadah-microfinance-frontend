@@ -1,6 +1,7 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
 import type {
+  CycleMonth,
   DepositChannel,
   SusuAccount,
   SusuDeposit,
@@ -9,6 +10,7 @@ import type {
   TrashedSusuAccount,
   TrashedSusuDeposit,
 } from "~/lib/susu";
+import type { DepositResult } from "~/lib/susu";
 
 /**
  * The `/susu` endpoints. This module imports the API client, so it is
@@ -27,9 +29,17 @@ export interface AccountListParams {
   limit?: number;
   customerId?: string;
   status?: SusuStatus;
-  /** The full `SU` number, or the bare six digits: `^(SU\d{8}|\d{6})$`. */
+  /**
+   * The full `SU` number, or the bare six digits: `^(SU\d{8}|\d{6})$`.
+   *
+   * A susu number belongs to the customer, so this matches every book they
+   * hold — pass it to find the family, never to find one account.
+   */
   accountNumber?: string;
-  /** Fuzzy and typo-tolerant: customer name, phone, or account-number prefix. */
+  /**
+   * Fuzzy and typo-tolerant: customer name, phone, or account-number prefix.
+   * Matching on a number returns that customer's whole susu history.
+   */
   search?: string;
   /** Inclusive Accra day, `YYYY-MM-DD`, on when the account was opened. */
   from?: string;
@@ -80,7 +90,7 @@ export function getAccount(
  */
 export function openAccount(
   accessToken: string,
-  input: { customerId: string; dailyAmount: number },
+  input: { customerId: string; dailyAmount: number; cycleMonth?: CycleMonth },
 ): Promise<{ account: SusuAccount }> {
   return apiFetch("/susu/accounts", { method: "POST", json: input, accessToken });
 }
@@ -163,29 +173,21 @@ export function listTrashedDeposits(
 export function recordDeposit(
   accessToken: string,
   id: string,
-  input: { amount: number; idempotencyKey: string; channel?: DepositChannel },
-): Promise<{ deposit: SusuDeposit; account: SusuAccount; replayed?: boolean }> {
+  input: {
+    amount: number;
+    idempotencyKey: string;
+    channel?: DepositChannel;
+  /**
+   * The Accra day the money changed hands, for history typed in after the
+   * fact. Omitted on an ordinary same-day collection; refused by the API
+   * unless backdating is switched on for the data-population stage.
+   */
+  occurredOn?: string;
+  },
+): Promise<DepositResult> {
   return apiFetch(`/susu/accounts/${id}/deposits`, {
     method: "POST",
     json: input,
-    accessToken,
-  });
-}
-
-/**
- * PATCH — correct the most recent deposit's amount (office). Data-entry fixes
- * only: the days covered are re-derived and the cycle counters adjust with it,
- * including un-completing a cycle. Transfer-created deposits are immutable.
- */
-export function correctDeposit(
-  accessToken: string,
-  id: string,
-  depositId: string,
-  amount: number,
-): Promise<{ deposit: SusuDeposit; account: SusuAccount; replayed?: boolean }> {
-  return apiFetch(`/susu/accounts/${id}/deposits/${depositId}`, {
-    method: "PATCH",
-    json: { amount },
     accessToken,
   });
 }
@@ -232,6 +234,12 @@ export function collectAll(
     amount: number;
     idempotencyKey: string;
     channel?: DepositChannel;
+  /**
+   * The Accra day the money changed hands, for history typed in after the
+   * fact. Omitted on an ordinary same-day collection; refused by the API
+   * unless backdating is switched on for the data-population stage.
+   */
+  occurredOn?: string;
   },
 ): Promise<{
   batchId: string;

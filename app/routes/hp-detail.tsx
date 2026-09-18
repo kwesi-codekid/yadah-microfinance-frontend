@@ -17,6 +17,14 @@ import { data, Link, Outlet, useFetcher } from "react-router";
 import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
+import {
+  approveCorrection,
+  cancelCorrection,
+  correctTransaction,
+  listCorrections,
+  proposeCorrection,
+  rejectCorrection,
+} from "~/api/corrections";
 import { getCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
 import {
@@ -31,7 +39,15 @@ import {
 } from "~/api/hire-purchase";
 import { Figure, StatusPill, Th } from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
+import { SignatureCard } from "~/components/signature-card";
 import { LifecycleStrip, RedemptionCountdown } from "~/components/redemption";
+import {
+  TxnRowMenu,
+  toPending,
+  whyNotCorrectable,
+  type CorrectionOutcome,
+  type PendingCorrection,
+} from "~/components/txn-correction";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
@@ -85,7 +101,8 @@ import {
 } from "~/lib/hire-purchase";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import { isOffice } from "~/lib/auth";
-import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
+import type { CorrectionKind } from "~/lib/corrections";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/hp-detail";
@@ -103,22 +120,38 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const detail = await getAgreement(token, params.id);
-      const customer = await getCustomer(token, detail.agreement.customerId)
-        .then((r) => r.customer)
-        .catch(() => null);
-      return { detail, customer };
+      const [customer, corrections] = await Promise.all([
+        getCustomer(token, detail.agreement.customerId)
+          .then((r) => r.customer)
+          .catch(() => null),
+        // Corrections asked for on this agreement and not yet answered, so a
+        // row can say one is waiting. Soft: the page must not go down with it.
+        listCorrections(token, {
+          targetId: params.id,
+          status: "pending",
+          limit: 100,
+        }).catch(() => null),
+      ]);
+      return { detail, customer, corrections };
     } catch (error) {
       throwAsRouteError(error);
     }
   });
 
   const { agreement } = result.detail;
+  // One open request per payment is the API's rule, so a map by payment holds
+  // everything a row needs to say about it.
+  const pending = new Map<string, PendingCorrection>(
+    result.corrections?.items.map((c) => [c.txnId, toPending(c, viewer.id)]) ??
+      [],
+  );
 
   return data(
     {
       agreement,
-      /** Rejecting, repossessing and forfeiting are the office's, not the counter's. */
+      /** Rejecting, repossessing, forfeiting and deciding a correction are the office's. */
       canDecide: isOffice(viewer),
+      userId: viewer.id,
       customerName:
         result.customer?.fullName ?? agreement.customerName ?? "Customer",
       payments: (result.detail.payments ?? []).map((payment) => ({
@@ -131,6 +164,19 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           ? (CHANNEL_LABELS[payment.channel] ?? payment.channel)
           : (payment.source ?? "—"),
         at: formatAccraDateTime(payment.createdAt),
+        // Why this one can never be corrected, or null. Only an instalment
+        // typed at the counter has a data-entry mistake in it to correct.
+        locked:
+          payment.type === "deposit"
+            ? "The deposit is fixed by the agreement — exactly half the agreed price."
+            : payment.type === "redemption"
+              ? "A redemption is the whole remaining balance. It cannot be changed."
+              : payment.channel === "transfer"
+                ? "This came from a transfer between accounts. Correct it on the transfer, not here."
+                : payment.channel === "paystack"
+                  ? "This was paid through Paystack, so the amount is what was charged."
+                  : null,
+        pending: pending.get(payment.id) ?? null,
       })),
     },
     { headers },
@@ -140,10 +186,21 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 /** Opening the payment drawer does not re-read the agreement underneath it. */
 export const shouldRevalidate = drawerParentShouldRevalidate;
 
-interface ActionResult {
-  ok: boolean;
-  message: string;
-}
+type ActionResult = CorrectionOutcome;
+
+/** What only the office may post here. The API refuses these too. */
+const OFFICE_INTENTS = new Set([
+  "approve",
+  "reject",
+  "mark-arrears",
+  "repossess",
+  "redeem",
+  "forfeit",
+  "trash",
+  "correct-txn",
+  "approve-correction",
+  "reject-correction",
+]);
 
 /**
  * Everything that changes an agreement's state but does not take a typed
@@ -155,11 +212,23 @@ interface ActionResult {
  * customer for the same fridge twice.
  */
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  const user = await requireCounter(request);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const reason = String(form.get("reason") ?? "").trim();
+  const correctionId = String(form.get("correctionId") ?? "");
+  // The shared correction dialogs name the entry they are about themselves.
+  const kind = String(form.get("kind") ?? "") as CorrectionKind;
+  const txnId = String(form.get("txnId") ?? "");
 
+  // The counter reaches this action only to ask for a correction, or take
+  // one back; everything else is the office's, and the API refuses it too.
+  if (OFFICE_INTENTS.has(intent) && !isOffice(user)) {
+    return data<ActionResult>(
+      { ok: false, message: "That is the office's to do." },
+      { status: 403 },
+    );
+  }
   if ((intent === "reject" || intent === "repossess") && !reason) {
     return data<ActionResult>(
       { ok: false, message: "A reason is required and is kept on the record." },
@@ -238,6 +307,36 @@ export async function action({ request, params }: Route.ActionArgs) {
         await trashAgreement(token, params.id, reason || undefined);
         return { message: "Agreement moved to the trash.", gone: true };
       }
+      if (intent === "correct-txn" || intent === "propose-correction") {
+        const amount = parseCedis(String(form.get("amount") ?? ""));
+        if (amount == null || amount <= 0) {
+          throw new Response("Enter the corrected amount.", { status: 400 });
+        }
+        if (intent === "correct-txn") {
+          await correctTransaction(token, kind, params.id, txnId, amount);
+          return { message: "Payment corrected.", gone: false };
+        }
+        await proposeCorrection(token, kind, params.id, txnId, { amount, reason });
+        return {
+          message: "Sent to the office. Nothing changes until they answer.",
+          gone: false,
+        };
+      }
+      if (intent === "approve-correction") {
+        const { correction } = await approveCorrection(token, correctionId);
+        return {
+          message: `Correction applied. The payment is now GH₵ ${formatAmount(correction.amount)}.`,
+          gone: false,
+        };
+      }
+      if (intent === "reject-correction") {
+        await rejectCorrection(token, correctionId, reason);
+        return { message: "Correction declined. The payment is unchanged.", gone: false };
+      }
+      if (intent === "cancel-correction") {
+        await cancelCorrection(token, correctionId);
+        return { message: "Request taken back.", gone: false };
+      }
       throw new Response("Unknown action.", { status: 400 });
     });
 
@@ -255,7 +354,14 @@ export async function action({ request, params }: Route.ActionArgs) {
   } catch (error) {
     if (error instanceof ApiError) {
       return data<ActionResult>(
-        { ok: false, message: error.message },
+        {
+          ok: false,
+          message: error.message,
+          details:
+            typeof error.details === "object" && error.details
+              ? (error.details as Record<string, unknown>)
+              : undefined,
+        },
         { status: error.status },
       );
     }
@@ -264,7 +370,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function HpDetail({ loaderData }: Route.ComponentProps) {
-  const { agreement, canDecide, customerName, payments } = loaderData;
+  const { agreement, canDecide, userId, customerName, payments } = loaderData;
 
   const awaiting = awaitingDeposit(agreement);
   const unapproved = awaitingApproval(agreement);
@@ -295,7 +401,7 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
           </div>
           <p className="text-sm text-muted-foreground">
             {agreement.item.name} · {agreement.durationMonths} months ·{" "}
-            {formatPesewas(agreement.item.sellingPrice)} · signed{" "}
+            {formatPesewas(agreement.agreedPrice)} · signed{" "}
             {formatAccraDate(agreement.createdAt)}
           </p>
         </div>
@@ -370,16 +476,14 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
       {agreement.status === "in-arrears" && (
         <Note tone="warning">
           <span className="font-medium">Behind on instalments.</span> Clearing
-          every month-overdue instalment lifts this flag on its own.
-          Repossession is the step after it.
+          the overdue ones lifts this.
         </Note>
       )}
 
       {unapproved && (
         <Note tone="warning">
-          <span className="font-medium">Signed at the counter.</span> The unit
-          is reserved, but no deposit can be taken until a manager approves it —
-          and the customer has not been sent the terms yet.
+          <span className="font-medium">Signed at the counter.</span> A manager
+          has to approve it before a deposit can be taken.
         </Note>
       )}
 
@@ -388,16 +492,21 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
           <span className="font-medium">
             Waiting on {formatPesewas(agreement.depositRequired)}.
           </span>{" "}
-          The unit is reserved but stays in the shop until the deposit is paid
-          in full — it has to match to the pesewa.
+          The item stays in the shop until it is paid.
         </Note>
       )}
 
       <section className="mb-6 rounded-xl border border-border bg-card p-4">
         <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* The agreed price, which is what this agreement is built on. The
+              shelf price at signing sits under it when the two differ, so the
+              office can see where the bargaining landed. */}
           <Figure
-            label="Selling price"
-            value={formatPesewas(agreement.item.sellingPrice)}
+            label="Agreed price"
+            value={formatPesewas(agreement.agreedPrice)}
+            {...(agreement.agreedPrice !== agreement.listedPrice
+              ? { hint: `Shelf price ${formatPesewas(agreement.listedPrice)}` }
+              : {})}
           />
           <Figure
             label="Deposit"
@@ -444,15 +553,20 @@ export default function HpDetail({ loaderData }: Route.ComponentProps) {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              {Math.round(progress * 100)}% of the financed half paid. The
-              deposit is not counted in this — it bought the release of the
-              item.
+              {Math.round(progress * 100)}% of the financed half paid.
             </p>
           </div>
         ) : null}
       </section>
 
-      <Payments agreementId={agreement.id} rows={payments} />
+      {agreement.signatureUrl && <SignatureCard url={agreement.signatureUrl} />}
+
+      <Payments
+        agreement={agreement}
+        rows={payments}
+        canDecide={canDecide}
+        userId={userId}
+      />
 
       {/* The payment drawer renders here, over the agreement. */}
       <Outlet />
@@ -491,7 +605,7 @@ function ApproveButton({ customerName }: { customerName: string }) {
         open={open}
         onOpenChange={setOpen}
         title="Approve this agreement?"
-        description={`${customerName} is sent the terms by SMS and the deposit can be taken from that moment. Approving cannot be undone — an agreement you have let stand can only be rejected while it is still unpaid.`}
+        description={`${customerName} is sent the terms by SMS and the deposit can be taken. This cannot be undone.`}
         confirmLabel="Approve"
         onConfirm={() =>
           fetcher.submit({ intent: "approve" }, { method: "post" })
@@ -506,15 +620,47 @@ function ApproveButton({ customerName }: { customerName: string }) {
 /**
  * Every payment against the agreement — deposit, instalments, redemption — as
  * the API sends them. Each row carries a ⋯ menu with its receipt: a resource
- * route answering with bytes, so a plain anchor rather than a `Link`.
+ * route answering with bytes, so a plain anchor rather than a `Link`. And the
+ * correction: the office corrects the newest instalment outright, the
+ * counter asks. The deposit and a redemption have no typed figure in them.
  */
 function Payments({
-  agreementId,
+  agreement,
   rows,
+  canDecide,
+  userId,
 }: {
-  agreementId: string;
-  rows: { id: string; amount: number; what: string; how: string; at: string }[];
+  agreement: Route.ComponentProps["loaderData"]["agreement"];
+  rows: {
+    id: string;
+    amount: number;
+    what: string;
+    how: string;
+    at: string;
+    locked: string | null;
+    pending: PendingCorrection | null;
+  }[];
+  canDecide: boolean;
+  userId: string;
 }) {
+  const fetcher = useFetcher<CorrectionOutcome>();
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !fetcher.data) return;
+    if (fetcher.data.ok) toast.success(fetcher.data.message);
+    else toast.error(fetcher.data.message);
+  }, [fetcher.state, fetcher.data]);
+
+  // An instalment can be corrected while the agreement is running or was
+  // completed by it; anything else on the agreement is final.
+  const closed =
+    agreement.status === "active" ||
+    agreement.status === "in-arrears" ||
+    agreement.status === "closed-completed"
+      ? null
+      : `This agreement is ${AGREEMENT_STATUS_LABELS[agreement.status].toLowerCase()}, so nothing on it can change.`;
+  const newestId = rows[0]?.id ?? null;
+  void userId;
+
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card">
       <header className="border-b border-border px-4 py-3">
@@ -549,32 +695,55 @@ function Payments({
                 </TableCell>
                 <TableCell className="tabular px-4 py-3 text-right font-medium whitespace-nowrap text-cash-in">
                   +{formatAmount(row.amount)}
+                  {/* A correction somebody asked for and the office has not
+                      yet answered. The figure above is still what stands. */}
+                  {row.pending && (
+                    <p className="text-xs font-normal text-warning">
+                      {formatPesewas(row.pending.amount)} waiting
+                    </p>
+                  )}
                 </TableCell>
                 <TableCell className="px-4 py-3 text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Actions"
-                        className="text-muted-foreground"
-                      >
-                        <MoreHorizontalIcon />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuItem asChild>
-                        <a
-                          href={`/hire-purchase/${agreementId}/payments/${row.id}/receipt`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <PrinterIcon />
-                          Print receipt
-                        </a>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <TxnRowMenu
+                    txn={{ id: row.id, amount: row.amount }}
+                    // What the agreement owed before this payment landed is
+                    // what a corrected amount is checked against.
+                    context={
+                      row.locked
+                        ? null
+                        : {
+                            kind: "hp-payment",
+                            remainingBefore: agreement.remaining + row.amount,
+                          }
+                    }
+                    targetId={agreement.id}
+                    pending={row.pending}
+                    blocked={whyNotCorrectable({
+                      pending: row.pending,
+                      locked: row.locked,
+                      closed,
+                      newest: row.id === newestId,
+                      noun: "payment",
+                    })}
+                    canDecide={canDecide}
+                    fetcher={fetcher}
+                    srLabel="Actions for this payment"
+                    before={
+                      <>
+                        <DropdownMenuItem asChild>
+                          <a
+                            href={`/hire-purchase/${agreement.id}/payments/${row.id}/receipt`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <PrinterIcon />
+                            Print receipt
+                          </a>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    }
+                  />
                 </TableCell>
               </TableRow>
             ))}
@@ -715,7 +884,7 @@ function AgreementMenu({
         open={dialog === "reject"}
         onOpenChange={(next) => setDialog(next ? "reject" : null)}
         title="Reject this agreement?"
-        description="No money has moved. The unit goes straight back on the shelf and the reason stays on the record."
+        description="No money has moved. The unit goes back on the shelf."
         placeholder="Customer changed their mind."
         confirmLabel="Reject"
         destructive
@@ -728,7 +897,7 @@ function AgreementMenu({
         open={dialog === "arrears"}
         onOpenChange={(next) => setDialog(next ? "arrears" : null)}
         title="Flag this agreement as in arrears?"
-        description={`${customerName} is sent an arrears-warning SMS. Clearing every month-overdue instalment lifts the flag automatically — you do not have to come back and unset it.`}
+        description={`${customerName} is sent an arrears-warning SMS.`}
         confirmLabel="Flag as in arrears"
         onConfirm={() =>
           fetcher.submit({ intent: "mark-arrears" }, { method: "post" })
@@ -739,7 +908,7 @@ function AgreementMenu({
         open={dialog === "repossess"}
         onOpenChange={(next) => setDialog(next ? "repossess" : null)}
         title="Record a repossession?"
-        description="Everything paid so far is kept. This starts a redemption window of exactly one month, during which the customer can have the item back by paying the full remaining balance."
+        description="Payments so far are kept. The customer has one month to redeem it by paying the full balance."
         placeholder="Three instalments missed; item collected."
         confirmLabel="Record repossession"
         destructive
@@ -774,7 +943,7 @@ function AgreementMenu({
         open={dialog === "trash"}
         onOpenChange={(next) => setDialog(next ? "trash" : null)}
         title="Move this agreement to the trash?"
-        description="Only an unpaid pending or rejected agreement can be trashed. Trashing a pending one puts its unit back on the shelf. It can be restored from Trash, and a pending one re-reserves a unit on the way back."
+        description="The unit goes back on the shelf. It can be restored from Trash."
         placeholder="Signed in error."
         confirmLabel="Move to trash"
         optional
@@ -925,14 +1094,12 @@ function RedeemDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Redeem this item?</AlertDialogTitle>
           <AlertDialogDescription>
-            Redemption is the full remaining balance, computed by the server —
-            there is no partial redemption. Take the cash before confirming.
+            The full remaining balance. Take the cash before confirming.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <Figure
           label="To collect"
           value={formatPesewas(remaining)}
-          hint="The item becomes the customer's on payment."
         />
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -993,8 +1160,8 @@ function ForfeitDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Close as forfeited?</AlertDialogTitle>
           <AlertDialogDescription>
-            The redemption window has passed. The item and everything paid
-            towards it stay with Yadah for good, and this cannot be undone.
+            The item and everything paid towards it stay with Yadah. This
+            cannot be undone.
           </AlertDialogDescription>
         </AlertDialogHeader>
 

@@ -66,44 +66,19 @@ export interface CashPosition {
 
 /* ---------------------------------------------------------------- expenses --- */
 
-export type ExpenseCategory =
-  | "salaries-staff"
-  | "petty-cash-office"
-  | "utilities-premises"
-  | "fees-transport-other"
-  | "bad-debt-recovery"
-  | "professional-compliance-tax"
-  | "marketing"
-  | "insurance";
+/**
+ * Expenses moved to their own module when recording was opened to the counter.
+ * Imported for the statements, which are still built from them, and
+ * re-exported so the accounting screens keep reading them from here.
+ */
+import type {
+  Expense,
+  ExpenseCategory,
+  ExpenseStatus,
+  WriteOffEntityType,
+} from "~/lib/expenses";
 
-export type ExpenseStatus = "pending" | "approved" | "rejected" | "paid";
-
-/** A bad-debt write-off names what it is writing off. */
-export type WriteOffEntityType = "loan" | "hp-agreement";
-
-export interface Expense {
-  id: string;
-  category: ExpenseCategory;
-  description: string;
-  amount: number;
-  payee?: string;
-  /** The day the cost belongs to — not always the day it is paid. */
-  incurredOn: string;
-  status: ExpenseStatus;
-  /** Set once paid: the account the money left. */
-  cashAccountId?: string;
-  paidOn?: string;
-  recordedById: string;
-  recordedByName?: string;
-  approvedById?: string;
-  approvedByName?: string;
-  rejectionReason?: string;
-  receiptUrl?: string;
-  reference?: string;
-  writeOffEntityType?: WriteOffEntityType;
-  writeOffEntityId?: string;
-  createdAt: string;
-}
+export type { Expense, ExpenseCategory, ExpenseStatus, WriteOffEntityType };
 
 /* ------------------------------------------------------------ fixed assets --- */
 
@@ -260,55 +235,18 @@ export const DEFAULT_CHANNEL_FOR_KIND: Record<CashAccountKind, CashChannel> = {
   paystack: "paystack",
 };
 
-export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
-  "salaries-staff": "Salaries and staff",
-  "petty-cash-office": "Petty cash and office",
-  "utilities-premises": "Utilities and premises",
-  "fees-transport-other": "Fees, transport and other",
-  "bad-debt-recovery": "Bad debt and recovery",
-  "professional-compliance-tax": "Professional, compliance and tax",
-  marketing: "Marketing",
-  insurance: "Insurance",
-};
-
-export const EXPENSE_CATEGORIES = Object.keys(
+// The expense constants moved with the module; re-exported so the statements
+// and the accounting screens keep reading them from here.
+export {
+  EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_LABELS,
-) as ExpenseCategory[];
-
-export const EXPENSE_CATEGORY_OPTIONS: { value: ExpenseCategory; label: string }[] =
-  EXPENSE_CATEGORIES.map((value) => ({ value, label: EXPENSE_CATEGORY_LABELS[value] }));
-
-export const EXPENSE_STATUSES: ExpenseStatus[] = ["pending", "approved", "paid", "rejected"];
-
-export const EXPENSE_STATUS_LABELS: Record<ExpenseStatus, string> = {
-  pending: "Pending",
-  approved: "Approved",
-  paid: "Paid",
-  rejected: "Rejected",
-};
-
-/** What each state means for the money, in one line. */
-export const EXPENSE_STATUS_BLURBS: Record<ExpenseStatus, string> = {
-  pending: "Recorded. Waiting on someone other than the recorder to approve it.",
-  approved: "Approved but not yet paid. Sits as a liability until it is.",
-  paid: "Paid out of a named account. The only state that moved money.",
-  rejected: "Declined. Nothing moved and nothing is owed.",
-};
-
-export const EXPENSE_STATUS_TONE: Record<
-  ExpenseStatus,
-  "success" | "info" | "warning" | "danger" | "muted"
-> = {
-  pending: "warning",
-  approved: "info",
-  paid: "success",
-  rejected: "muted",
-};
-
-export const WRITE_OFF_LABELS: Record<WriteOffEntityType, string> = {
-  loan: "Loan",
-  "hp-agreement": "Hire purchase agreement",
-};
+  EXPENSE_CATEGORY_OPTIONS,
+  EXPENSE_STATUSES,
+  EXPENSE_STATUS_BLURBS,
+  EXPENSE_STATUS_LABELS,
+  EXPENSE_STATUS_TONE,
+  WRITE_OFF_LABELS,
+} from "~/lib/expenses";
 
 export const ASSET_CATEGORY_LABELS: Record<AssetCategory, string> = {
   "motorbike-vehicle": "Motorbike or vehicle",

@@ -20,6 +20,14 @@ import { data, Link, Outlet, useFetcher } from "react-router";
 import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
+import {
+  approveCorrection,
+  cancelCorrection,
+  correctTransaction,
+  listCorrections,
+  proposeCorrection,
+  rejectCorrection,
+} from "~/api/corrections";
 import { getCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
 import {
@@ -33,6 +41,14 @@ import {
 import { listUsers } from "~/api/users";
 import { Figure, StatusPill, Th } from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
+import {
+  TxnRowMenu,
+  toPending,
+  whyNotCorrectable,
+  type CorrectionOutcome,
+  type PendingCorrection,
+} from "~/components/txn-correction";
+import { SignatureCard } from "~/components/signature-card";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
@@ -62,7 +78,8 @@ import {
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
 import { isOffice } from "~/lib/auth";
-import { hasIdDocument } from "~/lib/customers";
+import type { CorrectionKind } from "~/lib/corrections";
+import { ID_TYPE_LABELS, hasIdDocument } from "~/lib/customers";
 import {
   accraDay,
   formatAccraDate,
@@ -70,6 +87,7 @@ import {
   formatAmount,
   formatCount,
   formatPesewas,
+  parseCedis,
 } from "~/lib/format";
 import {
   INSTALLMENT_LABELS,
@@ -87,8 +105,9 @@ import {
   repaymentProgress,
   withDefaults,
   type LoanEligibility,
+  type LoanGuarantor,
 } from "~/lib/loans";
-import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
+import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/loan-detail";
@@ -106,7 +125,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const detail = await getLoan(token, params.id);
-      const [customer, config, staff, eligibility] = await Promise.all([
+      const [customer, config, staff, eligibility, corrections] = await Promise.all([
         getCustomer(token, detail.loan.customerId)
           .then((r) => r.customer)
           .catch(() => null),
@@ -122,8 +141,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         isPending(detail.loan)
           ? getEligibility(token, detail.loan.customerId).catch(() => null)
           : Promise.resolve(null),
+        // Corrections asked for on this loan and not yet answered, so a row
+        // can say one is waiting. Soft: the loan must not go down with it.
+        listCorrections(token, {
+          targetId: params.id,
+          status: "pending",
+          limit: 100,
+        }).catch(() => null),
       ]);
-      return { detail, customer, config, staff, eligibility };
+      return { detail, customer, config, staff, eligibility, corrections };
     } catch (error) {
       throwAsRouteError(error);
     }
@@ -135,18 +161,27 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   );
   const config = withDefaults(result.config);
   const today = accraDay();
+  // One open request per repayment is the API's rule, so a map by repayment
+  // holds everything a row needs to say about it.
+  const pending = new Map<string, PendingCorrection>(
+    result.corrections?.items.map((c) => [c.txnId, toPending(c, viewer.id)]) ??
+      [],
+  );
 
   return data(
     {
       loan,
-      /** Approving and rejecting are the office's, not the counter's. */
+      /** Approving, rejecting and deciding a correction are the office's. */
       canDecide: isOffice(viewer),
+      userId: viewer.id,
       customerName:
         result.customer?.fullName ?? loan.customerName ?? "Customer",
-      customerHasCard: result.customer?.identification?.idType === "ghana-card",
       // Fallbacks for when the eligibility read fails: the record itself says
-      // whether the scans are there. An unreadable record does not block — the
-      // API refuses approval without them either way.
+      // whether the ID is there. An unreadable record does not block — the API
+      // refuses approval without one either way. Any ID type counts.
+      customerHasId: result.customer
+        ? Boolean(result.customer.identification?.idNumber)
+        : true,
       customerHasIdDocument: result.customer
         ? hasIdDocument(result.customer)
         : true,
@@ -170,6 +205,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         recordedBy: r.recordedById
           ? (names.get(r.recordedById) ?? "Staff")
           : "System",
+        // Why this one can never be corrected, or null. Only cash typed at
+        // the counter has a data-entry mistake in it to correct.
+        locked:
+          r.source === "susu-closure"
+            ? "This was paid by closing a susu account. It cannot be changed on its own."
+            : r.source === "transfer"
+              ? "This came from a transfer between accounts. Correct it on the transfer, not here."
+              : r.channel === "paystack"
+                ? "This was paid through Paystack, so the amount is what was charged."
+                : null,
+        pending: pending.get(r.id) ?? null,
       })),
     },
     { headers },
@@ -179,23 +225,41 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 /** Opening a repayment drawer does not re-read the loan underneath it. */
 export const shouldRevalidate = drawerParentShouldRevalidate;
 
-interface ActionResult {
-  ok: boolean;
-  message: string;
-}
+type ActionResult = CorrectionOutcome;
+
+/** What only the office may post here. The API refuses these too. */
+const OFFICE_INTENTS = new Set([
+  "approve",
+  "reject",
+  "trash",
+  "correct-txn",
+  "approve-correction",
+  "reject-correction",
+]);
 
 /**
- * Approve, reject and trash. Approving is the one place in this module where
- * money starts moving, so it locks the rate and builds the schedule and then
- * the loader re-reads the loan — the page after an approval is a different page
- * from the page before it.
+ * Approve, reject and trash, and the corrections on the repayments. Approving
+ * is the one place in this module where money starts moving, so it locks the
+ * rate and builds the schedule and then the loader re-reads the loan — the
+ * page after an approval is a different page from the page before it. The
+ * counter reaches this action only to ask for a correction, or take one back.
  */
 export async function action({ request, params }: Route.ActionArgs) {
-  await requireOffice(request);
+  const user = await requireCounter(request);
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
   const reason = String(form.get("reason") ?? "").trim();
+  const correctionId = String(form.get("correctionId") ?? "");
+  // The shared correction dialogs name the entry they are about themselves.
+  const kind = String(form.get("kind") ?? "") as CorrectionKind;
+  const txnId = String(form.get("txnId") ?? "");
 
+  if (OFFICE_INTENTS.has(intent) && !isOffice(user)) {
+    return data<ActionResult>(
+      { ok: false, message: "That is the office's to do." },
+      { status: 403 },
+    );
+  }
   if (intent === "reject" && !reason) {
     return data<ActionResult>(
       { ok: false, message: "Say why it was turned down." },
@@ -217,6 +281,36 @@ export async function action({ request, params }: Route.ActionArgs) {
         await trashLoan(token, params.id, reason || undefined);
         return { message: "Application moved to the trash.", gone: true };
       }
+      if (intent === "correct-txn" || intent === "propose-correction") {
+        const amount = parseCedis(String(form.get("amount") ?? ""));
+        if (amount == null || amount <= 0) {
+          throw new Response("Enter the corrected amount.", { status: 400 });
+        }
+        if (intent === "correct-txn") {
+          await correctTransaction(token, kind, params.id, txnId, amount);
+          return { message: "Repayment corrected.", gone: false };
+        }
+        await proposeCorrection(token, kind, params.id, txnId, { amount, reason });
+        return {
+          message: "Sent to the office. Nothing changes until they answer.",
+          gone: false,
+        };
+      }
+      if (intent === "approve-correction") {
+        const { correction } = await approveCorrection(token, correctionId);
+        return {
+          message: `Correction applied. The repayment is now GH₵ ${formatAmount(correction.amount)}.`,
+          gone: false,
+        };
+      }
+      if (intent === "reject-correction") {
+        await rejectCorrection(token, correctionId, reason);
+        return { message: "Correction declined. The repayment is unchanged.", gone: false };
+      }
+      if (intent === "cancel-correction") {
+        await cancelCorrection(token, correctionId);
+        return { message: "Request taken back.", gone: false };
+      }
       throw new Response("Unknown action.", { status: 400 });
     });
 
@@ -234,7 +328,14 @@ export async function action({ request, params }: Route.ActionArgs) {
   } catch (error) {
     if (error instanceof ApiError) {
       return data<ActionResult>(
-        { ok: false, message: error.message },
+        {
+          ok: false,
+          message: error.message,
+          details:
+            typeof error.details === "object" && error.details
+              ? (error.details as Record<string, unknown>)
+              : undefined,
+        },
         { status: error.status },
       );
     }
@@ -246,8 +347,9 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
   const {
     loan,
     canDecide,
+    userId,
     customerName,
-    customerHasCard,
+    customerHasId,
     customerHasIdDocument,
     eligibility,
     standardRate,
@@ -319,22 +421,30 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
         <Note tone="danger" icon={<TriangleAlertIcon className="size-4" />}>
           <span className="font-medium">
             {formatCount(overdue)} {overdue === 1 ? "day" : "days"} past due.
-          </span>{" "}
-          Interest escalates on the original principal while a loan runs late.
+          </span>
         </Note>
       )}
 
       {pending && !canDecide && (
         <Note tone="muted" icon={<LockIcon className="size-4" />}>
-          This application is waiting on a manager. The counter can take a
-          repayment once it is approved.
+          Waiting on a manager's approval.
         </Note>
+      )}
+
+      {/* Who stands behind it. Above the decision because it is part of the
+          decision, and kept on the page afterwards because it is who the branch
+          turns to if the repayments stop. */}
+      {loan.guarantor && (
+        <GuarantorCard
+          guarantor={loan.guarantor}
+          customerId={loan.guarantorId}
+        />
       )}
 
       {pending && canDecide ? (
         <DecisionPanel
           eligibility={eligibility}
-          customerHasCard={customerHasCard}
+          customerHasId={customerHasId}
           customerHasIdDocument={customerHasIdDocument}
           principal={loan.principal}
           interest={loan.interestAmount}
@@ -388,6 +498,8 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
             </div>
           </section>
 
+          {loan.signatureUrl && <SignatureCard url={loan.signatureUrl} />}
+
           <RateLadder
             current={loan.ratePercent}
             standard={standardRate}
@@ -397,13 +509,66 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
           />
 
           <Schedule rows={schedule} />
-          <Repayments loanId={loan.id} rows={repayments} />
+          <Repayments
+            loan={loan}
+            rows={repayments}
+            canDecide={canDecide}
+            userId={userId}
+          />
         </>
       )}
 
       {/* The repayment drawers render here, over the loan. */}
       <Outlet />
     </Page>
+  );
+}
+
+/* --------------------------------------------------------------- guarantor --- */
+
+/**
+ * Who stands behind the loan.
+ *
+ * Read off the snapshot taken when the application was recorded, not off the
+ * guarantor's profile as it is today: this has to say who was accepted on the
+ * day. The link goes to their record all the same, since the reason to look
+ * them up is usually to reach them.
+ */
+function GuarantorCard({
+  guarantor,
+  customerId,
+}: {
+  guarantor: LoanGuarantor;
+  /** Absent on a snapshot written before the id was stored alongside it. */
+  customerId?: string;
+}) {
+  const id =
+    guarantor.idType && guarantor.idNumber
+      ? `${ID_TYPE_LABELS[guarantor.idType]} ${guarantor.idNumber}`
+      : null;
+
+  return (
+    <section className="mb-6 rounded-xl border border-border bg-card px-4 py-3">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="eyebrow text-muted-foreground">Guarantor</span>
+        <span className="font-medium">
+          {customerId ? (
+            <Link
+              to={`/customers/${customerId}`}
+              className="underline-offset-4 hover:underline"
+            >
+              {guarantor.fullName}
+            </Link>
+          ) : (
+            guarantor.fullName
+          )}
+        </span>
+        <span className="tabular text-sm text-muted-foreground">
+          {guarantor.phone}
+        </span>
+        {id && <span className="text-sm text-muted-foreground">{id}</span>}
+      </div>
+    </section>
   );
 }
 
@@ -485,7 +650,7 @@ function RateLadder({
  */
 function DecisionPanel({
   eligibility,
-  customerHasCard,
+  customerHasId,
   customerHasIdDocument,
   principal,
   interest,
@@ -493,7 +658,7 @@ function DecisionPanel({
   ratePercent,
 }: {
   eligibility: LoanEligibility | null;
-  customerHasCard: boolean;
+  customerHasId: boolean;
   customerHasIdDocument: boolean;
   principal: number;
   interest: number;
@@ -510,10 +675,10 @@ function DecisionPanel({
     else toast.error(fetcher.data.message);
   }, [fetcher.data]);
 
-  const hasCard = eligibility?.customer.hasGhanaCard ?? customerHasCard;
+  const hasId = eligibility?.customer.hasId ?? customerHasId;
   const hasScans = eligibility?.customer.hasIdDocument ?? customerHasIdDocument;
   const openLoan = eligibility?.openLoan ?? null;
-  const blocked = !hasCard || !hasScans || openLoan != null;
+  const blocked = !hasId || !hasScans || openLoan != null;
 
   return (
     <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card">
@@ -521,9 +686,6 @@ function DecisionPanel({
         <h3 className="font-heading font-bold tracking-tight">
           Waiting on a decision
         </h3>
-        <p className="text-sm text-muted-foreground">
-          Nothing is disbursed and no schedule exists until this is approved.
-        </p>
       </header>
 
       <div className="space-y-5 p-4">
@@ -559,8 +721,7 @@ function DecisionPanel({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Their history could not be read. The API re-checks every condition
-            when the decision is submitted.
+            Their history could not be read.
           </p>
         )}
 
@@ -568,12 +729,12 @@ function DecisionPanel({
             rather than as advice, because the API will refuse either way. */}
         {blocked && (
           <ul className="space-y-1.5 text-sm">
-            {!hasCard && (
+            {!hasId && (
               <li className="flex items-start gap-2 text-danger">
                 <IdCardIcon className="mt-0.5 size-4 shrink-0" />
                 <span>
-                  No Ghana Card on the profile. Add it to the customer record
-                  before approving.
+                  No ID on the profile. Record the type and number on the
+                  customer record before approving — any type will do.
                 </span>
               </li>
             )}
@@ -645,9 +806,8 @@ function ApproveButton({
           <AlertDialogHeader>
             <AlertDialogTitle>Approve this loan?</AlertDialogTitle>
             <AlertDialogDescription>
-              The rate and interest lock from today&rsquo;s config, the monthly
-              schedule is generated, and the customer is sent an approval SMS.
-              This cannot be undone.
+              The rate locks, the schedule is generated and the customer is sent
+              an SMS. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -687,8 +847,7 @@ function RejectButton({
           <AlertDialogHeader>
             <AlertDialogTitle>Reject this application?</AlertDialogTitle>
             <AlertDialogDescription>
-              No money moves. The reason is kept on the record and is what
-              anyone reading this later will see.
+              No money moves. The reason stays on the record.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-1.5">
@@ -743,10 +902,6 @@ function Schedule({ rows }: { rows: ScheduleRow[] }) {
     <section className="mb-6 overflow-hidden rounded-xl border border-border bg-card">
       <header className="border-b border-border px-4 py-3">
         <h3 className="font-heading font-bold tracking-tight">Schedule</h3>
-        <p className="text-sm text-muted-foreground">
-          Monthly, with the remainder folded into the last instalment. Payments
-          fill the oldest one first.
-        </p>
       </header>
       <Table>
         <TableHeader>
@@ -819,21 +974,44 @@ function Schedule({ rows }: { rows: ScheduleRow[] }) {
 /**
  * Every payment against the loan, newest first as the API sends them. Each row
  * carries a ⋯ menu with its receipt — a resource route answering with bytes,
- * so a plain anchor rather than a `Link`.
+ * so a plain anchor rather than a `Link` — and the correction: the office
+ * corrects the newest cash repayment outright, the counter asks.
  */
 function Repayments({
-  loanId,
+  loan,
   rows,
+  canDecide,
+  userId,
 }: {
-  loanId: string;
+  loan: Route.ComponentProps["loaderData"]["loan"];
   rows: {
     id: string;
     amount: number;
     source: string;
     at: string;
     recordedBy: string;
+    locked: string | null;
+    pending: PendingCorrection | null;
   }[];
+  canDecide: boolean;
+  userId: string;
 }) {
+  const fetcher = useFetcher<CorrectionOutcome>();
+  useEffect(() => {
+    if (fetcher.state !== "idle" || !fetcher.data) return;
+    if (fetcher.data.ok) toast.success(fetcher.data.message);
+    else toast.error(fetcher.data.message);
+  }, [fetcher.state, fetcher.data]);
+
+  // A repayment can be corrected while the loan is open or was settled by
+  // it; anything else on the loan is final.
+  const closed =
+    loan.status === "active" || loan.status === "arrears" || loan.status === "repaid"
+      ? null
+      : `This loan is ${loan.status}, so nothing on it can change.`;
+  const newestId = rows[0]?.id ?? null;
+  void userId;
+
   return (
     <section className="overflow-hidden rounded-xl border border-border bg-card">
       <header className="border-b border-border px-4 py-3">
@@ -870,32 +1048,55 @@ function Repayments({
                 </TableCell>
                 <TableCell className="tabular px-4 py-3 text-right font-medium whitespace-nowrap text-cash-in">
                   +{formatAmount(row.amount)}
+                  {/* A correction somebody asked for and the office has not
+                      yet answered. The figure above is still what stands. */}
+                  {row.pending && (
+                    <p className="text-xs font-normal text-warning">
+                      {formatPesewas(row.pending.amount)} waiting
+                    </p>
+                  )}
                 </TableCell>
                 <TableCell className="px-4 py-3 text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="Actions"
-                        className="text-muted-foreground"
-                      >
-                        <MoreHorizontalIcon />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuItem asChild>
-                        <a
-                          href={`/loans/${loanId}/repayments/${row.id}/receipt`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <PrinterIcon />
-                          Print receipt
-                        </a>
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <TxnRowMenu
+                    txn={{ id: row.id, amount: row.amount }}
+                    // What the loan owed before this repayment landed is what
+                    // a corrected amount is checked against.
+                    context={
+                      row.locked
+                        ? null
+                        : {
+                            kind: "loan-repayment",
+                            remainingBefore: loan.remaining + row.amount,
+                          }
+                    }
+                    targetId={loan.id}
+                    pending={row.pending}
+                    blocked={whyNotCorrectable({
+                      pending: row.pending,
+                      locked: row.locked,
+                      closed,
+                      newest: row.id === newestId,
+                      noun: "repayment",
+                    })}
+                    canDecide={canDecide}
+                    fetcher={fetcher}
+                    srLabel="Actions for this repayment"
+                    before={
+                      <>
+                        <DropdownMenuItem asChild>
+                          <a
+                            href={`/loans/${loan.id}/repayments/${row.id}/receipt`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <PrinterIcon />
+                            Print receipt
+                          </a>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    }
+                  />
                 </TableCell>
               </TableRow>
             ))}
@@ -1004,10 +1205,8 @@ function LoanMenu({
               Move this application to the trash?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Only a pending or rejected application can be trashed — once money
-              has been disbursed the loan is part of the ledger. It can be
-              restored from Trash, and a pending one re-checks the one-open-loan
-              rule on the way back.
+              Only a pending or rejected application can be trashed. It can be
+              restored from Trash.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-1.5">

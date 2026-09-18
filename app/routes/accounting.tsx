@@ -33,10 +33,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Accounting · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Accounting",
-  description: "The company’s own money, as opposed to its customers’.",
 };
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -268,7 +267,7 @@ export default function Accounting({ loaderData }: Route.ComponentProps) {
         rowActions={(row) => (
           <>
             <DropdownMenuItem asChild>
-              <Link to={`/accounting/expenses?account=${row.id}&status=paid`}>
+              <Link to={`/expenses?account=${row.id}&status=paid`}>
                 <ReceiptIcon />
                 Expenses paid from here
               </Link>

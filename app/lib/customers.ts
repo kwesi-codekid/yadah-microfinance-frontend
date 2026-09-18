@@ -101,11 +101,11 @@ export interface CreateCustomerInput {
   idDocumentFrontUrl?: string;
   idDocumentBackUrl?: string;
   /**
-   * Required. Every customer joins somebody's round at registration — the API
-   * refuses the record without it, because an unassigned customer is one nobody
-   * is due to visit.
+   * Whose round this customer joins, if anyone's. Optional: a customer who
+   * brings their deposits to the counter is collected from by nobody, and the
+   * API reads a missing collector as exactly that.
    */
-  assignedCollectorId: string;
+  assignedCollectorId?: string;
   dateOfBirth?: string;
   gender?: Gender;
   nationality?: string;
@@ -230,11 +230,21 @@ export type TxDirection = Direction;
 
 export interface SusuHolding {
   accountId: string;
+  /** The customer's susu number — every book they hold carries it. */
   accountNumber: string;
+  /** The month this book is called. */
+  cycleMonth?: string;
+  /** This book's own distinct identity, for when two panels share a number. */
+  ref?: string;
   status: string;
   dailyAmount: number;
   depositsCount: number;
+  /** Gross paid in over the cycle. Withdrawals never reduce it. */
   totalDeposited: number;
+  /** Handed back through partial withdrawals, without stopping the cycle. */
+  withdrawnAmount?: number;
+  /** `totalDeposited − withdrawnAmount` — what the cycle actually holds. */
+  balance?: number;
   payoutRemaining: number;
 }
 

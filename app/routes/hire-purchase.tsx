@@ -25,6 +25,7 @@ import {
   ExportMenu,
   FilterBar,
   FilterChip,
+  FilterMenu,
   ListingCard,
   ListingFooter,
   ListingToolbar,
@@ -32,7 +33,6 @@ import {
   StatusPill,
   Th,
 } from "~/components/listing";
-import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import { RedemptionCountdown } from "~/components/redemption";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
@@ -79,11 +79,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Hire purchase · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Hire purchase",
-  description:
-    "Half down, the rest financed. The item goes out when the deposit lands.",
 };
 
 const PAGE_SIZE = 20;
@@ -99,7 +97,7 @@ const LIVE: AgreementStatus[] = [
 
 const TABS = [
   { key: "all", label: "All" },
-  // First on the rail because it is the only queue where the agreement cannot
+  // First in the menu because it is the only queue where the agreement cannot
   // move at all until somebody in the office looks at it.
   { key: "awaiting-approval", label: "To approve" },
   { key: "pending", label: "Awaiting deposit" },
@@ -110,7 +108,7 @@ const TABS = [
 
 /**
  * Everything the API filters on, including the endings. The four closed states
- * are not on the rail — nothing is owed of anyone once an agreement is over —
+ * are not in the menu — nothing is owed of anyone once an agreement is over —
  * but they still have to be reachable, so they live in the dropdown.
  */
 const STATUS_OPTIONS: { value: AgreementStatus; label: string }[] = (
@@ -284,8 +282,8 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
       : "";
   const narrowed = Boolean(filters.search || filters.from || filters.to || closedStatus);
 
-  // The live states down the rail; a closed state picked from the dropdown
-  // lights nothing here.
+  // The live states in the menu; a closed state picked from the other
+  // dropdown lights nothing here.
   const railItems = TABS.map((t) => ({
     key: t.key,
     label: t.label,
@@ -294,19 +292,17 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
   }));
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter agreements by status"
-          sections={[{ label: "Status", items: railItems }]}
-          active={closedStatus ? "" : filters.status}
-          horizontal={horizontal}
-        />
-      )}
-    >
     <Page className="max-w-none">
       <ListingCard>
-        <ListingToolbar>
+        <ListingToolbar
+          tabs={
+            <FilterMenu
+              label="Status"
+              items={railItems}
+              active={closedStatus ? "" : filters.status}
+            />
+          }
+        >
           <SearchBox
             value={filters.search}
             apply={(next) => apply({ search: next })}
@@ -428,7 +424,6 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
       {/* Signing renders here — a drawer over the book. */}
       <Outlet />
     </Page>
-    </RailFrame>
   );
 }
 
@@ -550,10 +545,6 @@ function AgreementsEmpty({
   filters: Filters;
   narrowed: boolean;
 }) {
-  // The shelf itself is the office's — the counter sells off it without
-  // keeping it, so an empty book offers them nothing to go and look at.
-  const office = isOffice(useCurrentUser());
-
   return (
     <Empty className="py-16">
       <EmptyHeader>
@@ -581,7 +572,7 @@ function AgreementsEmpty({
             Clear filters
           </Link>
         </Button>
-      ) : filters.status === "all" && office ? (
+      ) : filters.status === "all" ? (
         <Button asChild variant="outline" size="sm">
           <Link to="/inventory">
             <PackageIcon />

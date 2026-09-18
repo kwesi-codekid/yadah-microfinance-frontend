@@ -144,10 +144,7 @@ export default function HpCharge({ loaderData }: Route.ComponentProps) {
             />
           ) : (
             <p className="text-sm text-muted-foreground">
-              This agreement cannot take a payment as it stands. A deposit is
-              only owed while it is pending, instalments only while it is
-              running, and a redemption only inside the window that follows a
-              repossession.
+              Nothing is owed on this agreement in its current state.
             </p>
           )}
         </SheetBody>

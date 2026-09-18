@@ -2,16 +2,31 @@ import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
 import type {
   AgreementStatus,
+  DamageCause,
+  DamageStatus,
+  DamageSummary,
   HpAgreement,
+  HpDamage,
   HpConfig,
   HpEligibility,
   HpItem,
   HpPayment,
+  ItemCondition,
+  ItemLabel,
   ItemStatus,
+  LabelKind,
   PaymentChannel,
+  PriceChange,
+  PriceKind,
   TrashedHpAgreement,
+  TrashedHpDamage,
   TrashedHpItem,
 } from "~/lib/hire-purchase";
+import type {
+  ImportOutcome as ItemImportOutcome,
+  ImportPreview as ItemImportPreview,
+  ImportRow as ItemImportRow,
+} from "~/lib/inventory-import";
 
 /**
  * The `/hire-purchase` endpoints — the largest module in the API by count, and
@@ -19,7 +34,9 @@ import type {
  * agreements written against it. This module imports the API client, so it is
  * server-only. Types and display constants live in `~/lib/hire-purchase`.
  *
- * Office only throughout. Nothing here is a field errand.
+ * The counter's throughout — the shelf, the sales and the agreements — with
+ * the decisions behind an office check on the API's side. Nothing here is a
+ * field errand.
  */
 
 export type { ExportFormat, Paginated };
@@ -30,6 +47,8 @@ export interface ItemListParams {
   page?: number;
   limit?: number;
   status?: ItemStatus;
+  brandId?: string;
+  categoryId?: string;
   search?: string;
   /** Hide anything with nothing left on the shelf. */
   inStockOnly?: boolean;
@@ -79,10 +98,13 @@ export function createItem(
   accessToken: string,
   input: {
     name: string;
+    brandId?: string;
+    categoryId?: string;
     description?: string;
     quantityInStock: number;
     costPrice: number;
     sellingPrice: number;
+    condition?: ItemCondition;
   },
 ): Promise<{ item: HpItem }> {
   return apiFetch("/hire-purchase/items", {
@@ -104,6 +126,9 @@ export function updateItem(
   id: string,
   input: {
     name?: string;
+    /** Null takes the item off the label. */
+    brandId?: string | null;
+    categoryId?: string | null;
     description?: string;
     costPrice?: number;
     sellingPrice?: number;
@@ -160,6 +185,280 @@ export function adjustStock(
   return apiFetch(`/hire-purchase/items/${id}/adjust-stock`, {
     method: "POST",
     json: input,
+    accessToken,
+  });
+}
+
+/**
+ * `POST /hire-purchase/items/{id}/receive` — book a delivery.
+ *
+ * Takes the invoice's unit cost every time. The invoice is the only place the
+ * real figure exists, and a delivery is the one moment somebody is holding it;
+ * when it disagrees with the shelf, the shelf moves and the move goes on the
+ * item's price history with the supplier and invoice that carried it.
+ */
+export function receiveStock(
+  accessToken: string,
+  id: string,
+  input: {
+    quantity: number;
+    unitCost: number;
+    /** Only when the delivery is also a repricing. */
+    sellingPrice?: number;
+    supplier?: string;
+    invoiceRef?: string;
+    receivedOn?: string;
+    note?: string;
+  },
+): Promise<{ item: HpItem; changes: PriceChange[] }> {
+  return apiFetch(`/hire-purchase/items/${id}/receive`, {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+/** `GET /hire-purchase/items/{id}/price-changes` — why this item's prices moved. */
+export function listPriceChanges(
+  accessToken: string,
+  id: string,
+  params: { page?: number; limit?: number; kind?: PriceKind } = {},
+): Promise<Paginated<PriceChange>> {
+  return apiFetch(`/hire-purchase/items/${id}/price-changes${queryOf(params)}`, {
+    accessToken,
+  });
+}
+
+/* ---------------------------------------------------------------- damages --- */
+
+export interface DamageList extends Paginated<HpDamage> {
+  /** Cost of the APPROVED reports matching the filters. Pending ones are not losses yet. */
+  totalCostValue: number;
+  pendingCount: number;
+}
+
+/**
+ * `POST /hire-purchase/damages` — report damaged or missing stock.
+ *
+ * Counter and office. Writes nothing off: the shelf is untouched until the
+ * office approves, so a mistaken report costs only a rejection.
+ */
+export function reportDamage(
+  accessToken: string,
+  input: {
+    itemId: string;
+    quantity: number;
+    cause: DamageCause;
+    description: string;
+    occurredOn?: string;
+    photoUrls?: string[];
+  },
+): Promise<{ damage: HpDamage }> {
+  return apiFetch("/hire-purchase/damages", {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+export function listDamages(
+  accessToken: string,
+  params: {
+    page?: number;
+    limit?: number;
+    status?: DamageStatus;
+    cause?: DamageCause;
+    itemId?: string;
+    search?: string;
+    from?: string;
+    to?: string;
+  } = {},
+): Promise<DamageList> {
+  return apiFetch(`/hire-purchase/damages${queryOf(params)}`, { accessToken });
+}
+
+export function exportDamages(
+  accessToken: string,
+  params: Record<string, string | undefined>,
+  format: ExportFormat,
+): Promise<Response> {
+  return apiFetchRaw(`/hire-purchase/damages${queryOf(params, format)}`, { accessToken });
+}
+
+export function getDamageSummary(
+  accessToken: string,
+  range: { from?: string; to?: string } = {},
+): Promise<DamageSummary> {
+  return apiFetch(`/hire-purchase/damages/summary${queryOf(range)}`, { accessToken });
+}
+
+export function getDamage(accessToken: string, id: string): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}`, { accessToken });
+}
+
+/** Only while pending — once decided, the report is what was decided on. */
+export function updateDamage(
+  accessToken: string,
+  id: string,
+  input: {
+    quantity?: number;
+    cause?: DamageCause;
+    description?: string;
+    occurredOn?: string;
+    photoUrls?: string[];
+  },
+): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}`, {
+    method: "PATCH",
+    json: input,
+    accessToken,
+  });
+}
+
+/**
+ * Approve: take the stock off the shelf and strike the loss (office). Refused
+ * with `SELF_APPROVAL` when the approver is the person who reported it.
+ */
+export function approveDamage(
+  accessToken: string,
+  id: string,
+): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}/approve`, {
+    method: "POST",
+    accessToken,
+  });
+}
+
+export function rejectDamage(
+  accessToken: string,
+  id: string,
+  reason: string,
+): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}/reject`, {
+    method: "POST",
+    json: { reason },
+    accessToken,
+  });
+}
+
+/** Pending or rejected only — an approved write-off stays on the record. */
+export function trashDamage(
+  accessToken: string,
+  id: string,
+  reason?: string,
+): Promise<{ damage: TrashedHpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}`, {
+    method: "DELETE",
+    json: reason ? { reason } : {},
+    accessToken,
+  });
+}
+
+export function restoreDamage(
+  accessToken: string,
+  id: string,
+): Promise<{ damage: HpDamage }> {
+  return apiFetch(`/hire-purchase/damages/${id}/restore`, {
+    method: "POST",
+    accessToken,
+  });
+}
+
+/* ------------------------------------------------------ brands, categories --- */
+
+const LABEL_PATH: Record<LabelKind, string> = {
+  brand: "/hire-purchase/brands",
+  category: "/hire-purchase/categories",
+};
+
+/** GET /hire-purchase/{brands|categories} — alphabetical, with item counts. */
+export function listLabels(
+  accessToken: string,
+  kind: LabelKind,
+  params: { page?: number; limit?: number; search?: string } = {},
+): Promise<Paginated<ItemLabel>> {
+  return apiFetch(`${LABEL_PATH[kind]}${queryOf({ ...params })}`, { accessToken });
+}
+
+/** Every label of a kind, for a picker. The whole list is short. */
+export async function allLabels(
+  accessToken: string,
+  kind: LabelKind,
+): Promise<ItemLabel[]> {
+  const page = await listLabels(accessToken, kind, { page: 1, limit: 100 });
+  return page.items;
+}
+
+/** GET /hire-purchase/{brands|categories}/{id} */
+export function getLabel(
+  accessToken: string,
+  kind: LabelKind,
+  id: string,
+): Promise<{ label: ItemLabel }> {
+  return apiFetch(`${LABEL_PATH[kind]}/${id}`, { accessToken });
+}
+
+/** POST — names are unique within a kind, whatever the capitals. `LABEL_TAKEN` otherwise. */
+export function createLabel(
+  accessToken: string,
+  kind: LabelKind,
+  input: { name: string; description?: string },
+): Promise<{ label: ItemLabel }> {
+  return apiFetch(LABEL_PATH[kind], { method: "POST", json: input, accessToken });
+}
+
+/** PATCH — a rename reaches every item filed under it. `description: null` clears it. */
+export function updateLabel(
+  accessToken: string,
+  kind: LabelKind,
+  id: string,
+  input: { name?: string; description?: string | null },
+): Promise<{ label: ItemLabel }> {
+  return apiFetch(`${LABEL_PATH[kind]}/${id}`, { method: "PATCH", json: input, accessToken });
+}
+
+/** DELETE — refused with `LABEL_IN_USE` while any item is still filed under it. */
+export function deleteLabel(accessToken: string, kind: LabelKind, id: string): Promise<void> {
+  return apiFetch(`${LABEL_PATH[kind]}/${id}`, { method: "DELETE", accessToken });
+}
+
+/* ------------------------------------------------------------ bulk import --- */
+
+/** GET /hire-purchase/items/import/template — the blank sheet. Returns the raw response. */
+export function itemImportTemplate(
+  accessToken: string,
+  format: "csv" | "xlsx",
+): Promise<Response> {
+  return apiFetchRaw(`/hire-purchase/items/import/template?format=${format}`, {
+    accessToken,
+  });
+}
+
+/** POST /hire-purchase/items/import/preview — check a filled sheet. Writes nothing. */
+export function previewItemImport(
+  accessToken: string,
+  file: File,
+): Promise<ItemImportPreview> {
+  const body = new FormData();
+  body.append("file", file);
+  return apiFetch("/hire-purchase/items/import/preview", {
+    method: "POST",
+    formData: body,
+    accessToken,
+  });
+}
+
+/**
+ * POST /hire-purchase/items/import — stock the accepted rows, one at a time,
+ * so one bad row does not throw away the sheet.
+ */
+export function runItemImport(
+  accessToken: string,
+  rows: Pick<ItemImportRow, "row" | "values">[],
+): Promise<ItemImportOutcome> {
+  return apiFetch("/hire-purchase/items/import", {
+    method: "POST",
+    json: { rows },
     accessToken,
   });
 }
@@ -263,13 +562,26 @@ export function getAgreement(
  * POST /hire-purchase/agreements — sign one.
  *
  * A unit comes off the shelf immediately and the prices are snapshotted, but
- * the item does not leave the shop until the 50% deposit is paid. Refused with
- * `OUT_OF_STOCK` when the shelf is empty, and with `NOT_ELIGIBLE` when the
- * customer does not clear the history and no-other-credit conditions.
+ * the item does not leave the shop until half of `agreedPrice` is paid as the
+ * deposit. Refused with `OUT_OF_STOCK` when the shelf is empty, and with
+ * `NOT_ELIGIBLE` when the customer does not clear the history and
+ * no-other-credit conditions.
  */
 export function signAgreement(
   accessToken: string,
-  input: { customerId: string; itemId: string; durationMonths: number },
+  input: {
+    customerId: string;
+    itemId: string;
+    /**
+     * Pesewas. What the counter and the customer settled on, which may sit
+     * either side of the shelf price. The deposit and the instalments are
+     * worked out from this.
+     */
+    agreedPrice: number;
+    durationMonths: number;
+    /** From POST /uploads?kind=signature. */
+    signatureUrl: string;
+  },
 ): Promise<{ agreement: HpAgreement }> {
   return apiFetch("/hire-purchase/agreements", {
     method: "POST",

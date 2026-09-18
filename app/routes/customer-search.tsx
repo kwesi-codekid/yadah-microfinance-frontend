@@ -1,4 +1,5 @@
 import { listCustomers } from "~/api/customers";
+import { hasIdDocument } from "~/lib/customers";
 import { requireUser, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/customer-search";
 
@@ -11,6 +12,10 @@ import type { Route } from "./+types/customer-search";
  * to open an account or take money for one, and the API refuses both on a
  * deactivated record (`CUSTOMER_INACTIVE`). Offering them would be offering a
  * choice that cannot be carried out.
+ *
+ * Each hit carries how much of an ID the record holds, because a loan guarantor
+ * has to have both halves on file. Sending it with the search means the form
+ * can say so on the row, before somebody is chosen and then refused.
  */
 const LIMIT = 8;
 
@@ -28,6 +33,10 @@ export async function loader({ request }: Route.LoaderArgs) {
       id: c.id,
       fullName: c.fullName,
       phone: c.phone,
+      /** The ID type and number are recorded. */
+      hasIdNumber: Boolean(c.identification?.idNumber),
+      /** Both sides of it are uploaded. One side alone counts for nothing. */
+      hasIdDocument: hasIdDocument(c),
     })),
   };
 }

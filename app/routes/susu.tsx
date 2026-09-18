@@ -30,7 +30,6 @@ import {
 import { data } from "react-router";
 
 import { listAccounts } from "~/api/susu";
-import { FilterRail, RailFrame } from "~/components/filter-rail";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -53,6 +52,7 @@ import {
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
+import { FilterMenu } from "~/components/listing";
 import {
   Table,
   TableBody,
@@ -87,10 +87,9 @@ export function meta(_: Route.MetaArgs) {
   return [{ title: "Susu · Yadah Dynamic Enterprise" }];
 }
 
-/** What the layout header calls this page, and the line under it. */
+/** What the layout header calls this page. */
 export const handle = {
   title: "Susu",
-  description: "One account is one cycle: 31 deposits at a fixed daily amount.",
 };
 
 const PAGE_SIZE = 20;
@@ -217,6 +216,7 @@ export const shouldRevalidate = drawerParentShouldRevalidate;
 interface Row {
   id: string;
   accountNumber: string;
+  ref: string;
   customerId: string;
   customerName: string;
   dailyAmount: number;
@@ -234,6 +234,7 @@ function toRow(a: SusuAccount, now: Date): Row {
   return {
     id: a.id,
     accountNumber: a.accountNumber,
+    ref: a.ref,
     customerId: a.customerId,
     customerName: a.customerName ?? "—",
     dailyAmount: a.dailyAmount,
@@ -261,29 +262,19 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
   const filtered = Boolean(filters.search || filters.from || filters.to);
 
   return (
-    <RailFrame
-      rail={({ horizontal }) => (
-        <FilterRail
-          label="Filter susu accounts by status"
-          sections={[
-            {
-              label: "Status",
-              items: TABS.map((tab) => ({
-                key: tab.key,
-                label: tab.label,
-                count: counts[tab.key],
-                to: hrefFor({ ...filters, status: tab.key }),
-              })),
-            },
-          ]}
-          active={filters.status}
-          horizontal={horizontal}
-        />
-      )}
-    >
     <Page className="max-w-none">
       <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-end">
+        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
+          <FilterMenu
+            label="Status"
+            items={TABS.map((tab) => ({
+              key: tab.key,
+              label: tab.label,
+              count: counts[tab.key],
+              to: hrefFor({ ...filters, status: tab.key }),
+            }))}
+            active={filters.status}
+          />
           <div className="flex flex-wrap items-center gap-2">
             <SearchBox filters={filters} busy={busy} />
             <DateRangeFilter filters={filters} />
@@ -321,6 +312,10 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <Th>Account</Th>
+                  {/* The number the branch quotes, in its own column. It names
+                      the CUSTOMER, so two of their cycles read the same here —
+                      the ref under the name is what separates them. */}
+                  <Th>Number</Th>
                   <Th className="hidden md:table-cell">Cycle</Th>
                   <Th className="text-right">Daily</Th>
                   <Th className="text-right">Deposited</Th>
@@ -375,7 +370,6 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
       {/* Open account and collect-all render here — drawers over the book. */}
       <Outlet />
     </Page>
-    </RailFrame>
   );
 }
 
@@ -400,8 +394,12 @@ function AccountRow({
           {row.customerName}
         </Link>
         <p className="tabular truncate text-xs text-muted-foreground">
-          #{row.accountNumber}
+          {row.ref}
         </p>
+      </TableCell>
+
+      <TableCell className="px-4 py-3">
+        <span className="tabular text-sm">#{row.accountNumber}</span>
       </TableCell>
 
       <TableCell className="hidden px-4 py-3 md:table-cell">
@@ -468,8 +466,10 @@ function AccountRow({
                 className="size-8 text-muted-foreground hover:text-foreground"
               >
                 <MoreHorizontalIcon />
+                {/* Named by ref, not by number: two of one customer's books
+                    would otherwise announce two different menus identically. */}
                 <span className="sr-only">
-                  Actions for account {row.accountNumber}
+                  Actions for {row.customerName}, account {row.ref}
                 </span>
               </Button>
             </DropdownMenuTrigger>

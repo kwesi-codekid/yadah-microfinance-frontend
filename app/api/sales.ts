@@ -129,10 +129,9 @@ export function voidSale(
 /**
  * GET /hire-purchase/sales/{id}/receipt — the A4 PDF, one line per basket item.
  *
- * A discounted line shows the list price beside what was charged. A voided sale
- * still prints, stamped VOIDED with its reason. Raw response: the browser holds
- * no access token, so a resource route proxies the body through with the
- * session's.
+ * Each line prints at the price it was sold for. A voided sale still prints,
+ * stamped VOIDED with its reason. Raw response: the browser holds no access
+ * token, so a resource route proxies the body through with the session's.
  */
 export function saleReceiptPdf(
   accessToken: string,

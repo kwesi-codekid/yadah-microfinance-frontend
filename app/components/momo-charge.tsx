@@ -11,7 +11,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { formatAmount, formatPesewas, parseCedis, toCedisInput } from "~/lib/format";
+import {
+  formatAmount,
+  formatPesewas,
+  parseCedis,
+  toCedisInput,
+} from "~/lib/format";
 import {
   checkPhone,
   needsAmount,
@@ -118,7 +123,7 @@ export function MomoFields({
             phoneFault ? "text-destructive" : "text-muted-foreground",
           )}
         >
-          {phoneFault ?? "Ten digits starting 02 or 05. The prompt goes to this handset."}
+          {phoneFault ?? ""}
         </p>
       </div>
 
@@ -146,7 +151,8 @@ export function MomoFields({
             htmlFor="amount"
             className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
           >
-            {amountLabel} · GH₵<span className="ml-0.5 text-destructive">*</span>
+            {amountLabel} · GH₵
+            <span className="ml-0.5 text-destructive">*</span>
           </Label>
           <Input
             id="amount"
@@ -159,7 +165,9 @@ export function MomoFields({
             aria-invalid={amountFault ? true : undefined}
             className={cn("tabular", amountFault && "border-destructive")}
           />
-          {amountFault && <p className="text-xs text-destructive">{amountFault}</p>}
+          {amountFault && (
+            <p className="text-xs text-destructive">{amountFault}</p>
+          )}
         </div>
       ) : (
         // Redemption is always the full remaining balance, computed server-side.

@@ -12,6 +12,7 @@ import { data, Form, NavLink, Outlet, useLocation } from "react-router";
 import { toast as sonner } from "sonner";
 
 import { BrandLockup } from "~/components/brand";
+import { InstallAppButton } from "~/components/install-app";
 import { ThemeToggle } from "~/components/theme-toggle";
 import { Button } from "~/components/ui/button";
 import { InitialsDisc } from "~/components/ui/data-table";
@@ -71,6 +72,13 @@ export default function PortalLayout({ loaderData }: Route.ComponentProps) {
           <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-3 sm:px-6">
             <BrandLockup tone="light" />
             <div className="ml-auto flex items-center gap-2">
+              {/* Only drawn where the browser can actually do it, so most
+                  sessions never see it. A phone is where it matters. */}
+              <InstallAppButton
+                compact
+                name="My Yadah"
+                className="text-white/80 hover:bg-white/10 hover:text-white"
+              />
               <ThemeToggle className="text-white hover:bg-white/10 hover:text-white" />
               <div className="hidden items-center gap-2 sm:flex">
                 {customer.photoUrl ? (

@@ -1,4 +1,4 @@
-import { BanknoteArrowDownIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { ArrowRightIcon, BanknoteArrowDownIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { data, Form, useActionData, useNavigation } from "react-router";
 import { toast } from "sonner";
@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
 import { getAccount, recordDeposit } from "~/api/susu";
+import { OccurredOnField } from "~/components/occurred-on-field";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -18,12 +19,14 @@ import {
   SelectValue,
 } from "~/components/ui/select";
 import { formatAmount, parseCedis, toCedisInput } from "~/lib/format";
+import { backdatingEnabled, occurredOnFromForm } from "~/lib/backdating.server";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import { requireUser, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import {
   CHANNEL_OPTIONS,
   CYCLE_TARGET,
+  carryNotice,
   checkDepositAmount,
   daysCovered,
   type DepositChannel,
@@ -48,7 +51,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       throwAsRouteError(error);
     }
   });
-  return data({ account: result.account }, { headers });
+  return data(
+    { account: result.account, backdating: backdatingEnabled() },
+    { headers },
+  );
 }
 
 export async function action({ request, params }: Route.ActionArgs) {
@@ -57,6 +63,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const amount = parseCedis(String(form.get("amount") ?? ""));
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
   const channel = String(form.get("channel") ?? "cash") as DepositChannel;
+  const occurredOn = occurredOnFromForm(form);
 
   if (amount == null || amount <= 0) {
     return data({ error: "Enter the cash received." }, { status: 400 });
@@ -67,7 +74,12 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   try {
     const { data: result, headers } = await withAuth(request, (token) =>
-      recordDeposit(token, params.id, { amount, idempotencyKey, channel }),
+      recordDeposit(token, params.id, {
+        amount,
+        idempotencyKey,
+        channel,
+        ...(occurredOn ? { occurredOn } : {}),
+      }),
     );
     // A replay is not a failure, but it is not a second deposit either — the
     // collector has to know which of the two just happened.
@@ -78,13 +90,24 @@ export async function action({ request, params }: Route.ActionArgs) {
       );
     }
     const days = result.deposit.daysCovered;
+    const [opened] = result.openedAccounts;
+    // A payment that ran past the end of the cycle finished this one and
+    // started the next. The new book carries the customer's own number — the
+    // same one already on this screen — so reading it out would tell the
+    // collector nothing. What changed is the cycle, so say that.
     await redirectWithToast(
       `/susu/${params.id}`,
-      {
-        tone: "success",
-        message: `GH₵ ${formatAmount(amount)} received.`,
-        description: `${days} day${days === 1 ? "" : "s"} · ${result.account.depositsCount} of ${result.account.cycleTarget} in the cycle.`,
-      },
+      opened
+        ? {
+            tone: "success",
+            message: `GH₵ ${formatAmount(result.totalAmount)} received — cycle complete.`,
+            description: `${days} day${days === 1 ? "" : "s"} finished this cycle; the balance opened their next book${opened.cycleMonth ? ` (${opened.cycleMonth})` : ""}.`,
+          }
+        : {
+            tone: "success",
+            message: `GH₵ ${formatAmount(amount)} received.`,
+            description: `${days} day${days === 1 ? "" : "s"} · ${result.account.depositsCount} of ${result.account.cycleTarget} in the cycle.`,
+          },
       headers,
     );
   } catch (error) {
@@ -99,7 +122,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
-  const { account } = loaderData;
+  const { account, backdating } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -115,6 +138,10 @@ export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
   const pesewas = parseCedis(amount);
   const issue = pesewas == null ? null : checkDepositAmount(account, pesewas);
   const days = pesewas != null && !issue ? daysCovered(account, pesewas) : 0;
+  // Money that runs past the end of the cycle is no longer refused — it
+  // finishes this one and starts the next. Said before the collector takes
+  // the cash, not after.
+  const carry = pesewas != null && !issue ? carryNotice(account, pesewas) : null;
   const target = account.cycleTarget || CYCLE_TARGET;
   const left = target - account.depositsCount;
 
@@ -175,12 +202,20 @@ export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
                   ? `Covers ${days} day${days === 1 ? "" : "s"}.`
                   : "A whole number of days.")}
             </p>
+            {carry && (
+              <p className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-xs text-info-foreground">
+                <ArrowRightIcon className="mt-0.5 size-3.5 shrink-0" />
+                <span>{carry}</span>
+              </p>
+            )}
           </div>
 
           {/* Catching up costs more than one day, so the quick buttons say how
-              many days each is rather than making anyone do the multiplication. */}
+              many days each is rather than making anyone do the multiplication.
+              Capped at what is left: a deliberate overflow is typed, not
+              tapped by accident. */}
           <div className="flex flex-wrap gap-2">
-            {[1, 2, 3, 7].filter((n) => n <= left).map((n) => (
+            {[1, 2, 3, 7, left].filter((n, i, all) => n <= left && all.indexOf(n) === i && n > 0).map((n) => (
               <Button
                 key={n}
                 type="button"
@@ -214,6 +249,8 @@ export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
               </SelectContent>
             </Select>
           </div>
+
+          <OccurredOnField enabled={backdating} noun="deposit" />
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">
