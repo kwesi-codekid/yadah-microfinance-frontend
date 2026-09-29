@@ -163,10 +163,11 @@ export function apply(
     principal: number;
     durationMonths: number;
     /**
-     * Who stands behind it — anybody, by name and phone. (The API also takes a
+     * Who stands behind it — anybody, by name and phone, as many as the paper
+     * names; the first is the one receipts print. (The API also takes a
      * registered customer as `guarantorId`; this form does not use it.)
      */
-    guarantor: { fullName: string; phone: string; idNumber?: string };
+    guarantors: { fullName: string; phone: string; idNumber?: string }[];
     /** From POST /uploads?kind=signature. */
     signatureUrl: string;
   },

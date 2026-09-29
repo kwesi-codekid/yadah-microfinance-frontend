@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ApiError } from "~/api/error";
 import { recordPaperLoan } from "~/api/loans";
 import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
+import { GuarantorFields } from "~/components/guarantor-fields";
 import { IDLE, ScanDrop, type Slot } from "~/components/scan-drop";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -15,6 +16,7 @@ import { Label } from "~/components/ui/label";
 import { formatPesewas, parseCedis } from "~/lib/format";
 import { DURATIONS, DURATION_LABELS, type LoanDuration } from "~/lib/loans";
 import { requireOffice, withAuth } from "~/lib/session.server";
+import { readGuarantors } from "~/lib/guarantors";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/loan-paper";
@@ -69,23 +71,9 @@ export async function action({ request }: Route.ActionArgs) {
     repayments.push({ paidOn: day, amount });
   }
 
-  // Guarantors the same way: three parallel lists, one entry per block.
-  const names = form.getAll("guarantorName").map((v) => String(v).trim());
-  const phones = form.getAll("guarantorPhone").map((v) => String(v).trim());
-  const ids = form.getAll("guarantorIdNumber").map((v) => String(v).trim());
-  const guarantors: { fullName: string; phone: string; idNumber?: string }[] = [];
-  for (const [i, fullName] of names.entries()) {
-    const phone = phones[i] ?? "";
-    const idNumber = ids[i] ?? "";
-    if (fullName === "" && phone === "" && idNumber === "") continue;
-    if (fullName === "" || phone === "") {
-      return data(
-        { error: `Guarantor ${i + 1} needs both a name and a phone.` },
-        { status: 400 },
-      );
-    }
-    guarantors.push({ fullName, phone, ...(idNumber ? { idNumber } : {}) });
-  }
+  const named = readGuarantors(form);
+  if ("error" in named) return data({ error: named.error }, { status: 400 });
+  const { guarantors } = named;
 
   if (!customerId) return data({ error: "Choose the customer." }, { status: 400 });
   if (principal == null || principal <= 0) {
@@ -152,8 +140,6 @@ export default function LoanPaper() {
   const nextKey = useRef(1);
   const [lines, setLines] = useState<number[]>([0]);
   const [paid, setPaid] = useState<Record<number, string>>({});
-  // One block per guarantor the paper names, keyed the same way.
-  const [guarantors, setGuarantors] = useState<number[]>(() => [nextKey.current++]);
 
   const pesewas = parseCedis(principal);
   const totalDue = pesewas != null && pesewas > 0 ? totalFor(pesewas, rate) : null;
@@ -310,76 +296,7 @@ export default function LoanPaper() {
             )}
           </fieldset>
 
-          <fieldset className="space-y-3">
-            <legend className={cn(label, "mb-1.5")}>
-              {guarantors.length > 1 ? "Guarantors" : "Guarantor"}
-            </legend>
-            {guarantors.map((key, i) => (
-              <div
-                key={key}
-                className={cn("space-y-3", i > 0 && "border-t border-border pt-3")}
-              >
-                <div className="flex items-end gap-2">
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <Label htmlFor={`guarantorName-${key}`} className="text-xs font-medium">
-                      Full name
-                    </Label>
-                    <Input
-                      id={`guarantorName-${key}`}
-                      name="guarantorName"
-                      autoComplete="off"
-                      maxLength={120}
-                    />
-                  </div>
-                  {i > 0 && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remove guarantor ${i + 1}`}
-                      onClick={() => setGuarantors((g) => g.filter((k) => k !== key))}
-                    >
-                      <XIcon />
-                    </Button>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor={`guarantorPhone-${key}`} className="text-xs font-medium">
-                      Phone
-                    </Label>
-                    <Input
-                      id={`guarantorPhone-${key}`}
-                      name="guarantorPhone"
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="off"
-                      maxLength={16}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor={`guarantorIdNumber-${key}`} className="text-xs font-medium">
-                      ID number
-                    </Label>
-                    <Input
-                      id={`guarantorIdNumber-${key}`}
-                      name="guarantorIdNumber"
-                      autoComplete="off"
-                      maxLength={40}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setGuarantors((g) => [...g, nextKey.current++])}
-            >
-              <PlusIcon /> Add guarantor
-            </Button>
-          </fieldset>
+          <GuarantorFields legendClassName={label} />
 
           <div className="space-y-1.5">
             <Label htmlFor="paperRef" className={label}>

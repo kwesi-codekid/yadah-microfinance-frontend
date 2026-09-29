@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { ApiError } from "~/api/error";
 import { apply as applyForLoan, getConfig } from "~/api/loans";
 import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
+import { GuarantorFields } from "~/components/guarantor-fields";
 import { IDLE, ScanDrop, type Slot } from "~/components/scan-drop";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -32,6 +33,7 @@ import {
   type LoanEligibility,
 } from "~/lib/loans";
 import { requireCounter, withAuth } from "~/lib/session.server";
+import { readGuarantors } from "~/lib/guarantors";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/loan-new";
@@ -57,9 +59,7 @@ export async function action({ request }: Route.ActionArgs) {
   await requireCounter(request);
   const form = await request.formData();
   const customerId = String(form.get("customerId") ?? "").trim();
-  const guarantorName = String(form.get("guarantorName") ?? "").trim();
-  const guarantorPhone = String(form.get("guarantorPhone") ?? "").trim();
-  const guarantorIdNumber = String(form.get("guarantorIdNumber") ?? "").trim();
+  const named = readGuarantors(form);
   const durationMonths = Number(form.get("durationMonths") ?? 0);
   const principal = parseCedis(String(form.get("principal") ?? "").trim());
   const signatureUrl = String(form.get("signatureUrl") ?? "").trim();
@@ -67,11 +67,9 @@ export async function action({ request }: Route.ActionArgs) {
   if (!customerId) {
     return data({ error: "Choose the customer applying." }, { status: 400 });
   }
-  if (guarantorName.length < 2) {
-    return data({ error: "Enter the guarantor's name." }, { status: 400 });
-  }
-  if (!guarantorPhone) {
-    return data({ error: "Enter the guarantor's phone number." }, { status: 400 });
+  if ("error" in named) return data({ error: named.error }, { status: 400 });
+  if (named.guarantors.length === 0) {
+    return data({ error: "Enter the guarantor's name and phone." }, { status: 400 });
   }
   if (!signatureUrl) {
     return data({ error: "Take a picture of the customer's signature." }, { status: 400 });
@@ -91,11 +89,7 @@ export async function action({ request }: Route.ActionArgs) {
         customerId,
         principal,
         durationMonths,
-        guarantor: {
-          fullName: guarantorName,
-          phone: guarantorPhone,
-          ...(guarantorIdNumber ? { idNumber: guarantorIdNumber } : {}),
-        },
+        guarantors: named.guarantors,
         signatureUrl,
       }),
     ));
@@ -127,8 +121,8 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
   const submitting = navigation.state === "submitting";
 
   const [customer, setCustomer] = useState<PickedCustomer | null>(null);
-  const [guarantorName, setGuarantorName] = useState("");
-  const [guarantorPhone, setGuarantorPhone] = useState("");
+  // What the first guarantor block holds — the button waits for a name and phone.
+  const [firstGuarantor, setFirstGuarantor] = useState({ fullName: "", phone: "" });
   const [principal, setPrincipal] = useState("");
   const [months, setMonths] = useState<LoanDuration>(6);
   // Uploaded the moment it is taken; the form only carries the URL.
@@ -226,56 +220,13 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
             <CustomerPicker value={customer} onChange={setCustomer} placeholder="" autoFocus />
           </div>
 
-
-          {/* The guarantor. Anybody willing to stand behind the loan — they
-              need not bank with the branch — written down as the paper
-              names them. */}
-          <fieldset className="space-y-3">
-            <legend className="mb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Guarantor
-            </legend>
-            <div className="space-y-1.5">
-              <Label htmlFor="guarantorName" className="text-xs font-medium">
-                Full name<span className="ml-0.5 text-destructive">*</span>
-              </Label>
-              <Input
-                id="guarantorName"
-                name="guarantorName"
-                value={guarantorName}
-                onChange={(event) => setGuarantorName(event.target.value)}
-                autoComplete="off"
-                maxLength={120}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="guarantorPhone" className="text-xs font-medium">
-                  Phone<span className="ml-0.5 text-destructive">*</span>
-                </Label>
-                <Input
-                  id="guarantorPhone"
-                  name="guarantorPhone"
-                  value={guarantorPhone}
-                  onChange={(event) => setGuarantorPhone(event.target.value)}
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="off"
-                  maxLength={16}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="guarantorIdNumber" className="text-xs font-medium">
-                  ID number
-                </Label>
-                <Input
-                  id="guarantorIdNumber"
-                  name="guarantorIdNumber"
-                  autoComplete="off"
-                  maxLength={40}
-                />
-              </div>
-            </div>
-          </fieldset>
+          {/* Whoever stands behind the loan — anybody, customer or not, and as
+              many as the paper names. */}
+          <GuarantorFields
+            legendClassName="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+            required
+            onFirstChange={setFirstGuarantor}
+          />
 
           <div className="space-y-1.5">
             <Label
@@ -358,8 +309,8 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
             disabled={
               submitting ||
               !customer ||
-              guarantorName.trim().length < 2 ||
-              !guarantorPhone.trim() ||
+              firstGuarantor.fullName.trim().length < 2 ||
+              !firstGuarantor.phone.trim() ||
               !principal ||
               Boolean(fault) ||
               blocked ||
