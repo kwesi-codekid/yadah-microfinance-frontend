@@ -1,5 +1,5 @@
 import { BellIcon, SearchIcon } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { data, Form, Link, Outlet, useLocation, useMatches } from "react-router";
 import { toast as sonner } from "sonner";
 
@@ -11,6 +11,14 @@ import { MobileNav } from "~/components/mobile-nav";
 import { navItemFor } from "~/components/nav-items";
 import { ProfileMenu } from "~/components/profile-menu";
 import { ThemeToggle } from "~/components/theme-toggle";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "~/components/ui/breadcrumb";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -269,19 +277,30 @@ function useFlashToast(toast: Toast | null) {
   }, [toast]);
 }
 
+/** One step of the trail a detail page shows in the header. */
+export interface Crumb {
+  label: string;
+  /** Where the step leads; the last step has none. */
+  to?: string;
+}
+
 /**
- * What the header calls this page: the rail item it belongs to, or — for pages
- * with no item of their own — the `handle.title` the route exports.
+ * What the header calls this page: the trail a detail page builds from its own
+ * data (`handle.crumbs`), else the `handle.title` the route exports, else the
+ * rail item it belongs to.
  */
-function useHeaderTitle(pathname: string): string | undefined {
+function useHeaderTitle(pathname: string): { title?: string; crumbs?: Crumb[] } {
   const matches = useMatches();
-  const named = [...matches]
-    .reverse()
-    .find(
-      (match): match is typeof match & { handle: { title: string } } =>
-        typeof (match.handle as { title?: unknown } | undefined)?.title === "string",
-    );
-  return named?.handle.title ?? navItemFor(pathname)?.label;
+  for (const match of [...matches].reverse()) {
+    const handle = match.handle as
+      | { title?: unknown; crumbs?: (data: unknown) => Crumb[] }
+      | undefined;
+    if (typeof handle?.crumbs === "function" && match.loaderData !== undefined) {
+      return { crumbs: handle.crumbs(match.loaderData) };
+    }
+    if (typeof handle?.title === "string") return { title: handle.title };
+  }
+  return { title: navItemFor(pathname)?.label };
 }
 
 /**
@@ -298,7 +317,7 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
   const { user, sidebarOpen, toast, dateLabel, bell } = loaderData;
   const { pathname } = useLocation();
   const mainRef = useRef<HTMLDivElement>(null);
-  const title = useHeaderTitle(pathname);
+  const { title, crumbs } = useHeaderTitle(pathname);
 
   useFlashToast(toast);
 
@@ -319,7 +338,30 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
           <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
             <SidebarTrigger className="shrink-0 text-muted-foreground" />
             <h1 className="min-w-0 truncate font-heading text-lg font-bold tracking-tight">
-              {title}
+              {crumbs ? (
+                <Breadcrumb>
+                  <BreadcrumbList className="flex-nowrap gap-1.5 text-lg sm:gap-1.5">
+                    {crumbs.map((crumb, i) => (
+                      <Fragment key={`${crumb.label}-${i}`}>
+                        {i > 0 && <BreadcrumbSeparator />}
+                        <BreadcrumbItem>
+                          {crumb.to ? (
+                            <BreadcrumbLink asChild>
+                              <Link to={crumb.to} className="font-medium text-muted-foreground">
+                                {crumb.label}
+                              </Link>
+                            </BreadcrumbLink>
+                          ) : (
+                            <BreadcrumbPage className="font-bold">{crumb.label}</BreadcrumbPage>
+                          )}
+                        </BreadcrumbItem>
+                      </Fragment>
+                    ))}
+                  </BreadcrumbList>
+                </Breadcrumb>
+              ) : (
+                title
+              )}
             </h1>
 
             <div className="ml-auto flex flex-wrap items-center gap-2.5">

@@ -620,6 +620,8 @@ function Stat({
 /* ----------------------------------------------------------------------- rows --- */
 
 function LoanRow({ row }: { row: Row }) {
+  // Carried into the repayment drawer so it closes onto the same filters.
+  const { search } = useLocation();
   return (
     <tr className="border-b border-border/60 last:border-0">
       <td className="tabular py-3 pr-3 whitespace-nowrap text-muted-foreground">
@@ -755,7 +757,11 @@ function LoanRow({ row }: { row: Row }) {
               </Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild disabled={!row.open}>
-              <Link to={`/loans/${row.id}/repay`} prefetch="intent">
+              <Link
+                to={`/loans/repay/${row.id}${search}`}
+                prefetch="intent"
+                preventScrollReset
+              >
                 <BanknoteArrowDownIcon />
                 Record repayment
               </Link>

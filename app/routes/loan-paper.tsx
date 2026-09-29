@@ -322,14 +322,10 @@ export default function LoanPaper() {
           <SheetCancel />
           <Button
             type="submit"
-            disabled={
-              submitting ||
-              !customer ||
-              pesewas == null ||
-              pesewas <= 0 ||
-              over ||
-              photo.status === "uploading"
-            }
+            // Only blocked while something is in flight. Anything missing or
+            // wrong is named when the button is pressed, rather than leaving
+            // a grey button nobody can explain.
+            disabled={submitting || photo.status === "uploading"}
           >
             {submitting && <Loader2Icon className="animate-spin" />}
             Record paper loan

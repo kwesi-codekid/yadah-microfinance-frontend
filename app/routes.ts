@@ -213,6 +213,9 @@ export default [
       route("config", "routes/loan-config.tsx"),
       // A loan made on paper before the system existed, copied in as history.
       route("paper", "routes/loan-paper.tsx"),
+      // The repayment drawer, opened over the book so the counter stays on the
+      // list. The same drawer also opens over a loan's own page.
+      route("repay/:id", "routes/loan-repay.tsx", { id: "routes/loans-repay" }),
     ]),
     // The paper loan book from a spreadsheet: a page, since it reviews many
     // loans at once. The template is a sibling so a download runs no page work.

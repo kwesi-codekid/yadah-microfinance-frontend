@@ -1,12 +1,11 @@
 import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { data, Form, useActionData, useNavigation } from "react-router";
+import { data, Form, useActionData, useLocation, useNavigation } from "react-router";
 import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
 import { getLoan, recordRepayment } from "~/api/loans";
-import { Figure } from "~/components/listing";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -18,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { formatAmount, formatPesewas, parseCedis, toCedisInput } from "~/lib/format";
+import { formatAmount, parseCedis, toCedisInput } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import {
   CHANNEL_OPTIONS,
@@ -106,7 +105,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   const settled = result.loan.status === "repaid";
   await redirectWithToast(
-    `/loans/${params.id}`,
+    returnTo(new URL(request.url), params.id),
     {
       tone: "success",
       message: result.replayed
@@ -120,6 +119,14 @@ export async function action({ request, params }: Route.ActionArgs) {
     },
     headers,
   );
+}
+
+/**
+ * Where the drawer closes onto: the loan list it was opened over
+ * (`/loans/repay/:id`), with its filters, or the loan's own page.
+ */
+function returnTo(url: URL, id: string): string {
+  return url.pathname.startsWith("/loans/repay/") ? `/loans${url.search}` : `/loans/${id}`;
 }
 
 /** The `remaining` an `EXCEEDS_BALANCE` reports, when it reports one. */
@@ -141,6 +148,7 @@ export default function LoanRepay({ loaderData }: Route.ComponentProps) {
   const { loan, nextInstallment } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
+  const { pathname } = useLocation();
   const submitting = navigation.state === "submitting";
 
   const [amount, setAmount] = useState("");
@@ -160,7 +168,8 @@ export default function LoanRepay({ loaderData }: Route.ComponentProps) {
 
   return (
     <RouteSheet
-      backTo={`/loans/${loan.id}`}
+      // Closes onto the list when opened over it; the query string rides along.
+      backTo={pathname.startsWith("/loans/repay/") ? "/loans" : `/loans/${loan.id}`}
       title="Record a repayment"
       description={loan.customerName || undefined}
     >
@@ -192,15 +201,6 @@ export default function LoanRepay({ loaderData }: Route.ComponentProps) {
               )}
             </div>
           )}
-
-          <dl className="grid grid-cols-2 gap-3">
-            <Figure label="Still owing" value={formatPesewas(loan.remaining)} tone="warning" />
-            <Figure
-              label="Repaid so far"
-              value={formatPesewas(loan.totalRepaid)}
-              hint={`of ${formatPesewas(loan.totalDue)}`}
-            />
-          </dl>
 
           <div className="space-y-1.5">
             <Label
