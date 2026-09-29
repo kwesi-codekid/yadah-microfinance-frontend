@@ -211,7 +211,13 @@ export default [
       route("new", "routes/loan-new.tsx"),
       // The parameters new lending runs on. A drawer over the book, office only.
       route("config", "routes/loan-config.tsx"),
+      // A loan made on paper before the system existed, copied in as history.
+      route("paper", "routes/loan-paper.tsx"),
     ]),
+    // The paper loan book from a spreadsheet: a page, since it reviews many
+    // loans at once. The template is a sibling so a download runs no page work.
+    route("loans/paper-import", "routes/loan-paper-import.tsx"),
+    route("loans/paper-import/template", "routes/loan-paper-import-template.tsx"),
     // Resource routes: they proxy a PDF from the API, which the browser cannot
     // fetch itself because it holds no access token.
     route("loans/:id/disbursement/receipt", "routes/loan-disbursement-receipt.tsx"),

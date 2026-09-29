@@ -7,6 +7,9 @@ import type {
   LoanConfig,
   LoanEligibility,
   LoanStatus,
+  PaperImportOutcome,
+  PaperImportPreview,
+  PaperLoanInput,
   Repayment,
   RepaymentChannel,
   SusuClosureResult,
@@ -90,11 +93,27 @@ export function getEligibility(
 
 /* -------------------------------------------------------------------- loans --- */
 
+/**
+ * The book in money, across the whole filter rather than the page. Only
+ * disbursed loans count — pending and rejected applications moved no cash.
+ */
+export interface LoanTotals {
+  disbursed: number;
+  disbursedCount: number;
+  repaid: number;
+  /** Owed on active and arrears loans. */
+  outstanding: number;
+  outstandingCount: number;
+  /** Owed on arrears loans alone. */
+  arrears: number;
+  arrearsCount: number;
+}
+
 /** GET /loans — the loan book, newest application first. */
 export function listLoans(
   accessToken: string,
   params: LoanListParams = {},
-): Promise<Paginated<Loan>> {
+): Promise<Paginated<Loan> & { totals: LoanTotals }> {
   return apiFetch(`/loans${queryOf({ ...params })}`, { accessToken });
 }
 
@@ -297,6 +316,54 @@ export function repaymentReceiptPdf(
   repaymentId: string,
 ): Promise<Response> {
   return apiFetchRaw(`/loans/${id}/repayments/${repaymentId}/receipt`, {
+    accessToken,
+  });
+}
+
+/* ------------------------------------------------------------- paper loans --- */
+
+/**
+ * POST /loans/paper — copy in a loan the branch made on paper before the
+ * system existed, dated as the paper dates it. Only while backdated entry is
+ * switched on (`BACKDATING_DISABLED` otherwise), and office only.
+ */
+export function recordPaperLoan(
+  accessToken: string,
+  input: PaperLoanInput,
+): Promise<{ loan: Loan }> {
+  return apiFetch("/loans/paper", { method: "POST", json: input, accessToken });
+}
+
+/** GET /loans/paper/import/template — the blank sheet, one row per payment. */
+export function paperImportTemplate(
+  accessToken: string,
+  format: "csv" | "xlsx",
+): Promise<Response> {
+  return apiFetchRaw(`/loans/paper/import/template?format=${format}`, { accessToken });
+}
+
+/** POST /loans/paper/import/preview — check a filled sheet. Writes nothing. */
+export function previewPaperImport(
+  accessToken: string,
+  file: File,
+): Promise<PaperImportPreview> {
+  const body = new FormData();
+  body.append("file", file);
+  return apiFetch("/loans/paper/import/preview", {
+    method: "POST",
+    formData: body,
+    accessToken,
+  });
+}
+
+/** POST /loans/paper/import — record the sheet's loans, loan by loan. */
+export function runPaperImport(
+  accessToken: string,
+  rows: { row: number; values: Record<string, string> }[],
+): Promise<PaperImportOutcome> {
+  return apiFetch("/loans/paper/import", {
+    method: "POST",
+    json: { rows },
     accessToken,
   });
 }

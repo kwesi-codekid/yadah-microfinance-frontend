@@ -384,6 +384,24 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
             {TIER_LABELS[loan.tier]} tier · {loan.durationMonths} months ·{" "}
             {formatPesewas(loan.principal)} principal
           </p>
+          {loan.origin === "paper" && (
+            <p className="text-sm text-muted-foreground">
+              Paper loan{loan.paperRef ? ` · no. ${loan.paperRef}` : ""}
+              {loan.paperPhotoUrl && (
+                <>
+                  {" · "}
+                  <a
+                    href={loan.paperPhotoUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="underline underline-offset-4 hover:text-foreground"
+                  >
+                    photo of the form
+                  </a>
+                </>
+              )}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -438,6 +456,7 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
         <GuarantorCard
           guarantor={loan.guarantor}
           customerId={loan.guarantorId}
+          more={loan.moreGuarantors ?? []}
         />
       )}
 
@@ -537,37 +556,53 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
 function GuarantorCard({
   guarantor,
   customerId,
+  more,
 }: {
   guarantor: LoanGuarantor;
   /** Absent on a snapshot written before the id was stored alongside it. */
   customerId?: string;
+  /** Anybody else the paper names, after the first. */
+  more: { fullName: string; phone: string; idNumber?: string }[];
 }) {
-  const id =
-    guarantor.idType && guarantor.idNumber
-      ? `${ID_TYPE_LABELS[guarantor.idType]} ${guarantor.idNumber}`
-      : null;
+  const everyone: (LoanGuarantor & { customerId?: string })[] = [
+    { ...guarantor, ...(customerId ? { customerId } : {}) },
+    ...more,
+  ];
 
   return (
-    <section className="mb-6 rounded-xl border border-border bg-card px-4 py-3">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="eyebrow text-muted-foreground">Guarantor</span>
-        <span className="font-medium">
-          {customerId ? (
-            <Link
-              to={`/customers/${customerId}`}
-              className="underline-offset-4 hover:underline"
-            >
-              {guarantor.fullName}
-            </Link>
-          ) : (
-            guarantor.fullName
-          )}
-        </span>
-        <span className="tabular text-sm text-muted-foreground">
-          {guarantor.phone}
-        </span>
-        {id && <span className="text-sm text-muted-foreground">{id}</span>}
-      </div>
+    <section className="mb-6 space-y-1.5 rounded-xl border border-border bg-card px-4 py-3">
+      {everyone.map((g, i) => {
+        // A guarantor typed in by hand has an ID number but no recorded type.
+        const id = g.idNumber
+          ? g.idType
+            ? `${ID_TYPE_LABELS[g.idType]} ${g.idNumber}`
+            : g.idNumber
+          : null;
+        return (
+          <div
+            key={`${g.fullName}-${g.phone}-${i}`}
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-1"
+          >
+            <span className="eyebrow w-28 shrink-0 text-muted-foreground">
+              {i === 0 ? (everyone.length > 1 ? "Guarantors" : "Guarantor") : ""}
+            </span>
+            <span className="font-medium">
+              {g.customerId ? (
+                <Link
+                  to={`/customers/${g.customerId}`}
+                  className="underline-offset-4 hover:underline"
+                >
+                  {g.fullName}
+                </Link>
+              ) : (
+                g.fullName
+              )}
+            </span>
+            <span className="tabular text-sm text-muted-foreground">{g.phone}</span>
+            {id && <span className="text-sm text-muted-foreground">{id}</span>}
+          </div>
+        );
+      })}
     </section>
   );
 }

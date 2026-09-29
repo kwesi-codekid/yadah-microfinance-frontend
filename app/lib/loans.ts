@@ -87,6 +87,59 @@ export interface Loan {
   /** The customer standing behind it. Absent on loans that predate the rule. */
   guarantorId?: string;
   guarantor?: LoanGuarantor;
+  /** Anybody else standing behind it, after the first (paper loans may name several). */
+  moreGuarantors?: { fullName: string; phone: string; idNumber?: string }[];
+  /** `paper` for a loan copied in from the branch's pre-system records. */
+  origin?: "paper";
+  /** The number on the paper form. */
+  paperRef?: string;
+  /** A photograph of the paper form. */
+  paperPhotoUrl?: string;
+}
+
+/* ------------------------------------------------------------- paper loans --- */
+
+/** What the "add paper loan" form sends: the loan as its paper records it. */
+export interface PaperLoanInput {
+  customerId: string;
+  principal: number;
+  durationMonths: LoanDuration;
+  /** The rate the paper says is owed today. */
+  ratePercent: 10 | 20 | 30;
+  /** `YYYY-MM-DD` — the day the money was handed over. */
+  disbursedOn: string;
+  /** Everybody the paper names as guarantor, first one first. */
+  guarantors: { fullName: string; phone: string; idNumber?: string }[];
+  repayments: { paidOn: string; amount: number }[];
+  paperRef?: string;
+  paperPhotoUrl?: string;
+}
+
+/** One loan in a checked paper-loan sheet. Empty `issues` means ready. */
+export interface PaperImportLoan {
+  paperRef: string;
+  rows: number[];
+  customerId: string | null;
+  customerName: string | null;
+  principal: number | null;
+  totalDue: number | null;
+  totalRepaid: number;
+  payments: number;
+  status: "active" | "repaid" | null;
+  issues: string[];
+}
+
+export interface PaperImportPreview {
+  rows: { row: number; values: Record<string, string> }[];
+  loans: PaperImportLoan[];
+  unknownHeaders: string[];
+  counts: { loans: number; ready: number; blocked: number; payments: number };
+}
+
+export interface PaperImportOutcome {
+  created: { paperRef: string; id: string; customerName: string | null }[];
+  failed: { paperRef: string; rows: number[]; issues: string[] }[];
+  counts: { total: number; created: number; failed: number };
 }
 
 /** A loan in the trash. `deletedAt` is what separates it from a live one. */

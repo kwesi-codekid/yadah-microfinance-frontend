@@ -1,16 +1,29 @@
 import {
+  AlertTriangleIcon,
   BanknoteArrowDownIcon,
+  BanknoteIcon,
   EllipsisIcon,
+  HandCoinsIcon,
   EyeIcon,
+  FileTextIcon,
   LandmarkIcon,
   PlusIcon,
   SettingsIcon,
   TrendingUpIcon,
+  UploadIcon,
   UserIcon,
+  WalletIcon,
 } from "lucide-react";
-import { data, Link, Outlet, useLocation, useNavigation, useSubmit } from "react-router";
+import {
+  data,
+  Link,
+  Outlet,
+  useLocation,
+  useNavigation,
+  useSubmit,
+} from "react-router";
 
-import { listLoans } from "~/api/loans";
+import { listLoans, type LoanTotals } from "~/api/loans";
 import { FilterRail, RailFrame } from "~/components/filter-rail";
 import {
   DayRangeChip,
@@ -40,6 +53,7 @@ import {
 import {
   accraDay,
   formatAccraDate,
+  formatCount,
   formatPesewas,
   relativeDayLabel,
 } from "~/lib/format";
@@ -71,7 +85,13 @@ export const handle = {
 
 const PAGE_SIZE = 20;
 
-const STATUSES: LoanStatus[] = ["pending", "active", "arrears", "repaid", "rejected"];
+const STATUSES: LoanStatus[] = [
+  "pending",
+  "active",
+  "arrears",
+  "repaid",
+  "rejected",
+];
 
 const TABS = [
   { key: "all", label: "All" },
@@ -145,18 +165,21 @@ export async function loader({ request }: Route.LoaderArgs) {
       from: filters.from || undefined,
       to: filters.to || undefined,
     };
-    const [list, ...counts] = await Promise.all([
+    // The money cards cover the search and the dates but not the status tab —
+    // "Arrears" on the Pending tab would otherwise read GHS 0.
+    const [list, whole, ...counts] = await Promise.all([
       listLoans(token, {
         ...scope,
         page,
         limit: PAGE_SIZE,
         status: filters.status === "all" ? undefined : filters.status,
       }),
+      listLoans(token, { ...scope, page: 1, limit: 1 }),
       ...STATUSES.map((status) =>
         listLoans(token, { ...scope, page: 1, limit: 1, status }),
       ),
     ]);
-    return { list, counts };
+    return { list, totals: whole.totals, counts };
   });
 
   const byStatus = Object.fromEntries(
@@ -171,6 +194,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       filters,
       page,
       total: result.list.total,
+      totals: result.totals,
       counts: {
         all: STATUSES.reduce((sum, s) => sum + byStatus[s], 0),
         ...byStatus,
@@ -212,6 +236,8 @@ interface Row {
   overdue: number | null;
   open: boolean;
   pending: boolean;
+  /** Copied in from the paper records that predate the system. */
+  paper: boolean;
 }
 
 function toRow(loan: Loan, now: Date, today: string): Row {
@@ -237,6 +263,7 @@ function toRow(loan: Loan, now: Date, today: string): Row {
     overdue: daysOverdue(dueDay, today),
     open: isOpen(loan),
     pending: isPending(loan),
+    paper: loan.origin === "paper",
   };
 }
 
@@ -257,7 +284,7 @@ const PILL: Record<LoanStatus, string> = {
 /* -------------------------------------------------------------------- page --- */
 
 export default function Loans({ loaderData }: Route.ComponentProps) {
-  const { filters, page, total, counts, rows } = loaderData;
+  const { filters, page, total, totals, counts, rows } = loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
   const { search } = useLocation();
@@ -266,7 +293,8 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
   const office = isOffice(useCurrentUser());
 
   const busy =
-    navigation.state === "loading" && navigation.location?.pathname === "/loans";
+    navigation.state === "loading" &&
+    navigation.location?.pathname === "/loans";
 
   const apply = (patch: Partial<Filters>) =>
     submit(queryFor({ ...filters, ...patch }), {
@@ -367,23 +395,59 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
               noun="loan"
             />
           )}
+          {/* Loans made on paper before the system existed, copied in as
+              history — one at a time in a drawer, or a sheet at once. */}
+          {office && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <FileTextIcon />
+                  Paper loans
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-auto whitespace-nowrap">
+                <DropdownMenuItem asChild>
+                  <Link to={`/loans/paper${search}`} prefetch="intent" preventScrollReset>
+                    <PlusIcon />
+                    Add paper loan
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/loans/paper-import">
+                    <UploadIcon />
+                    Import from spreadsheet
+                  </Link>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           {/* The rates and limits new lending runs on. A drawer, so the
               book stays underneath while they are changed. */}
           {office && (
             <Button asChild variant="outline" size="sm">
-              <Link to={`/loans/config${search}`} prefetch="intent" preventScrollReset>
+              <Link
+                to={`/loans/config${search}`}
+                prefetch="intent"
+                preventScrollReset
+              >
                 <SettingsIcon />
                 Settings
               </Link>
             </Button>
           )}
           <Button asChild size="sm">
-            <Link to={`/loans/new${search}`} prefetch="intent" preventScrollReset>
+            <Link
+              to={`/loans/new${search}`}
+              prefetch="intent"
+              preventScrollReset
+            >
               <PlusIcon />
               New application
             </Link>
           </Button>
         </div>
+
+        <TotalsBand totals={totals} />
 
         <section className="overflow-hidden rounded-2xl bg-card pt-2 text-card-foreground">
           {narrowed && (
@@ -455,15 +519,122 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
   );
 }
 
+/* ------------------------------------------------------------------ totals --- */
+
+/**
+ * The book in money, as the four KPI cards the other ledgers open with. The
+ * figures cover the search and the dates across every page, not the rows on
+ * screen, and only loans that were disbursed — a pending application has lent
+ * nothing yet.
+ */
+function TotalsBand({ totals }: { totals: LoanTotals }) {
+  return (
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <Stat
+        label="Total loaned"
+        value={formatPesewas(totals.disbursed)}
+        note={`Principal across ${formatCount(totals.disbursedCount)} disbursed`}
+        icon={BanknoteIcon}
+        tone="neutral"
+      />
+      <Stat
+        label="Amount paid"
+        value={formatPesewas(totals.repaid)}
+        note="Repayments collected"
+        icon={HandCoinsIcon}
+        tone="in"
+      />
+      <Stat
+        label="Outstanding"
+        value={formatPesewas(totals.outstanding)}
+        note={`Still owed on ${formatCount(totals.outstandingCount)} open`}
+        icon={WalletIcon}
+        tone="revenue"
+      />
+      <Stat
+        label="In arrears"
+        value={formatPesewas(totals.arrears)}
+        note={`Owed on ${formatCount(totals.arrearsCount)} late ${totals.arrearsCount === 1 ? "loan" : "loans"}`}
+        icon={AlertTriangleIcon}
+        tone="danger"
+      />
+    </div>
+  );
+}
+
+/** The dashboard's KPI tile, as the sales and ledger pages draw it. */
+function Stat({
+  label,
+  value,
+  note,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: string;
+  note: string;
+  icon: typeof BanknoteIcon;
+  tone: "in" | "danger" | "revenue" | "neutral";
+}) {
+  return (
+    <div className="relative rounded-2xl bg-card p-4">
+      <span
+        aria-hidden
+        className={cn(
+          "absolute top-3.5 right-3.5 rounded-lg p-2",
+          tone === "in" && "bg-cash-in-subtle",
+          tone === "danger" && "bg-danger-subtle",
+          tone === "revenue" && "bg-revenue-subtle",
+          tone === "neutral" && "bg-internal-subtle",
+        )}
+      >
+        <Icon
+          className={cn(
+            "size-4",
+            tone === "in" && "text-cash-in",
+            tone === "danger" && "text-danger",
+            tone === "revenue" && "text-revenue-foreground",
+            tone === "neutral" && "text-internal",
+          )}
+        />
+      </span>
+      {/* Keyed so a change of filter re-enters the number instead of snapping. */}
+      <p
+        key={value}
+        className={cn(
+          "tabular animate-in fade-in slide-in-from-bottom-1 pr-10 text-[22px] font-bold tracking-tight duration-300 motion-reduce:animate-none",
+          tone === "in" && "text-cash-in",
+          tone === "danger" && "text-danger",
+          tone === "revenue" && "text-revenue-foreground",
+          tone === "neutral" && "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-xs font-medium">{label}</p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{note}</p>
+    </div>
+  );
+}
+
 /* ----------------------------------------------------------------------- rows --- */
 
 function LoanRow({ row }: { row: Row }) {
   return (
     <tr className="border-b border-border/60 last:border-0">
       <td className="tabular py-3 pr-3 whitespace-nowrap text-muted-foreground">
-        <Link to={`/loans/${row.id}`} className="hover:text-foreground" title={row.id}>
+        <Link
+          to={`/loans/${row.id}`}
+          className="hover:text-foreground"
+          title={row.id}
+        >
           {row.ref}
         </Link>
+        {row.paper && (
+          <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            Paper
+          </span>
+        )}
       </td>
 
       <td className="py-3 pr-3">
@@ -516,7 +687,9 @@ function LoanRow({ row }: { row: Row }) {
       </td>
 
       <td className="py-3 pr-3 text-right whitespace-nowrap">
-        <span className="tabular font-semibold">{formatPesewas(row.remaining)}</span>
+        <span className="tabular font-semibold">
+          {formatPesewas(row.remaining)}
+        </span>
         {row.open && (
           <span
             className="mt-1 block h-1 overflow-hidden rounded-full bg-muted"
@@ -534,7 +707,9 @@ function LoanRow({ row }: { row: Row }) {
         )}
       </td>
 
-      <td className="py-3 pr-3 whitespace-nowrap text-muted-foreground">{row.applied}</td>
+      <td className="py-3 pr-3 whitespace-nowrap text-muted-foreground">
+        {row.applied}
+      </td>
 
       {/* No due date until approval builds the schedule — an em dash, not a
           blank, so the column reads as empty rather than broken. */}
@@ -551,7 +726,10 @@ function LoanRow({ row }: { row: Row }) {
 
       <td className="py-3 pr-3 whitespace-nowrap">
         <span
-          className={cn("rounded-full px-2.5 py-1 text-[11px] font-medium", PILL[row.status])}
+          className={cn(
+            "rounded-full px-2.5 py-1 text-[11px] font-medium",
+            PILL[row.status],
+          )}
           title={LOAN_STATUS_BLURBS[row.status]}
         >
           {LOAN_STATUS_LABELS[row.status]}
@@ -596,7 +774,13 @@ function LoanRow({ row }: { row: Row }) {
   );
 }
 
-function LoansEmpty({ filters, narrowed }: { filters: Filters; narrowed: boolean }) {
+function LoansEmpty({
+  filters,
+  narrowed,
+}: {
+  filters: Filters;
+  narrowed: boolean;
+}) {
   return (
     <Empty className="py-16">
       <EmptyHeader>
