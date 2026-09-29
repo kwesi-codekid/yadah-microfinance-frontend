@@ -297,6 +297,9 @@ const PILL: Record<LoanStatus, string> = {
 
 /* -------------------------------------------------------------------- page --- */
 
+/** The Settings button over the book. Hidden for now; the page still works. */
+const SHOW_SETTINGS = false;
+
 /** Shared by each row's Approve and the page that announces the answer. */
 const APPROVAL_FETCHER = "loans-approve";
 type ApprovalResult = { ok: boolean; message: string };
@@ -449,8 +452,10 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
             </DropdownMenu>
           )}
           {/* The rates and limits new lending runs on. A drawer, so the
-              book stays underneath while they are changed. */}
-          {office && (
+              book stays underneath while they are changed. Hidden for now
+              (29 Sep 2026) — flip SHOW_SETTINGS to bring it back; the drawer
+              route itself is still there at /loans/config. */}
+          {SHOW_SETTINGS && office && (
             <Button asChild variant="outline" size="sm">
               <Link
                 to={`/loans/config${search}`}
