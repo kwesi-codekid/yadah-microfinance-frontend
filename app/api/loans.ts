@@ -129,12 +129,9 @@ export function getLoan(
 /**
  * POST /loans/applications — record what the customer asked for.
  *
- * Both the borrower and their guarantor must have an ID on file: refused with
- * `ID_REQUIRED` until the borrower's type and number are recorded and with
- * `ID_DOCUMENT_REQUIRED` until both sides are uploaded, and with
- * `GUARANTOR_ID_INCOMPLETE` (`details.missing` naming the halves),
- * `GUARANTOR_NOT_FOUND`, `GUARANTOR_INACTIVE` or `GUARANTOR_IS_BORROWER` for
- * the guarantor. Any ID type counts, for either of them.
+ * The borrower must have an ID on file: refused with `ID_REQUIRED` until their
+ * type and number are recorded and with `ID_DOCUMENT_REQUIRED` until both sides
+ * are uploaded. The guarantor can be anybody, taken as written.
  *
  * Also refused with `LOAN_EXISTS` when one is already open, and with
  * `BIG_TIER_LOCKED` for a big principal from someone who has not repaid a small
@@ -146,8 +143,11 @@ export function apply(
     customerId: string;
     principal: number;
     durationMonths: number;
-    /** The customer standing behind it. Never the borrower themselves. */
-    guarantorId: string;
+    /**
+     * Who stands behind it — anybody, by name and phone. (The API also takes a
+     * registered customer as `guarantorId`; this form does not use it.)
+     */
+    guarantor: { fullName: string; phone: string; idNumber?: string };
     /** From POST /uploads?kind=signature. */
     signatureUrl: string;
   },

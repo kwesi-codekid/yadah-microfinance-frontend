@@ -1,17 +1,12 @@
 import {
   CheckIcon,
-  FileImageIcon,
-  IdCardIcon,
   Loader2Icon,
-  LockIcon,
-  MinusIcon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import {
   data,
   Form,
-  Link,
   useActionData,
   useFetcher,
   useNavigation,
@@ -22,20 +17,16 @@ import { ApiError } from "~/api/error";
 import { apply as applyForLoan, getConfig } from "~/api/loans";
 import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
 import { IDLE, ScanDrop, type Slot } from "~/components/scan-drop";
-import { Figure } from "~/components/listing";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import { formatAmount, formatPesewas, parseCedis } from "~/lib/format";
+import { parseCedis } from "~/lib/format";
 import {
   DURATIONS,
   DURATION_LABELS,
   checkPrincipal,
-  guarantorIssue,
-  interestOn,
   rateFor,
-  tierFor,
   withDefaults,
   type LoanDuration,
   type LoanEligibility,
@@ -66,7 +57,9 @@ export async function action({ request }: Route.ActionArgs) {
   await requireCounter(request);
   const form = await request.formData();
   const customerId = String(form.get("customerId") ?? "").trim();
-  const guarantorId = String(form.get("guarantorId") ?? "").trim();
+  const guarantorName = String(form.get("guarantorName") ?? "").trim();
+  const guarantorPhone = String(form.get("guarantorPhone") ?? "").trim();
+  const guarantorIdNumber = String(form.get("guarantorIdNumber") ?? "").trim();
   const durationMonths = Number(form.get("durationMonths") ?? 0);
   const principal = parseCedis(String(form.get("principal") ?? "").trim());
   const signatureUrl = String(form.get("signatureUrl") ?? "").trim();
@@ -74,14 +67,11 @@ export async function action({ request }: Route.ActionArgs) {
   if (!customerId) {
     return data({ error: "Choose the customer applying." }, { status: 400 });
   }
-  if (!guarantorId) {
-    return data({ error: "Choose the guarantor." }, { status: 400 });
+  if (guarantorName.length < 2) {
+    return data({ error: "Enter the guarantor's name." }, { status: 400 });
   }
-  if (guarantorId === customerId) {
-    return data(
-      { error: "A customer cannot guarantee their own loan." },
-      { status: 400 },
-    );
+  if (!guarantorPhone) {
+    return data({ error: "Enter the guarantor's phone number." }, { status: 400 });
   }
   if (!signatureUrl) {
     return data({ error: "Take a picture of the customer's signature." }, { status: 400 });
@@ -101,7 +91,11 @@ export async function action({ request }: Route.ActionArgs) {
         customerId,
         principal,
         durationMonths,
-        guarantorId,
+        guarantor: {
+          fullName: guarantorName,
+          phone: guarantorPhone,
+          ...(guarantorIdNumber ? { idNumber: guarantorIdNumber } : {}),
+        },
         signatureUrl,
       }),
     ));
@@ -121,7 +115,6 @@ export async function action({ request }: Route.ActionArgs) {
     {
       tone: "success",
       message: "Application recorded.",
-      description: "Nothing is disbursed until someone approves it.",
     },
     headers,
   );
@@ -134,7 +127,8 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
   const submitting = navigation.state === "submitting";
 
   const [customer, setCustomer] = useState<PickedCustomer | null>(null);
-  const [guarantor, setGuarantor] = useState<PickedCustomer | null>(null);
+  const [guarantorName, setGuarantorName] = useState("");
+  const [guarantorPhone, setGuarantorPhone] = useState("");
   const [principal, setPrincipal] = useState("");
   const [months, setMonths] = useState<LoanDuration>(6);
   // Uploaded the moment it is taken; the form only carries the URL.
@@ -151,12 +145,8 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
   }, [customer?.id]);
 
   const eligibility = customer ? history.data?.eligibility ?? null : null;
-  const loading = customer != null && history.state !== "idle";
 
   const pesewas = parseCedis(principal);
-  const rate = rateFor(config, months);
-  const interest = pesewas != null ? interestOn(pesewas, rate) : 0;
-  const tier = pesewas != null ? tierFor(config, pesewas) : null;
 
   const fault =
     principal === ""
@@ -172,16 +162,45 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
   const noId = eligibility?.customer.hasId === false;
   const noScans = eligibility?.customer.hasIdDocument === false;
   const alreadyOpen = eligibility?.openLoan != null;
-  // The guarantor is held to the same ID rule as the borrower, and cannot be
-  // the borrower. Both are the API's refusals, said here first.
-  const guarantorFault = guarantor
-    ? guarantorIssue(customer?.id ?? null, guarantor)
-    : null;
-  const blocked = noId || noScans || alreadyOpen || Boolean(guarantorFault);
+  const blocked = noId || noScans || alreadyOpen;
 
   useEffect(() => {
     if (actionData?.error) toast.error(actionData.error);
   }, [actionData]);
+
+  // The customer's standing, said once as a toast when their record comes in.
+  // Red when something stops the application, plain otherwise.
+  useEffect(() => {
+    if (!customer || history.state !== "idle" || !history.data) return;
+    const { eligibility: e, error } = history.data;
+    if (error || !e) {
+      toast.warning(error ?? "Could not read their history.");
+      return;
+    }
+    const idMissing = e.customer.hasId === false;
+    const photosMissing = e.customer.hasIdDocument === false;
+    const open = e.openLoan != null;
+    const lines = [
+      idMissing ? "No ID recorded" : e.customer.hasGhanaCard ? "Ghana Card" : "ID recorded",
+      photosMissing ? "ID photos missing" : "ID photos uploaded",
+      open ? "Loan already open" : "No open loan",
+      e.bigTierUnlocked ? "Big tier unlocked" : "Big tier locked",
+    ];
+    const description = (
+      <ul>
+        {lines.map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+    );
+    if (idMissing || photosMissing || open) {
+      toast.error(customer.fullName, { description });
+    } else {
+      toast(customer.fullName, { description });
+    }
+    // Once per record read — not again on every keystroke elsewhere.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history.data, history.state]);
 
   return (
     <RouteSheet
@@ -204,53 +223,59 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
             <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Customer<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            <CustomerPicker value={customer} onChange={setCustomer} autoFocus />
+            <CustomerPicker value={customer} onChange={setCustomer} placeholder="" autoFocus />
           </div>
 
-          {customer && (
-            <HistoryPanel
-              loading={loading}
-              eligibility={eligibility}
-              error={history.data?.error ?? null}
-            />
-          )}
 
-          {/* The guarantor. Another customer of the branch, with an ID recorded
-              and photographed — the same standard the borrower is held to,
-              because they are who the branch turns to if the borrower stops
-              paying. The search says on the row who does not qualify yet. */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Guarantor<span className="ml-0.5 text-destructive">*</span>
-            </Label>
-            <CustomerPicker
-              name="guarantorId"
-              value={guarantor}
-              onChange={setGuarantor}
-              placeholder="Search the guarantor by name or phone"
-              warn={(candidate) => guarantorIssue(customer?.id ?? null, candidate)}
-            />
-            {/* The picker has already said what is wrong with the person
-                chosen, so this line is what to do about it, not a repeat. */}
-            {guarantorFault ? (
-              <p className="text-xs text-destructive">
-                {guarantor && guarantor.id !== customer?.id ? (
-                  <Link
-                    to={`/customers/${guarantor.id}/edit`}
-                    className="underline underline-offset-4"
-                  >
-                    Complete their record
-                  </Link>
-                ) : (
-                  "Pick somebody else."
-                )}
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                A customer with their ID on file. Any ID type will do.
-              </p>
-            )}
-          </div>
+          {/* The guarantor. Anybody willing to stand behind the loan — they
+              need not bank with the branch — written down as the paper
+              names them. */}
+          <fieldset className="space-y-3">
+            <legend className="mb-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              Guarantor
+            </legend>
+            <div className="space-y-1.5">
+              <Label htmlFor="guarantorName" className="text-xs font-medium">
+                Full name<span className="ml-0.5 text-destructive">*</span>
+              </Label>
+              <Input
+                id="guarantorName"
+                name="guarantorName"
+                value={guarantorName}
+                onChange={(event) => setGuarantorName(event.target.value)}
+                autoComplete="off"
+                maxLength={120}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="guarantorPhone" className="text-xs font-medium">
+                  Phone<span className="ml-0.5 text-destructive">*</span>
+                </Label>
+                <Input
+                  id="guarantorPhone"
+                  name="guarantorPhone"
+                  value={guarantorPhone}
+                  onChange={(event) => setGuarantorPhone(event.target.value)}
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="off"
+                  maxLength={16}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="guarantorIdNumber" className="text-xs font-medium">
+                  ID number
+                </Label>
+                <Input
+                  id="guarantorIdNumber"
+                  name="guarantorIdNumber"
+                  autoComplete="off"
+                  maxLength={40}
+                />
+              </div>
+            </div>
+          </fieldset>
 
           <div className="space-y-1.5">
             <Label
@@ -265,89 +290,50 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
               value={principal}
               onChange={(event) => setPrincipal(event.target.value)}
               inputMode="decimal"
-              placeholder="0.00"
               autoComplete="off"
               aria-invalid={fault ? true : undefined}
               className={cn("tabular", fault && "border-destructive")}
             />
-            <p
-              className={cn(
-                "text-xs",
-                fault ? "text-destructive" : "text-muted-foreground",
-              )}
-            >
-              {fault ??
-                `Small: GH₵ ${formatAmount(config.smallMinPesewas)}–${formatAmount(config.smallMaxPesewas)}. Big: up to GH₵ ${formatAmount(config.bigMaxPesewas)}.`}
-            </p>
+            {fault && <p className="text-xs text-destructive">{fault}</p>}
           </div>
 
           <fieldset className="space-y-1.5">
             <legend className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Duration
             </legend>
-            {/* Three fixed durations, each with its own flat rate. A segmented
-                control rather than a dropdown: the rate is the thing being
-                chosen, and it should be visible in all three options at once. */}
-            <div className="grid grid-cols-3 gap-2">
+            {/* Three fixed durations, each with its own flat rate, drawn as
+                checkboxes. Underneath they are still radios: a loan has one
+                duration, and a box that could tick two would be a lie. */}
+            <div className="space-y-2 pt-1">
               {DURATIONS.map((d) => (
-                <label
-                  key={d}
-                  className={cn(
-                    "flex cursor-pointer flex-col items-center gap-0.5 rounded-lg border px-3 py-2.5 text-center transition-colors",
-                    "focus-within:ring-2 focus-within:ring-ring",
-                    months === d
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-input hover:bg-accent",
-                  )}
-                >
+                <label key={d} className="flex cursor-pointer items-center gap-2 text-sm">
                   <input
                     type="radio"
                     name="durationMonths"
                     value={d}
                     checked={months === d}
                     onChange={() => setMonths(d)}
-                    className="sr-only"
+                    className="peer sr-only"
                   />
-                  <span className="text-sm font-medium">{DURATION_LABELS[d]}</span>
                   <span
+                    aria-hidden
                     className={cn(
-                      "tabular text-xs",
-                      months === d ? "text-primary" : "text-muted-foreground",
+                      "flex size-4 shrink-0 items-center justify-center rounded-[4px] border shadow-xs transition-colors",
+                      "peer-focus-visible:ring-[3px] peer-focus-visible:ring-ring/50",
+                      months === d
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-input bg-background",
                     )}
                   >
-                    {rateFor(config, d)}% flat
+                    {months === d && <CheckIcon className="size-3.5" />}
+                  </span>
+                  <span>
+                    {DURATION_LABELS[d]} · <span className="tabular">{rateFor(config, d)}%</span>
                   </span>
                 </label>
               ))}
             </div>
           </fieldset>
-
-          {/* What the loan costs, worked out before anyone commits to it. Flat
-              interest on the principal, so this figure does not change with
-              early repayment — which is the part customers ask about. */}
-          {pesewas != null && !fault && (
-            <dl className="grid grid-cols-2 gap-3">
-              <Figure
-                label="Interest"
-                value={formatPesewas(interest)}
-                hint={`${rate}% of the principal, flat`}
-              />
-              <Figure
-                label="Total repayable"
-                value={formatPesewas(pesewas + interest)}
-                hint={
-                  tier
-                    ? `${tier === "big" ? "Big" : "Small"} tier · ${months} months`
-                    : undefined
-                }
-              />
-              <Figure
-                label="Monthly instalment"
-                value={formatPesewas(Math.floor((pesewas + interest) / months))}
-                className="col-span-2"
-              />
-            </dl>
-          )}
 
           {/* The customer signs the paper application; the picture of that
               signature is what the record keeps. */}
@@ -358,7 +344,9 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
             slot={signature}
             onChange={setSignature}
             captureTitle="Photograph the signature"
-            frame="aspect-[5/2] w-full"
+            frame="size-32"
+            className="w-fit rounded-none border-0 bg-transparent p-0"
+            dropClassName="size-32 px-2"
             required
           />
         </div>
@@ -370,7 +358,8 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
             disabled={
               submitting ||
               !customer ||
-              !guarantor ||
+              guarantorName.trim().length < 2 ||
+              !guarantorPhone.trim() ||
               !principal ||
               Boolean(fault) ||
               blocked ||
@@ -383,130 +372,5 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
         </SheetActions>
       </Form>
     </RouteSheet>
-  );
-}
-
-/* ----------------------------------------------------------------- history --- */
-
-/**
- * The decision aid. Four months of the customer's own record, plus the three
- * conditions that stop an application dead — no ID recorded, no photograph of
- * it uploaded, and a loan already open. All are refusals the API would make
- * anyway; saying them here means nobody promises a customer something that
- * cannot happen.
- *
- * Any ID type is accepted, so the Ghana Card is reported where the record shows
- * one and never held against anybody.
- */
-function HistoryPanel({
-  loading,
-  eligibility,
-  error,
-}: {
-  loading: boolean;
-  eligibility: LoanEligibility | null;
-  error: string | null;
-}) {
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-        <Loader2Icon className="size-4 animate-spin" />
-        Reading their history…
-      </div>
-    );
-  }
-
-  if (error || !eligibility) {
-    return (
-      <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
-        <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-warning" />
-        <span>
-          {error ?? "Could not read their history."} The application can still be
-          recorded — the API checks the conditions again when it is submitted.
-        </span>
-      </div>
-    );
-  }
-
-  const noId = eligibility.customer.hasId === false;
-  const noScans = eligibility.customer.hasIdDocument === false;
-  const alreadyOpen = eligibility.openLoan != null;
-
-  return (
-    <section className="space-y-3 rounded-lg border border-border bg-muted/40 p-4">
-      <h3 className="eyebrow text-muted-foreground">Their record</h3>
-
-      <dl className="grid grid-cols-2 gap-3">
-        <Figure
-          label="Saving for"
-          value={`${eligibility.monthsOfHistory} month${eligibility.monthsOfHistory === 1 ? "" : "s"}`}
-        />
-        <Figure
-          label="Susu paid in"
-          value={formatPesewas(eligibility.susu.totalDeposited)}
-          hint={`${eligibility.susu.accounts} account${eligibility.susu.accounts === 1 ? "" : "s"}, ${eligibility.susu.activeAccounts} active`}
-        />
-        <Figure
-          label="Savings balance"
-          value={formatPesewas(eligibility.savings.totalBalance)}
-          hint={`${eligibility.savings.accounts} account${eligibility.savings.accounts === 1 ? "" : "s"}`}
-          className="col-span-2"
-        />
-      </dl>
-
-      <ul className="space-y-1.5 text-sm">
-        <Condition met={!noId} icon={<IdCardIcon className="size-4" />}>
-          {noId
-            ? "No ID on the profile. Record the type and number before applying."
-            : eligibility.customer.hasGhanaCard
-              ? "Ghana Card on file."
-              : "ID recorded."}
-        </Condition>
-        <Condition met={!noScans} icon={<FileImageIcon className="size-4" />}>
-          {noScans
-            ? "ID document not uploaded. Add the front and back to the profile before applying."
-            : "ID document uploaded, both sides."}
-        </Condition>
-        <Condition met={!alreadyOpen}>
-          {alreadyOpen
-            ? "A loan is already open. Only one at a time."
-            : "No loan currently open."}
-        </Condition>
-        <Condition
-          met={eligibility.bigTierUnlocked}
-          neutral={!eligibility.bigTierUnlocked}
-          icon={eligibility.bigTierUnlocked ? undefined : <LockIcon className="size-4" />}
-        >
-          {eligibility.bigTierUnlocked
-            ? "Big tier unlocked by a small loan repaid on time."
-            : "Big tier locked until a small loan is repaid on time."}
-        </Condition>
-      </ul>
-    </section>
-  );
-}
-
-function Condition({
-  met,
-  neutral,
-  icon,
-  children,
-}: {
-  met: boolean;
-  /** A condition that limits the application without blocking it. */
-  neutral?: boolean;
-  icon?: ReactNode;
-  children: ReactNode;
-}) {
-  const tone = met ? "text-success" : neutral ? "text-muted-foreground" : "text-danger";
-  return (
-    <li className="flex items-start gap-2">
-      <span className={cn("mt-0.5 shrink-0", tone)}>
-        {icon ?? (met ? <CheckIcon className="size-4" /> : <MinusIcon className="size-4" />)}
-      </span>
-      <span className={met ? "text-muted-foreground" : "text-foreground"}>
-        {children}
-      </span>
-    </li>
   );
 }

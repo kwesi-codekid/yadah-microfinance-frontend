@@ -132,12 +132,8 @@ export function CustomerPicker({
         )}
       </div>
 
-      {short ? (
-        <p className="text-xs text-muted-foreground">Two characters or more.</p>
-      ) : hits.length === 0 && !searching ? (
-        <p className="text-xs text-muted-foreground">
-          No active customer matched. Deactivated records are not shown.
-        </p>
+      {short ? null : hits.length === 0 && !searching ? (
+        <p className="text-xs text-muted-foreground">No customer found.</p>
       ) : (
         <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
           {hits.map((hit) => {

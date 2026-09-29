@@ -396,33 +396,3 @@ export const AGING_LABELS: Record<string, string> = {
 export function hasEscalated(loan: Pick<Loan, "escalatedAt">): boolean {
   return Boolean(loan.escalatedAt);
 }
-
-/* -------------------------------------------------------------- guarantors --- */
-
-/**
- * What stops this customer standing behind the loan, or null.
- *
- * The rule is the API's: a guarantor is a customer of the branch who has an ID
- * recorded and a photograph of both sides of it on file, and nobody guarantees
- * their own borrowing. Any ID type will do — the Ghana Card carries no special
- * standing here.
- *
- * Only an explicit `false` disqualifies. A search response that does not carry
- * the flags must not disqualify everybody; the API checks again on submit and
- * refuses with `GUARANTOR_ID_INCOMPLETE` if it comes to that.
- */
-export function guarantorIssue(
-  borrowerId: string | null,
-  guarantor: { id: string; hasIdNumber?: boolean; hasIdDocument?: boolean },
-): string | null {
-  if (borrowerId && borrowerId === guarantor.id) {
-    return "A customer cannot guarantee their own loan.";
-  }
-  const missing: string[] = [];
-  if (guarantor.hasIdNumber === false) missing.push("an ID type and number");
-  if (guarantor.hasIdDocument === false) {
-    missing.push("a photo of both sides of the ID");
-  }
-  if (missing.length === 0) return null;
-  return `Needs ${missing.join(" and ")} on their profile first.`;
-}

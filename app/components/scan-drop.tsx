@@ -156,6 +156,8 @@ export function ScanDrop({
   required,
   locked,
   facingMode = "environment",
+  className,
+  dropClassName,
 }: {
   label: string;
   kind: UploadKind;
@@ -173,6 +175,10 @@ export function ScanDrop({
   /** The image backs open credit: replaceable, not removable. */
   locked?: boolean;
   facingMode?: "user" | "environment";
+  /** Classes for the card itself — `w-fit` keeps a small slot to the left. */
+  className?: string;
+  /** Sizing for the empty dropzone, over its default full-width `h-36`. */
+  dropClassName?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -188,7 +194,7 @@ export function ScanDrop({
   const done = slot.status === "done";
 
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className={cn("rounded-xl border border-border bg-card p-4", className)}>
       <p className="mb-2 text-sm font-medium">
         {label}
         {required && <span className="ml-0.5 text-destructive">*</span>}
@@ -227,6 +233,7 @@ export function ScanDrop({
             slot.status === "error"
               ? "border-destructive/50 bg-destructive/5"
               : "border-border hover:border-primary/40 hover:bg-accent/50",
+            dropClassName,
           )}
         >
           <UploadIcon className="size-5 text-muted-foreground" />

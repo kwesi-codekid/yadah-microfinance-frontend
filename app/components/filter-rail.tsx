@@ -45,6 +45,8 @@ export function FilterRail({
   sections,
   active,
   horizontal = false,
+  header,
+  footer,
 }: {
   /** The `aria-label` — "Loans", "Filter customers by status". */
   label: string;
@@ -52,6 +54,13 @@ export function FilterRail({
   /** The lit item's key. Leave out to let `NavLink` decide from the URL. */
   active?: string;
   horizontal?: boolean;
+  /**
+   * Other controls that belong in the same card — a search box above the
+   * sections, a date range below them. Only the column shows them; the strip
+   * under `lg` has no room, so the caller seats them itself there.
+   */
+  header?: ReactNode;
+  footer?: ReactNode;
 }) {
   if (horizontal) {
     return (
@@ -65,10 +74,11 @@ export function FilterRail({
 
   return (
     <nav aria-label={label} className="rounded-2xl bg-card p-2">
+      {header ? <div className="px-1 pt-1 pb-2">{header}</div> : null}
       {sections.map((section, i) => (
         <section
           key={section.label ?? i}
-          className={cn("px-1 py-2", i > 0 && "mt-1 border-t border-border")}
+          className={cn("px-1 py-2", (i > 0 || header) && "mt-1 border-t border-border")}
         >
           {section.label ? (
             <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
@@ -85,6 +95,7 @@ export function FilterRail({
           </ul>
         </section>
       ))}
+      {footer ? <div className="mt-1 border-t border-border px-1 pt-2 pb-1">{footer}</div> : null}
     </nav>
   );
 }
