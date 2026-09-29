@@ -2,6 +2,7 @@ import {
   AlertTriangleIcon,
   BanknoteArrowDownIcon,
   BanknoteIcon,
+  CheckIcon,
   EllipsisIcon,
   HandCoinsIcon,
   EyeIcon,
@@ -18,10 +19,13 @@ import {
   data,
   Link,
   Outlet,
+  useFetcher,
   useLocation,
   useNavigation,
   useSubmit,
 } from "react-router";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { listLoans, type LoanTotals } from "~/api/loans";
 import { FilterRail, RailFrame } from "~/components/filter-rail";
@@ -35,6 +39,16 @@ import {
   SearchBox,
 } from "~/components/listing";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import {
   DropdownMenu,
@@ -283,6 +297,10 @@ const PILL: Record<LoanStatus, string> = {
 
 /* -------------------------------------------------------------------- page --- */
 
+/** Shared by each row's Approve and the page that announces the answer. */
+const APPROVAL_FETCHER = "loans-approve";
+type ApprovalResult = { ok: boolean; message: string };
+
 export default function Loans({ loaderData }: Route.ComponentProps) {
   const { filters, page, total, totals, counts, rows } = loaderData;
   const navigation = useNavigation();
@@ -291,6 +309,15 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
   // The counter takes applications and takes repayments. Downloading the book
   // and setting the rates it lends at are the office's.
   const office = isOffice(useCurrentUser());
+
+  // What an approval from a row menu came back with. Said here, because the
+  // row that asked has usually left the list by the time the answer lands.
+  const approval = useFetcher<ApprovalResult>({ key: APPROVAL_FETCHER });
+  useEffect(() => {
+    if (approval.state !== "idle" || !approval.data) return;
+    if (approval.data.ok) toast.success(approval.data.message);
+    else toast.error(approval.data.message);
+  }, [approval.state, approval.data]);
 
   const busy =
     navigation.state === "loading" &&
@@ -622,6 +649,15 @@ function Stat({
 function LoanRow({ row }: { row: Row }) {
   // Carried into the repayment drawer so it closes onto the same filters.
   const { search } = useLocation();
+  const office = isOffice(useCurrentUser());
+
+  // Approving posts to the loan's own page action. The fetcher is keyed so the
+  // page can announce the answer: an approved row leaves the Pending view and
+  // unmounts before it could say anything itself.
+  const approval = useFetcher<ApprovalResult>({ key: APPROVAL_FETCHER });
+  const busy = approval.state !== "idle";
+  const [confirming, setConfirming] = useState(false);
+
   return (
     <tr className="border-b border-border/60 last:border-0">
       <td className="tabular py-3 pr-3 whitespace-nowrap text-muted-foreground">
@@ -641,7 +677,7 @@ function LoanRow({ row }: { row: Row }) {
 
       <td className="py-3 pr-3">
         <Link
-          to={`/loans/${row.id}`}
+          to={`/customers/${row.customerId}`}
           className="block truncate font-medium text-foreground underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
         >
           {row.customerName}
@@ -750,12 +786,20 @@ function LoanRow({ row }: { row: Row }) {
             <EllipsisIcon className="size-3.5" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuItem asChild>
-              <Link to={`/loans/${row.id}`}>
-                <EyeIcon />
-                {row.pending ? "Review application" : "View loan"}
-              </Link>
-            </DropdownMenuItem>
+            {row.pending ? (
+              // Approving is the office's; the counter sees it greyed.
+              <DropdownMenuItem disabled={!office || busy} onSelect={() => setConfirming(true)}>
+                <CheckIcon />
+                Approve
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem asChild>
+                <Link to={`/loans/${row.id}`}>
+                  <EyeIcon />
+                  View loan
+                </Link>
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem asChild disabled={!row.open}>
               <Link
                 to={`/loans/repay/${row.id}${search}`}
@@ -775,6 +819,32 @@ function LoanRow({ row }: { row: Row }) {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <AlertDialog open={confirming} onOpenChange={setConfirming}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Approve {row.customerName}’s loan?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {formatPesewas(row.principal)} over {row.durationMonths} months. The rate locks,
+                the repayment schedule is set and the customer gets an SMS. This cannot be
+                undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() =>
+                  approval.submit(
+                    { intent: "approve" },
+                    { method: "post", action: `/loans/${row.id}` },
+                  )
+                }
+              >
+                Approve
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </td>
     </tr>
   );
