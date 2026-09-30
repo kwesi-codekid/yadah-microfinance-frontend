@@ -1,4 +1,5 @@
 import {
+  ArrowLeftRightIcon,
   BanIcon,
   CircleCheckIcon,
   KeyRoundIcon,
@@ -206,6 +207,15 @@ export default function StaffDetail({ loaderData }: Route.ComponentProps) {
             hint="Reset to issue a new one"
           />
         </Section>
+
+        {/* Read-only, so offered to every office reader of this drawer, not
+            only the admin who may change the account. */}
+        <Button asChild variant="outline" size="sm" className="self-start">
+          <Link to={`/transactions?recordedById=${staff.id}`} prefetch="intent">
+            <ArrowLeftRightIcon />
+            {isSelf ? "My transactions" : "Their transactions"}
+          </Link>
+        </Button>
       </SheetBody>
 
       {canManage && (

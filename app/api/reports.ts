@@ -15,7 +15,9 @@ import type {
  * that sees across modules. This module imports the API client, so it is
  * server-only. Types live in the client-safe `~/lib/reports`.
  *
- * Office only, except `/reports/workers`, which is admin only.
+ * Office only, except `/reports/workers`, which is admin only, and
+ * `/reports/transactions`, which every role may read — narrowed by the API to
+ * the caller's own entries for anyone outside the office.
  */
 
 export type { ExportFormat };
@@ -39,6 +41,8 @@ export interface TransactionParams {
   to?: string;
   module?: TxnModule;
   customerId?: string;
+  /** Office only: one member of staff. The API narrows everyone else to themselves. */
+  recordedById?: string;
   /**
    * `"true"` to also list Paystack charges not yet applied — money still in
    * flight, as `status: "pending"` or `"failed"` rows that are never in

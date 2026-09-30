@@ -83,16 +83,14 @@ export const NAV: NavItem[] = [
     icon: WalletIcon,
     blurb: "Deposits, withdrawals and statements.",
   },
-  // Office only, because the ledger it draws — `GET /reports/transactions` —
-  // is part of the office-only reports surface and has no per-collector scope.
-  // A collector reconciles their own day on the susu summary instead, which is
-  // scoped to them by the API and which they may read.
+  // Every role. The office reads the whole branch; a teller or collector is
+  // narrowed by the API to what they recorded themselves — their end of day,
+  // what they took in and what they issued out.
   {
     to: "/transactions",
     label: "Transactions",
     icon: ArrowLeftRightIcon,
     blurb: "Every movement of money, in one ledger.",
-    roles: OFFICE,
   },
   // Office only, and atomic: it moves money between a customer's own accounts,
   // so it never appears in the cash totals the collectors reconcile against.

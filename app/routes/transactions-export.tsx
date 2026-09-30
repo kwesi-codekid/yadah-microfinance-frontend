@@ -2,7 +2,8 @@ import { exportTransactions, type ExportFormat } from "~/api/reports";
 import { asDownload, downloadFailure } from "~/lib/download.server";
 import { accraDay } from "~/lib/format";
 import { MODULES, type TxnModule } from "~/lib/reports";
-import { requireOffice, withAuth } from "~/lib/session.server";
+import { isOffice } from "~/lib/auth";
+import { requireUser, withAuth } from "~/lib/session.server";
 import type { Route } from "./+types/transactions-export";
 
 /**
@@ -17,7 +18,9 @@ import type { Route } from "./+types/transactions-export";
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireOffice(request);
+  // Every role, as the listing is; the API narrows everyone but the office to
+  // the entries they recorded themselves.
+  const user = await requireUser(request);
   const url = new URL(request.url);
 
   const format: ExportFormat =
@@ -36,6 +39,9 @@ export async function loader({ request }: Route.LoaderArgs) {
           module:
             moduleParam && MODULES.includes(moduleParam) ? moduleParam : undefined,
           customerId: url.searchParams.get("customerId")?.trim() || undefined,
+          recordedById: isOffice(user)
+            ? url.searchParams.get("recordedById")?.trim() || undefined
+            : undefined,
           from: day("from"),
           to: day("to"),
           // Same switch as the listing's "Include pending" toggle.
