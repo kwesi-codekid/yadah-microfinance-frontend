@@ -158,7 +158,7 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
             <Figure
               label="Susu commission"
               value={formatPesewas(susu.amount)}
-              hint={`${formatCount(susu.count)} cycle${susu.count === 1 ? "" : "s"} stopped`}
+              hint={`${formatCount(susu.count)} cycle${susu.count === 1 ? "" : "s"} ended`}
             />
             <Figure
               label="Savings fees"
@@ -179,7 +179,8 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
           </dl>
 
           <p className="mt-4 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            Susu commission is one day&rsquo;s deposit, taken when a cycle stops.
+            Susu commission is one payment of a plan&rsquo;s daily amount, taken as
+            each cycle ends — at its 31st payment, or when the plan or account stops.
             Savings fees are the flat charge on a withdrawal or a closure. Sale
             margin is what an outright counter sale made over cost, with voided
             sales left out — trading profit rather than a fee, but money the

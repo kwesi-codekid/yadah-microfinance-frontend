@@ -93,7 +93,7 @@ export default function SusuSummary({ loaderData }: Route.ComponentProps) {
             <thead>
               <tr className="border-b border-border">
                 <Th>Customer</Th>
-                <Th className="hidden sm:table-cell">Days</Th>
+                <Th className="hidden sm:table-cell">Payments</Th>
                 <Th className="hidden md:table-cell">Time</Th>
                 <Th className="text-right">Amount · GH₵</Th>
               </tr>
@@ -110,7 +110,7 @@ export default function SusuSummary({ loaderData }: Route.ComponentProps) {
                     </Link>
                   </td>
                   <td className="tabular hidden px-4 py-3 text-muted-foreground sm:table-cell">
-                    {row.daysCovered}
+                    {row.payments}
                   </td>
                   <td className="tabular hidden px-4 py-3 text-muted-foreground md:table-cell">
                     {timeInAccra(row.at)}

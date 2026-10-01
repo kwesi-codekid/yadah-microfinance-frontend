@@ -16,14 +16,17 @@
  * by a colleague drops off the sheet rather than being chased twice.
  */
 
+/** One running plan on a customer's susu account. */
 export interface RoundSusu {
   accountId: string;
   accountNumber: string;
+  planId: string;
   dailyAmount: number;
-  depositsCount: number;
-  daysRemainingInCycle: number;
+  /** Payments made so far in the plan's cycle in progress, 0..30. */
+  paidInCycle: number;
+  cycleTarget: number;
   collectedToday: number;
-  /** One day's deposit less anything already taken today. */
+  /** One payment less anything already taken today. */
   stillDue: number;
 }
 
@@ -36,7 +39,7 @@ export interface RoundStop {
   photoUrl?: string;
   susu: RoundSusu[];
   totalStillDue: number;
-  /** True once every susu account has today's deposit. */
+  /** True once every plan has today's payment. */
   done: boolean;
 }
 
@@ -115,12 +118,12 @@ export function entryPath(entry: Pick<DayEntry, "product" | "accountId">): strin
 }
 
 /**
- * The link for a stop: straight into the collect-all drawer for that customer,
- * which takes one cash amount across every active account at once. The stop
- * is the customer, not one of their accounts, so this is the right door.
+ * The link for a stop: the deposit drawer on the customer's one susu account,
+ * which opens with one payment on every running plan — the day's round.
  */
-export function collectPath(stop: Pick<RoundStop, "customerId">): string {
-  return `/susu/collect?customerId=${encodeURIComponent(stop.customerId)}`;
+export function collectPath(stop: Pick<RoundStop, "customerId" | "susu">): string {
+  const first = stop.susu[0];
+  return first ? `/susu/${first.accountId}/deposit` : `/susu?search=${encodeURIComponent(stop.customerId)}`;
 }
 
 /**

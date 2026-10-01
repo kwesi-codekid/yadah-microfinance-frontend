@@ -15,7 +15,6 @@ export type NotificationType =
   | "susu.deposit"
   | "susu.withdrawal"
   | "susu.payout"
-  | "susu.carry-forward"
   | "txn.correction"
   | "savings.deposit"
   | "savings.withdrawal"
@@ -63,7 +62,6 @@ export const TYPE_LABELS: Record<NotificationType, string> = {
   "susu.deposit": "Susu deposit",
   "susu.withdrawal": "Susu withdrawal",
   "susu.payout": "Susu payout",
-  "susu.carry-forward": "Susu carried forward",
   "txn.correction": "Correction",
   "savings.deposit": "Savings deposit",
   "savings.withdrawal": "Savings withdrawal",
@@ -85,7 +83,6 @@ export const TYPE_TONE: Record<
   "susu.deposit": "success",
   "susu.withdrawal": "muted",
   "susu.payout": "muted",
-  "susu.carry-forward": "info",
   // Somebody is waiting on it — the office for a decision, or the teller for
   // the answer — so it is drawn to be noticed.
   "txn.correction": "warning",
@@ -148,7 +145,6 @@ export function linkFor(n: AppNotification): string | null {
     case "susu.deposit":
     case "susu.withdrawal":
     case "susu.payout":
-    case "susu.carry-forward":
       return susu ? `/susu/${susu}` : null;
     // The record's page is where a waiting correction is decided, and where
     // the figure it changed can be read afterwards; the queue when the

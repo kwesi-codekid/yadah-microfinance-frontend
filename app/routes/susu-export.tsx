@@ -13,7 +13,7 @@ import type { Route } from "./+types/susu-export";
  * pagination — the API ignores it on an export and caps the file at 10,000 rows.
  */
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const STATUSES = ["active", "completed", "pending-payout", "closed", "terminated"];
+const STATUSES = ["active", "closed"];
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireUser(request);

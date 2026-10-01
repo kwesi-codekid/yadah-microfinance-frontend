@@ -160,7 +160,6 @@ export interface BalanceSheet {
     customerDeposits: {
       susuBalances: number;
       savingsBalances: number;
-      susuPayoutsPending: number;
       total: number;
     };
     accruedExpenses: number;

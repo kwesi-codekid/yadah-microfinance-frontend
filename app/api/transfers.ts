@@ -16,10 +16,8 @@ import type {
 /**
  * Move money between two of one customer's own accounts.
  *
- * Omitting `amount` means **the whole balance** — a different instruction from
- * any number, and the one that most needs to be unambiguous on screen before it
- * is sent. A partial amount is only accepted at all when the source is a susu
- * account drawing down a `pending-payout` balance.
+ * `amount` is what leaves the source: at most what a savings or susu account
+ * can give up, and at most what a loan or agreement still owes.
  *
  * The idempotency key is minted once when the wizard opens and reused on every
  * retry; regenerating it per submit would defeat the point and could move the
@@ -30,8 +28,8 @@ export function createTransfer(
   input: {
     from: TransferSource;
     to: TransferDestination;
-    /** Pesewas. Omit for the whole balance. */
-    amount?: number;
+    /** Pesewas. */
+    amount: number;
     idempotencyKey: string;
   },
 ): Promise<{ transfer: TransferResult; replayed: boolean }> {

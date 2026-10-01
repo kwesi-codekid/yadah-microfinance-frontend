@@ -1,16 +1,20 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
 import type {
-  CycleMonth,
   DepositChannel,
+  DepositResult,
+  DepositSplit,
   SusuAccount,
+  SusuCycle,
   SusuDeposit,
+  SusuPayout,
+  SusuPlan,
+  WithdrawalLine,
   SusuStatus,
   SusuSummary,
   TrashedSusuAccount,
   TrashedSusuDeposit,
 } from "~/lib/susu";
-import type { DepositResult } from "~/lib/susu";
 
 /**
  * The `/susu` endpoints. This module imports the API client, so it is
@@ -18,8 +22,9 @@ import type { DepositResult } from "~/lib/susu";
  * live in the client-safe `~/lib/susu`.
  *
  * Recording money is open to collectors as well as the office; everything that
- * changes an account's shape — opening, closing, paying out, correcting — is
- * office only and the API answers a collector with `403 FORBIDDEN`.
+ * changes an account's shape — opening it, its plans, withdrawing, closing,
+ * correcting — is counter or office work and the API answers a collector with
+ * `403 FORBIDDEN`.
  */
 
 export type { ExportFormat, Paginated };
@@ -29,23 +34,14 @@ export interface AccountListParams {
   limit?: number;
   customerId?: string;
   status?: SusuStatus;
-  /**
-   * The full `SU` number, or the bare six digits: `^(SU\d{8}|\d{6})$`.
-   *
-   * A susu number belongs to the customer, so this matches every book they
-   * hold — pass it to find the family, never to find one account.
-   */
+  /** The full `SU` number, or the bare six digits of a grandfathered one. */
   accountNumber?: string;
-  /**
-   * Fuzzy and typo-tolerant: customer name, phone, or account-number prefix.
-   * Matching on a number returns that customer's whole susu history.
-   */
+  /** Fuzzy and typo-tolerant: customer name, phone, or account-number prefix. */
   search?: string;
   /** Inclusive Accra day, `YYYY-MM-DD`, on when the account was opened. */
   from?: string;
   to?: string;
 }
-
 
 /* ---------------------------------------------------------------- accounts --- */
 
@@ -76,7 +72,7 @@ export function listTrashedAccounts(
   return apiFetch(`/susu/accounts/trash${queryOf({ ...params })}`, { accessToken });
 }
 
-/** GET /susu/accounts/{id} — the account, with its cycle progress. */
+/** GET /susu/accounts/{id} — the account with its plans. */
 export function getAccount(
   accessToken: string,
   id: string,
@@ -85,20 +81,21 @@ export function getAccount(
 }
 
 /**
- * POST /susu/accounts — open one cycle (office). The daily amount is fixed for
- * the life of the account; a customer may hold several concurrently.
+ * POST /susu/accounts — open the customer's one account with its first plan
+ * (counter). A customer whose account was closed gets it reopened, same
+ * number and history; one with an account open is refused with `ALREADY_OPEN`
+ * and the account to use in `details.accountId`.
  */
 export function openAccount(
   accessToken: string,
-  input: { customerId: string; dailyAmount: number; cycleMonth?: CycleMonth },
-): Promise<{ account: SusuAccount }> {
+  input: { customerId: string; dailyAmount: number },
+): Promise<{ account: SusuAccount; reopened: boolean }> {
   return apiFetch("/susu/accounts", { method: "POST", json: input, accessToken });
 }
 
 /**
- * DELETE /susu/accounts/{id} — trash an account that was never used (office).
- * Refused with `CANNOT_TRASH` once anything has been deposited; a used account
- * has to be closed or terminated instead.
+ * DELETE /susu/accounts/{id} — trash an account that never held money
+ * (office). Refused with `CANNOT_TRASH` otherwise; a used account is closed.
  */
 export function trashAccount(
   accessToken: string,
@@ -118,6 +115,67 @@ export function restoreAccount(
   id: string,
 ): Promise<{ account: SusuAccount }> {
   return apiFetch(`/susu/accounts/${id}/restore`, { method: "POST", accessToken });
+}
+
+/* ------------------------------------------------------------------- plans --- */
+
+/** POST /susu/accounts/{id}/plans — another daily amount, on its own cycle (counter). */
+export function addPlan(
+  accessToken: string,
+  id: string,
+  input: { dailyAmount: number },
+): Promise<{ account: SusuAccount; plan: SusuPlan }> {
+  return apiFetch(`/susu/accounts/${id}/plans`, { method: "POST", json: input, accessToken });
+}
+
+/**
+ * PATCH /susu/accounts/{id}/plans/{planId} — change the daily amount, only
+ * between cycles (counter). Mid-cycle the API answers `PLAN_MID_CYCLE`.
+ */
+export function changePlanAmount(
+  accessToken: string,
+  id: string,
+  planId: string,
+  input: { dailyAmount: number },
+): Promise<{ account: SusuAccount; plan: SusuPlan }> {
+  return apiFetch(`/susu/accounts/${id}/plans/${planId}`, {
+    method: "PATCH",
+    json: input,
+    accessToken,
+  });
+}
+
+/**
+ * POST /susu/accounts/{id}/plans/{planId}/stop — stop a plan (counter).
+ * Mid-cycle this charges its one payment; the money stays in the balance.
+ */
+export function stopPlan(
+  accessToken: string,
+  id: string,
+  planId: string,
+): Promise<{ account: SusuAccount; plan: SusuPlan; commission: number }> {
+  return apiFetch(`/susu/accounts/${id}/plans/${planId}/stop`, {
+    method: "POST",
+    accessToken,
+  });
+}
+
+/** GET /susu/accounts/{id}/cycles — ended cycles, newest first. */
+export function listCycles(
+  accessToken: string,
+  id: string,
+  params: { page?: number; limit?: number; planId?: string } = {},
+): Promise<Paginated<SusuCycle>> {
+  return apiFetch(`/susu/accounts/${id}/cycles${queryOf({ ...params })}`, { accessToken });
+}
+
+/** GET /susu/accounts/{id}/payouts — money out, newest first; `planId` narrows to one plan's shares. */
+export function listPayouts(
+  accessToken: string,
+  id: string,
+  params: { page?: number; limit?: number; planId?: string } = {},
+): Promise<Paginated<SusuPayout>> {
+  return apiFetch(`/susu/accounts/${id}/payouts${queryOf({ ...params })}`, { accessToken });
 }
 
 /* ---------------------------------------------------------------- deposits --- */
@@ -165,24 +223,26 @@ export function listTrashedDeposits(
 }
 
 /**
- * POST /susu/accounts/{id}/deposits — record the cash handed over. The days
- * covered are derived from the amount, so it must be a whole multiple of the
- * daily amount. The idempotency key is what makes a retry safe: the same key
- * returns the original deposit with `200` rather than recording it twice.
+ * POST /susu/accounts/{id}/deposits — record the cash handed over. `split`
+ * says how many whole payments go to each plan; omitted, it is one on every
+ * running plan. Whatever the split does not use stays in the balance. The
+ * idempotency key is what makes a retry safe: the same key returns the
+ * original deposit with `200` rather than recording it twice.
  */
 export function recordDeposit(
   accessToken: string,
   id: string,
   input: {
     amount: number;
+    split?: DepositSplit[];
     idempotencyKey: string;
     channel?: DepositChannel;
-  /**
-   * The Accra day the money changed hands, for history typed in after the
-   * fact. Omitted on an ordinary same-day collection; refused by the API
-   * unless backdating is switched on for the data-population stage.
-   */
-  occurredOn?: string;
+    /**
+     * The Accra day the money changed hands, for history typed in after the
+     * fact. Omitted on an ordinary same-day collection; refused by the API
+     * unless backdating is switched on for the data-population stage.
+     */
+    occurredOn?: string;
   },
 ): Promise<DepositResult> {
   return apiFetch(`/susu/accounts/${id}/deposits`, {
@@ -192,7 +252,7 @@ export function recordDeposit(
   });
 }
 
-/** DELETE — trash the most recent deposit, reversing the counters (office). */
+/** DELETE — trash the most recent deposit, un-crediting the plans (office). */
 export function trashDeposit(
   accessToken: string,
   id: string,
@@ -207,121 +267,55 @@ export function trashDeposit(
 }
 
 /**
- * POST — re-apply a trashed deposit (office). Only while its positions in the
- * cycle are still free: anything recorded since has taken them.
+ * POST — re-credit a trashed deposit (office). Only while every plan it paid
+ * still stands where it found it: anything recorded since has taken its place.
  */
 export function restoreDeposit(
   accessToken: string,
   id: string,
   depositId: string,
-): Promise<{ deposit: SusuDeposit; account: SusuAccount }> {
+): Promise<DepositResult> {
   return apiFetch(`/susu/accounts/${id}/deposits/${depositId}/restore`, {
     method: "POST",
     accessToken,
   });
 }
 
-/**
- * POST /susu/collect-all — one day into every active account the customer
- * holds, all or nothing. The amount must equal the sum of those accounts'
- * daily amounts; a mismatch comes back with the required total and the
- * per-account breakdown, which the UI shows rather than swallows.
- */
-export function collectAll(
-  accessToken: string,
-  input: {
-    customerId: string;
-    amount: number;
-    idempotencyKey: string;
-    channel?: DepositChannel;
-  /**
-   * The Accra day the money changed hands, for history typed in after the
-   * fact. Omitted on an ordinary same-day collection; refused by the API
-   * unless backdating is switched on for the data-population stage.
-   */
-  occurredOn?: string;
-  },
-): Promise<{
-  batchId: string;
-  totalAmount: number;
-  deposits: SusuDeposit[];
-  accounts: SusuAccount[];
-  replayed: boolean;
-}> {
-  return apiFetch("/susu/collect-all", { method: "POST", json: input, accessToken });
-}
-
 /* --------------------------------------------------------------- lifecycle --- */
 
 /**
- * POST /susu/accounts/{id}/close — pay out and close (office). The customer
- * receives everything deposited less exactly one day's commission, whatever
- * day they leave on. Refused with `COMMISSION_NOT_COVERED` when the deposits
- * do not reach one day; that account can only be terminated.
+ * POST /susu/accounts/{id}/close — the customer leaves (counter). Every plan
+ * mid-cycle is charged its one payment and the rest of the balance is paid
+ * out in cash. The account keeps its number and can be reopened.
  */
 export function closeAccount(
   accessToken: string,
   id: string,
-): Promise<{
-  account: SusuAccount;
-  commission: number;
-  payout: number;
-  flagged: boolean;
-}> {
+): Promise<{ account: SusuAccount; commission: number; payout: number; payoutId: string }> {
   return apiFetch(`/susu/accounts/${id}/close`, { method: "POST", accessToken });
 }
 
 /**
- * POST /susu/accounts/{id}/terminate — refund everything, take no commission
- * (office). The escape hatch for accounts holding less than one day's deposit,
- * including empty ones. Accounts that can cover the commission must be closed.
- */
-export function terminateAccount(
-  accessToken: string,
-  id: string,
-): Promise<{ account: SusuAccount; refund: number }> {
-  return apiFetch(`/susu/accounts/${id}/terminate`, { method: "POST", accessToken });
-}
-
-/**
- * POST /susu/accounts/{id}/withdraw — hand part of the balance back and leave
- * the account open (office).
- *
- * Client decision of 2026-08-21, replacing the rule that any withdrawal closed
- * the account. Nothing about the cycle moves: days already paid stay paid, so
- * `depositsCount` and the 31-day target are untouched, and **no commission is
- * taken here** — the commission is one cycle-day's amount, charged once, at
- * closure. Which is why one day's amount stays reserved: `availableToWithdraw`
- * is `balance − dailyAmount`, so the closing commission is still collectible.
- *
- * Idempotent on the key, and the customer gets an SMS saying the account is
- * still open — the part they would otherwise ring the branch about. A replay
- * comes back as `200 {}` — an empty body, not the original figures — so the
- * absence of `account` is what says nothing new was paid.
+ * POST /susu/accounts/{id}/withdraw — money out, account open (counter). Like
+ * a savings withdrawal: any amount up to `availableToWithdraw`. No commission,
+ * and every cycle is untouched. A replay comes back as `200 {}` — an empty
+ * body — so the absence of `account` is what says nothing new was paid.
  */
 export function withdraw(
   accessToken: string,
   id: string,
   input: { amount: number; idempotencyKey: string },
-): Promise<{ account?: SusuAccount; amount?: number; replayed?: boolean }> {
+): Promise<{
+  account?: SusuAccount;
+  amount?: number;
+  payoutId?: string;
+  /** What came off which plan, in the order the money walked them. */
+  lines?: WithdrawalLine[];
+  /** The part that sat on no plan. */
+  loose?: number;
+  replayed?: boolean;
+}> {
   return apiFetch(`/susu/accounts/${id}/withdraw`, {
-    method: "POST",
-    json: input,
-    accessToken,
-  });
-}
-
-/**
- * POST /susu/accounts/{id}/payout — hand over cash still owed on a
- * `pending-payout` account (office). Omit the amount to pay out everything;
- * the account closes when nothing is left.
- */
-export function payoutAccount(
-  accessToken: string,
-  id: string,
-  input: { idempotencyKey: string; amount?: number },
-): Promise<{ account: SusuAccount; amount: number; replayed: boolean }> {
-  return apiFetch(`/susu/accounts/${id}/payout`, {
     method: "POST",
     json: input,
     accessToken,
@@ -345,10 +339,7 @@ export function depositReceiptPdf(
   });
 }
 
-/**
- * GET /susu/accounts/{id}/withdrawals/{payoutId}/receipt — the printable PDF
- * for a partial withdrawal or a payout. Both go through this one endpoint.
- */
+/** GET /susu/accounts/{id}/withdrawals/{payoutId}/receipt — a withdrawal or the closing payout. */
 export function withdrawalReceiptPdf(
   accessToken: string,
   id: string,
@@ -357,6 +348,35 @@ export function withdrawalReceiptPdf(
   return apiFetchRaw(`/susu/accounts/${id}/withdrawals/${payoutId}/receipt`, {
     accessToken,
   });
+}
+
+/** What the susu data update did, or would do. */
+export interface SusuMigrationReport {
+  apply: boolean;
+  migration: {
+    customers: number;
+    books: number;
+    plans: number;
+    deposits: number;
+    payoutsLabelled: number;
+    balanceBefore: number;
+    balanceAfter: number;
+    commissionTakenNow: number;
+  };
+  backfill: { accounts: number; payouts: number; loose: number };
+  /** Zero when the money reconciles. */
+  drift: number;
+}
+
+/**
+ * POST /susu/migrate — the susu data update. `apply: false` is a dry run that
+ * reports and writes nothing; `apply: true` writes. Admin only.
+ */
+export function runSusuMigration(
+  accessToken: string,
+  input: { apply: boolean },
+): Promise<SusuMigrationReport> {
+  return apiFetch(`/susu/migrate`, { method: "POST", json: input, accessToken });
 }
 
 /**

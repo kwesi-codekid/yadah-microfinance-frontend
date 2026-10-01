@@ -36,7 +36,6 @@ import { formatAmount, formatPesewas, parseCedis, toCedisInput } from "~/lib/for
 import { newIdempotencyKey } from "~/lib/idempotency";
 import { WITHDRAWAL_FEE } from "~/lib/savings";
 import { requireOffice, withAuth } from "~/lib/session.server";
-import { commissionOf, payoutIfClosedNow } from "~/lib/susu";
 import { redirectWithToast } from "~/lib/toast.server";
 import {
   isSupportedRoute,
@@ -77,12 +76,8 @@ interface Leg {
   /** What the branch calls it — an account number, or the item financed. */
   title: string;
   subtitle: string;
-  /** Pesewas that would move, or that are still owed. */
+  /** Pesewas that can move, or that are still owed. */
   amount: number;
-  /** Set on a susu source that is drawing down rather than closing. */
-  pendingPayout?: boolean;
-  /** Set on a susu source that would close: one day, kept by the house. */
-  commission?: number;
 }
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -107,42 +102,25 @@ export async function loader({ request }: Route.LoaderArgs) {
     const destinations: Leg[] = [];
 
     for (const a of susu.items) {
-      // Drawing down what a payout still owes is the one case in the whole
-      // endpoint where a partial amount is allowed, so it is kept distinct
-      // from an account that would be stopped to release its balance.
-      if (a.status === "pending-payout" && a.payoutRemaining > 0) {
+      if (a.status !== "active") continue;
+      // A susu source is a withdrawal like any other: up to what the lock
+      // leaves, with every cycle untouched.
+      if (a.availableToWithdraw > 0) {
         sources.push({
           id: a.id,
           kind: "susu",
           title: `Susu ${a.accountNumber}`,
-          // The number belongs to the customer, so two of their books read the
-          // same here — and choosing one of these stops an account.
-          subtitle: `Awaiting payout · ${a.ref}`,
-          amount: a.payoutRemaining,
-          pendingPayout: true,
-        });
-      } else if (
-        (a.status === "active" || a.status === "completed") &&
-        payoutIfClosedNow(a) > 0
-      ) {
-        sources.push({
-          id: a.id,
-          kind: "susu",
-          title: `Susu ${a.accountNumber}`,
-          subtitle: `${a.depositsCount} of ${a.cycleTarget} days paid in · ${a.ref}`,
-          amount: payoutIfClosedNow(a),
-          commission: commissionOf(a),
+          subtitle: `GH₵ ${formatAmount(a.balance)} balance · GH₵ ${formatAmount(a.locked)} locked`,
+          amount: a.availableToWithdraw,
         });
       }
-      if (a.status === "active") {
+      if (a.dailyTotal > 0) {
         destinations.push({
           id: a.id,
           kind: "susu",
           title: `Susu ${a.accountNumber}`,
-          // Two active books at the same daily amount would otherwise render
-          // an identical title AND subtitle, and this moves money.
-          subtitle: `GH₵ ${formatAmount(a.dailyAmount)} a day · ${a.ref}`,
-          amount: a.totalDeposited,
+          subtitle: `Credited in rounds of GH₵ ${formatAmount(a.dailyTotal)}`,
+          amount: a.balance,
         });
       }
     }
@@ -220,14 +198,9 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  // Omitted means the whole balance — a different instruction from any number,
-  // so an empty box is passed through as absent rather than coerced to zero.
-  const amount = raw === "" ? undefined : (parseCedis(raw) ?? undefined);
-  if (raw !== "" && (amount == null || amount <= 0)) {
-    return data<ActionResult>(
-      { error: "Enter an amount, or leave it empty to move everything." },
-      { status: 400 },
-    );
+  const amount = parseCedis(raw);
+  if (amount == null || amount <= 0) {
+    return data<ActionResult>({ error: "Enter the amount to move." }, { status: 400 });
   }
 
   const from =
@@ -264,9 +237,6 @@ export async function action({ request }: Route.ActionArgs) {
   // The four figures the API actually settled on — not the preview's estimate.
   const parts = [`GH₵ ${formatAmount(t.amountCredited)} landed`];
   if (t.fee > 0) parts.push(`GH₵ ${formatAmount(t.fee)} fee`);
-  if (t.excessPending > 0) {
-    parts.push(`GH₵ ${formatAmount(t.excessPending)} left pending withdrawal`);
-  }
 
   await redirectWithToast(
     "/transactions",
@@ -321,13 +291,11 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
       )
     : [];
 
-  const partialAllowed = source?.pendingPayout === true;
-  const typed = partialAllowed ? parseCedis(amount) : null;
-  const whole = amount.trim() === "" || !partialAllowed;
+  const typed = parseCedis(amount);
 
   const preview = useMemo(() => {
     if (!source || !target) return null;
-    const moved = whole ? source.amount : (typed ?? 0);
+    const moved = typed ?? 0;
     if (moved <= 0) return null;
     // A savings source is a real withdrawal: the flat fee comes off on top of
     // what moves, exactly as it would at the counter.
@@ -340,14 +308,14 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
         : null;
     const { credited, excess } = splitAtCap(moved, cap);
     return { moved, fee, credited, excess, leaves: moved + fee };
-  }, [source, target, whole, typed]);
+  }, [source, target, typed]);
 
   const fault =
-    partialAllowed && amount.trim() !== ""
+    source && amount.trim() !== ""
       ? typed == null || typed <= 0
         ? "Enter an amount."
-        : typed > source!.amount
-          ? `Only GH₵ ${formatAmount(source!.amount)} is awaiting payout.`
+        : typed > source.amount
+          ? `Only GH₵ ${formatAmount(source.amount)} can leave this account.`
           : null
       : null;
 
@@ -404,7 +372,7 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
           ) : nothingToMove ? (
             <Empty>
               This customer has nothing that can be moved. A susu account has to
-              hold more than one day&rsquo;s commission, and a savings account
+              hold more than what is locked for its cycles, and a savings account
               has to have more than the GH₵ 50 minimum and the GH₵ 10 fee left
               in it.
             </Empty>
@@ -425,15 +393,11 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
               ))}
             </div>
           )}
-          {source?.commission ? (
+          {source?.kind === "susu" ? (
             <Note>
-              Moving from this account <strong>stops it</strong>; one
-              day&rsquo;s deposit (GH₵ {formatAmount(source.commission)}) is
-              kept as commission.
+              A withdrawal from the susu balance: no commission, and every
+              cycle stays where it is.
             </Note>
-          ) : null}
-          {source?.pendingPayout ? (
-            <Note>Awaiting payout, so a partial amount is accepted.</Note>
           ) : null}
           {source?.kind === "savings" ? (
             <Note>
@@ -485,69 +449,44 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
             <Empty>Pick where the money goes first.</Empty>
           ) : (
             <div className="space-y-4">
-              {partialAllowed ? (
-                <div className="space-y-1.5">
-                  <Label
-                    htmlFor="amount"
-                    className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="amount"
+                  className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+                >
+                  Amount · GH₵
+                </Label>
+                <Input
+                  id="amount"
+                  name="amount"
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                  inputMode="decimal"
+                  placeholder={toCedisInput(source!.amount)}
+                  autoComplete="off"
+                  aria-invalid={fault ? true : undefined}
+                  className={cn("tabular", fault && "border-destructive")}
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className={cn("text-xs", fault ? "text-destructive" : "text-muted-foreground")}>
+                    {fault ??
+                      (target.kind === "susu"
+                        ? `Up to GH₵ ${formatAmount(source!.amount)}. Credited in whole rounds; anything over stays in the susu balance.`
+                        : `Up to GH₵ ${formatAmount(source!.amount)}.`)}
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setAmount(toCedisInput(source!.amount))}
                   >
-                    Amount · GH₵
-                  </Label>
-                  <Input
-                    id="amount"
-                    name="amount"
-                    value={amount}
-                    onChange={(event) => setAmount(event.target.value)}
-                    inputMode="decimal"
-                    placeholder={`${toCedisInput(source!.amount)} — everything`}
-                    autoComplete="off"
-                    aria-invalid={fault ? true : undefined}
-                    className={cn("tabular", fault && "border-destructive")}
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p
-                      className={cn(
-                        "text-xs",
-                        fault ? "text-destructive" : "text-muted-foreground",
-                      )}
-                    >
-                      {fault ??
-                        (whole
-                          ? "Empty moves the whole payout balance."
-                          : `Leaves GH₵ ${formatAmount(source!.amount - (typed ?? 0))} awaiting payout.`)}
-                    </p>
-                    {!whole && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setAmount("")}
-                      >
-                        Move everything
-                      </Button>
-                    )}
-                  </div>
+                    Everything available
+                  </Button>
                 </div>
-              ) : (
-                // Not a disabled input: there is no number to give here, and a
-                // greyed-out box would only invite someone to try.
-                <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2.5 text-sm">
-                  <BanknoteArrowDownIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  <span>
-                    <strong>The whole balance.</strong>{" "}
-                    <span className="text-muted-foreground">
-                      This route does not take a part-amount — the account is
-                      emptied and closed in one move.
-                    </span>
-                  </span>
-                </div>
-              )}
+              </div>
 
               {preview && !fault && (
                 <>
-                  {/* Titles alone are not enough to confirm against: two susu
-                      books of one customer share theirs, so the subtitle —
-                      which carries the ref — comes with them. */}
                   <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-sm">
                     <span className="min-w-0">
                       <span className="block font-medium">{source!.title}</span>
@@ -581,21 +520,16 @@ export default function Transfers({ loaderData }: Route.ComponentProps) {
                       tone="success"
                     />
                     <Figure
-                      label="Left pending"
+                      label="Stays put"
                       value={formatPesewas(preview.excess)}
-                      hint={
-                        preview.excess > 0
-                          ? "more than the balance owed"
-                          : undefined
-                      }
+                      hint={preview.excess > 0 ? "more than is owed — not moved" : undefined}
                       tone={preview.excess > 0 ? "info" : "muted"}
                     />
                   </dl>
                   {preview.excess > 0 && (
                     <Note>
-                      {target.title} only owes GH₵ {formatAmount(target.amount)}.
-                      The remaining GH₵ {formatAmount(preview.excess)} stays in
-                      the susu account, pending withdrawal.
+                      {target.title} only owes GH₵ {formatAmount(target.amount)}, so
+                      only that much leaves the source.
                     </Note>
                   )}
                 </>

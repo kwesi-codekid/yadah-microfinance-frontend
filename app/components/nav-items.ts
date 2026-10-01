@@ -75,7 +75,7 @@ export const NAV: NavItem[] = [
     to: "/susu",
     label: "Susu",
     icon: CoinsIcon,
-    blurb: "Cycles, collections and payouts.",
+    blurb: "Accounts, plans and collections.",
   },
   {
     to: "/savings",

@@ -28,6 +28,7 @@ export type TxnType =
   | "susu-deposit"
   | "susu-payout"
   | "susu-withdrawal"
+  | "susu-commission"
   | "savings-deposit"
   | "savings-withdrawal"
   | "savings-closure"
@@ -150,10 +151,10 @@ export interface TransactionFeed {
 export interface DashboardKpis {
   /** Customers with status `active`. */
   totalCustomers: number;
-  /** Open susu cycles + active savings + open loans + open HP agreements. */
+  /** Open susu accounts + active savings + open loans + open HP agreements. */
   activeAccounts: number;
-  /** Completed cycles not yet paid out. */
-  pendingSusuPayouts: Tally;
+  /** Plans running across open susu accounts. */
+  activeSusuPlans: number;
   /** Today's cash in, pesewas. */
   amountCollectedToday: number;
   /**
@@ -210,10 +211,9 @@ export interface DashboardSummary {
     customersActive: number;
     susu: {
       activeAccounts: number;
-      completedAwaitingClosure: number;
-      /** Deposits less anything already withdrawn. */
+      activePlans: number;
+      /** Balances of open accounts. */
       valueHeld: number;
-      pendingPayout: Tally;
     };
     savings: {
       activeAccounts: number;
@@ -486,6 +486,7 @@ export const TXN_TYPE_LABELS: Record<TxnType, string> = {
   "susu-deposit": "Susu deposit",
   "susu-payout": "Susu payout",
   "susu-withdrawal": "Susu withdrawal",
+  "susu-commission": "Susu commission",
   "savings-deposit": "Savings deposit",
   "savings-withdrawal": "Savings withdrawal",
   "savings-closure": "Savings closure",

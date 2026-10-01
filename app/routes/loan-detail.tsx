@@ -219,8 +219,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         // Why this one can never be corrected, or null. Only cash typed at
         // the counter has a data-entry mistake in it to correct.
         locked:
-          r.source === "susu-closure"
-            ? "This was paid by closing a susu account. It cannot be changed on its own."
+          r.source === "susu" || r.source === "susu-closure"
+            ? "This was paid from a susu account. It cannot be changed on its own."
             : r.source === "transfer"
               ? "This came from a transfer between accounts. Correct it on the transfer, not here."
               : r.channel === "paystack"
@@ -890,7 +890,7 @@ function LoanMenu({
           <DropdownMenuItem asChild disabled={!open}>
             <Link to={`/loans/${loanId}/repay/susu`} prefetch="intent">
               <CoinsIcon />
-              Repay by closing a susu account
+              Repay from susu balance
             </Link>
           </DropdownMenuItem>
           {/* The third way money reaches a loan: a prompt on the customer's own

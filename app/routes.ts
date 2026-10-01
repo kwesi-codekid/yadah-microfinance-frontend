@@ -74,7 +74,6 @@ export default [
     route("susu/summary", "routes/susu-summary.tsx"),
     route("susu", "routes/susu.tsx", [
       route("new", "routes/susu-new.tsx"),
-      route("collect", "routes/susu-collect.tsx"),
     ]),
     route("susu/:id/deposits/export", "routes/susu-deposits-export.tsx"),
     // Resource routes: they proxy a PDF from the API, which the browser cannot
@@ -87,10 +86,13 @@ export default [
       "susu/:id/withdrawals/:payoutId/receipt",
       "routes/susu-withdrawal-receipt.tsx",
     ),
+    /* A plan is a page of its own, beside the account rather than a drawer over it. */
+    route("susu/:id/plans/:planId", "routes/susu-plan.tsx"),
     route("susu/:id", "routes/susu-detail.tsx", [
       route("deposit", "routes/susu-deposit.tsx"),
       route("withdraw", "routes/susu-withdraw.tsx"),
       route("charge", "routes/susu-charge.tsx"),
+      route("plans/new", "routes/susu-plan-new.tsx"),
     ]),
     /* Savings. Same shape as susu: the book is a page, opening an account is an
        errand and renders as a drawer over the rows. The account itself is a

@@ -180,7 +180,7 @@ export default function PortalRequestNew({ loaderData }: Route.ComponentProps) {
           {closure && (
             <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
               <TriangleAlertIcon className="mt-0.5 size-4 shrink-0 text-warning" />
-              <span>Closing ends the cycle. The payout is worked out by the office when they approve, less one day's commission.</span>
+              <span>Closing stops every plan. The office works out the payout when they approve, less one payment's commission for each cycle still in progress.</span>
             </div>
           )}
 

@@ -100,7 +100,7 @@ export default function AccountingProfitLoss({ loaderData }: Route.ComponentProp
   const margin = inc.total > 0 ? profit / inc.total : null;
 
   const incomeLines: { label: string; value: number; hint?: string }[] = [
-    { label: "Susu commission", value: inc.susuCommission, hint: "One day’s deposit when a cycle stops" },
+    { label: "Susu commission", value: inc.susuCommission, hint: "One payment per cycle, as cycles end" },
     { label: "Savings fees", value: inc.savingsFees, hint: "Flat fee on withdrawals and closures" },
     { label: "Sale margin", value: inc.outrightSalesProfit, hint: "Counter sales over cost" },
     { label: "Loan interest", value: inc.loanInterest, hint: "Recognised as repaid" },

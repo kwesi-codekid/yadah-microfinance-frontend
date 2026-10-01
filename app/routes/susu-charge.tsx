@@ -17,7 +17,7 @@ import { Button } from "~/components/ui/button";
 import { startCharge } from "~/lib/charge.server";
 import { formatAmount } from "~/lib/format";
 import { requireUser, withAuth } from "~/lib/session.server";
-import { CYCLE_TARGET } from "~/lib/susu";
+import { activePlans } from "~/lib/susu";
 import type { Route } from "./+types/susu-charge";
 
 export function meta(_: Route.MetaArgs) {
@@ -51,7 +51,7 @@ export default function SusuCharge({ loaderData }: Route.ComponentProps) {
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
 
-  const daysLeft = (account.cycleTarget || CYCLE_TARGET) - account.depositsCount;
+  const running = activePlans(account);
 
   useEffect(() => {
     if (actionData?.error) toast.error(actionData.error);
@@ -70,10 +70,10 @@ export default function SusuCharge({ loaderData }: Route.ComponentProps) {
             kind="susu-deposit"
             phone={phone}
             amountLabel="Collection"
-            // A susu deposit buys whole days, so the daily amount is the figure
-            // that is almost always right and the one to start from.
-            suggested={account.dailyAmount}
-            note={`The amount has to be a whole number of days at GH₵ ${formatAmount(account.dailyAmount)} — ${daysLeft} ${daysLeft === 1 ? "day is" : "days are"} left in this cycle. Nothing is credited until Paystack confirms it.`}
+            // A mobile-money payment is credited in whole rounds — one payment
+            // on every running plan — so one round is the figure to start from.
+            suggested={account.dailyTotal}
+            note={`Credited in whole rounds of GH₵ ${formatAmount(account.dailyTotal)} — one payment on ${running.length === 1 ? "the plan" : `each of the ${running.length} plans`} — with anything over kept in the balance. Nothing is credited until Paystack confirms it.`}
           />
         </SheetBody>
 

@@ -25,17 +25,11 @@ export type LoanStatus = "pending" | "active" | "repaid" | "rejected" | "arrears
 export const DURATIONS = [3, 6, 12] as const;
 export type LoanDuration = (typeof DURATIONS)[number];
 
-/** How a repayment reached the counter. `susu-closure` is the API's own. */
-export type RepaymentSource = "cash" | "paystack" | "momo" | "susu-closure" | "transfer";
+/** How a repayment reached the counter. `susu` is money taken from the customer's susu balance; `susu-closure` is history. */
+export type RepaymentSource = "cash" | "paystack" | "momo" | "susu" | "susu-closure" | "transfer";
 
 export type RepaymentChannel = "cash" | "paystack" | "momo";
 
-/**
- * Where the excess goes when a susu closure pays off more than the loan owes.
- * The default leaves it in the susu account for the customer to collect; the
- * alternative credits their savings in the same atomic transaction.
- */
-export type ExcessDestination = "pending-withdrawal" | "savings";
 
 /**
  * Who stands behind the loan, snapshotted when the application was recorded.
@@ -165,17 +159,17 @@ export interface Repayment {
   source: string;
   /** How the cash arrived. Absent on rows the API wrote before it was kept. */
   channel?: string;
-  /** Set when the repayment came from closing a susu account. */
+  /** Set when the repayment came from the customer's susu account. */
   susuAccountId?: string;
   recordedById?: string;
   createdAt?: string;
 }
 
-/** What a susu-closure repayment did on the susu side, so both halves show. */
-export interface SusuClosureResult {
+/** What a repayment from susu did on the susu side, so both halves show. */
+export interface SusuWithdrawalResult {
   accountId: string;
-  commission: number;
-  payout: number;
+  amount: number;
+  balanceAfter: number;
 }
 
 /**
@@ -211,7 +205,7 @@ export interface LoanEligibility {
   /** Null when they have never paid anything in. */
   firstActivityAt: string | null;
   monthsOfHistory: number;
-  susu: { accounts: number; activeAccounts: number; totalDeposited: number };
+  susu: { accounts: number; activeAccounts: number; balance: number };
   savings: { accounts: number; totalBalance: number };
   /** The loan already on their name, if any. One open loan is the limit. */
   openLoan: Loan | null;
@@ -320,6 +314,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   cash: "Cash",
   momo: "MoMo",
   paystack: "Paystack",
+  susu: "From susu",
   "susu-closure": "Susu closure",
   transfer: "Transfer",
 };

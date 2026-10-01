@@ -243,7 +243,7 @@ interface Row {
   customerName: string;
   before: number;
   after: number;
-  /** Susu: the days before and after; null for the other kinds. */
+  /** Susu: the payments before and after; null for the other kinds. */
   unitsBefore: number | null;
   units: number | null;
   reason: string;

@@ -147,7 +147,7 @@ export function CollectorDashboard({ data }: { data: CollectorDashboardData }) {
             top
             note={
               round && round.stops.length > 0
-                ? "Who still owes a susu deposit today, biggest first. Collecting takes one cash amount across every account the customer holds."
+                ? "Who still owes a susu payment today, biggest first. Collecting opens their account with one payment on every plan they run."
                 : undefined
             }
           >

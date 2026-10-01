@@ -28,30 +28,30 @@ export interface PortalTokens {
   refreshToken: string;
 }
 
-export interface PortalSusu {
-  accountId: string;
-  /**
-   * The customer's own susu number — shared by every book they hold, so two
-   * cycles opened in one month read identically. Never enough on its own to
-   * name one book; see `susuLabel`.
-   */
-  accountNumber: string;
-  /** The month this book is called. */
-  cycleMonth?: string;
-  /** This book's own identity, rendered: `260912134501-a3f9`. Always distinct. */
-  ref: string;
-  status: string;
+export interface PortalSusuPlan {
+  planId: string;
   dailyAmount: number;
-  depositsCount: number;
+  /** Payments made in the cycle in progress, 0..30. */
+  paidInCycle: number;
   /** Always 31. */
   cycleLength: number;
-  daysRemaining: number;
-  totalDeposited: number;
-  withdrawnAmount: number;
+  cycleNumber: number;
+  status: string;
+}
+
+export interface PortalSusu {
+  accountId: string;
+  /** The customer's own susu number — one per customer. */
+  accountNumber: string;
+  status: string;
   balance: number;
-  /** Most that can be taken with the account left open — one day stays reserved. */
-  maxPartialWithdrawal: number;
-  closurePreview: { commission: number; payout: number };
+  /** One payment per plan with a cycle in progress — the part nothing may take. */
+  locked: number;
+  /** Most the customer can take with the account left open. */
+  availableToWithdraw: number;
+  /** One payment on every running plan. */
+  dailyTotal: number;
+  plans: PortalSusuPlan[];
 }
 
 export interface PortalSavings {
@@ -122,10 +122,8 @@ export type { PaystackCharge, PayoutRequest, PayoutRequestKind };
 /* ------------------------------------------------------------------ labels --- */
 
 export const SUSU_STATUS_LABELS: Record<string, string> = {
-  active: "Running",
-  "pending-payout": "Payout due",
+  active: "Open",
   closed: "Closed",
-  terminated: "Terminated",
 };
 
 export const SAVINGS_STATUS_LABELS: Record<string, string> = {
@@ -151,38 +149,21 @@ export interface PayTarget {
   hint: string;
 }
 
-/**
- * How to name one susu book to its owner.
- *
- * The number alone will not do: it belongs to the customer, not the book, so
- * somebody holding two September cycles sees the same string twice. What
- * distinguishes them for a customer is what they pay in — "my twenty cedi
- * book" is how the branch's customers already talk about them — and only when
- * even that matches does the machine reference get added, because it means
- * nothing to a person and is a last resort rather than a label.
- *
- * This matters most where the list is a menu: these labels are all the handset
- * shows, and one of the choices closes an account for good.
- */
-export function susuLabel(account: PortalSusu, among: PortalSusu[]): string {
-  const daily = `GH₵ ${(account.dailyAmount / 100).toFixed(2)} a day`;
-  const twins = among.filter(
-    (o) =>
-      o.accountNumber === account.accountNumber && o.dailyAmount === account.dailyAmount,
-  );
-  const tail = twins.length > 1 ? `${daily} · ${account.ref}` : daily;
-  return `#${account.accountNumber} · ${tail}`;
+/** How to name the susu account to its owner: the number, and what one round costs. */
+export function susuLabel(account: PortalSusu): string {
+  return `#${account.accountNumber} · GH₵ ${(account.dailyTotal / 100).toFixed(2)} a day`;
 }
 
 export function payTargets(accounts: PortalAccounts): PayTarget[] {
   const out: PayTarget[] = [];
-  const susu = accounts.susu.filter((a) => isOpen(a.status));
+  const susu = accounts.susu.filter((a) => isOpen(a.status) && a.dailyTotal > 0);
   for (const a of susu) {
+    const running = a.plans.filter((p) => p.status === "active").length;
     out.push({
       kind: "susu-deposit",
       id: a.accountId,
-      label: `Susu ${susuLabel(a, susu)}`,
-      hint: `One day is GH₵ ${(a.dailyAmount / 100).toFixed(2)} · ${a.daysRemaining} day${a.daysRemaining === 1 ? "" : "s"} left in the cycle`,
+      label: `Susu ${susuLabel(a)}`,
+      hint: `Paid in rounds of GH₵ ${(a.dailyTotal / 100).toFixed(2)} — one payment on ${running === 1 ? "your plan" : `each of your ${running} plans`}`,
     });
   }
   for (const a of accounts.savings) {
@@ -224,16 +205,16 @@ export function requestOptions(accounts: PortalAccounts): RequestOption[] {
     out.push({
       kind: "susu-partial-withdrawal",
       targetId: a.accountId,
-      label: `Take some of susu ${susuLabel(a, susu)}`,
-      max: a.maxPartialWithdrawal,
-      hint: `Up to GH₵ ${(a.maxPartialWithdrawal / 100).toFixed(2)} with the account left open. No commission is taken.`,
+      label: `Withdraw from susu #${a.accountNumber}`,
+      max: a.availableToWithdraw,
+      hint: `Up to GH₵ ${(a.availableToWithdraw / 100).toFixed(2)} with the account left open. No commission is taken; GH₵ ${(a.locked / 100).toFixed(2)} stays for the cycles in progress.`,
     });
     out.push({
       kind: "susu-closure",
       targetId: a.accountId,
-      label: `Close susu ${susuLabel(a, susu)}`,
+      label: `Close susu #${a.accountNumber}`,
       max: null,
-      hint: `Ends the cycle. You receive GH₵ ${(a.closurePreview.payout / 100).toFixed(2)} after one day's commission of GH₵ ${(a.closurePreview.commission / 100).toFixed(2)}.`,
+      hint: `Stops every plan. You receive GH₵ ${(Math.max(0, a.balance - a.locked) / 100).toFixed(2)} after GH₵ ${(a.locked / 100).toFixed(2)} commission for the cycles in progress.`,
     });
   }
   return out;

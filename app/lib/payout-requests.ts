@@ -112,9 +112,9 @@ export const KIND_LABELS: Record<PayoutRequestKind, string> = {
 export const KIND_BLURBS: Record<PayoutRequestKind, string> = {
   "savings-withdrawal": "Taken from a savings account. The withdrawal fee applies.",
   "susu-partial-withdrawal":
-    "Part of a susu balance, the account stays open. No commission here.",
+    "Taken from the susu balance, the account stays open. No commission here.",
   "susu-closure":
-    "Ends the cycle and pays out what is held, less the closing commission.",
+    "Stops every plan and pays out the balance, less one payment for each cycle still in progress.",
 };
 
 /** Paystack's wallet codes, as the customer's own screens name them. */

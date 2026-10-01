@@ -563,7 +563,7 @@ function OverviewTab({ r }: TabProps) {
               {
                 label: "Susu",
                 figure: `${formatCount(r.susu.accounts)} accounts`,
-                detail: `${gh(r.susu.valueHeld)} held · ${formatCount(r.susu.payoutsDue.count)} payouts due`,
+                detail: `${gh(r.susu.valueHeld)} held · ${formatCount(r.susu.payoutsDue.count)} cycles completed`,
                 color: CORAL,
               },
               {
@@ -633,14 +633,14 @@ function SusuTab({ r }: TabProps) {
             label: "Active accounts",
             icon: IdCardIcon,
             tint: 2,
-            hint: "In a running cycle",
+            hint: "With a plan running",
           },
           {
             value: gh(r.susu.valueHeld),
             label: "Held for customers",
             icon: WalletIcon,
             tint: 3,
-            hint: "Owed back at payout",
+            hint: "Balances of open accounts",
           },
           {
             value: gh(collected),
@@ -651,10 +651,10 @@ function SusuTab({ r }: TabProps) {
           },
           {
             value: formatCount(r.susu.payoutsDue.count),
-            label: "Payouts due",
+            label: "Cycles completed",
             icon: CalendarCheckIcon,
             tint: 6,
-            hint: `${gh(r.susu.payoutsDue.amount)} to pay`,
+            hint: `${gh(r.susu.payoutsDue.amount)} commission earned`,
           },
         ]}
       />
@@ -694,37 +694,37 @@ function SusuTab({ r }: TabProps) {
             title="Where the cycles are"
             detailTo="/susu"
             detailLabel="Open the book"
-            note="Coral: due for payout"
+            note="Coral: between cycles"
           >
             <SegmentBar
               parts={[
                 {
-                  label: "Days 1–10",
+                  label: "Payments 1–10",
                   value: r.susu.cycles[0].count,
                   color: SKY,
                 },
                 {
-                  label: "Days 11–20",
+                  label: "Payments 11–20",
                   value: r.susu.cycles[1].count,
                   color: NAVY,
                 },
                 {
-                  label: "Days 21–30",
+                  label: "Payments 21–30",
                   value: r.susu.cycles[2].count,
                   color: SLATE,
                 },
                 {
-                  label: "Complete, awaiting payout",
+                  label: "Between cycles",
                   value: r.susu.cycles[3].count,
                   color: CORAL,
                 },
                 {
-                  label: "Paid out this period",
+                  label: "Completed this period",
                   value: r.susu.cycles[4].count,
                   color: MIST,
                 },
               ]}
-              format={(v) => `${formatCount(v)} acc.`}
+              format={(v) => `${formatCount(v)} plans`}
             />
           </ReportCard>
         </div>

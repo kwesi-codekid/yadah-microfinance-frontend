@@ -80,20 +80,19 @@ export default function PortalStatement({ loaderData }: Route.ComponentProps) {
       )}
 
       <section className="grid gap-3 md:grid-cols-2">
-        {/* A customer with two books in one month gets two panels carrying
-            one number, so the month — and failing that the ref — is what
-            separates them. */}
         {products.susu.map((a) => (
-          <Holding
-            key={a.accountId}
-            title={`Susu #${a.accountNumber}${a.cycleMonth ? ` · ${a.cycleMonth}` : ""}`}
-            status={a.status}
-          >
-            {a.ref ? <Cell label="Ref" value={a.ref} /> : null}
-            <Cell label="Daily" value={formatPesewas(a.dailyAmount)} />
-            <Cell label="Days paid" value={formatCount(a.depositsCount)} />
-            <Cell label="Paid in" value={formatPesewas(a.totalDeposited)} />
-            <Cell label="Owed to you" value={formatPesewas(a.payoutRemaining)} />
+          <Holding key={a.accountId} title={`Susu #${a.accountNumber}`} status={a.status}>
+            <Cell label="Balance" value={formatPesewas(a.balance)} />
+            <Cell label="Daily" value={formatPesewas(a.dailyTotal)} />
+            {a.plans
+              .filter((p) => p.status === "active")
+              .map((p) => (
+                <Cell
+                  key={p.planId}
+                  label={`${formatPesewas(p.dailyAmount)} plan`}
+                  value={`${formatCount(p.paidInCycle)} of 31 · cycle ${formatCount(p.cycleNumber)}`}
+                />
+              ))}
           </Holding>
         ))}
         {products.savings.map((a) => (

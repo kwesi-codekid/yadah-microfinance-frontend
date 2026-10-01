@@ -80,14 +80,22 @@ export async function loader({
           ]);
           const found = deposits.items.find((d) => d.id === txnId);
           if (!found) return nothing("This deposit is no longer on the account.");
-          const open = account.status === "active" || account.status === "completed";
+          const open = account.status === "active";
+          const planIds = [...new Set(found.lines.map((l) => l.planId))];
+          const plan = account.plans.find((p) => p.id === planIds[0]);
+          const firstLine = found.lines[0];
+          // The newest on every plan it paid is the only one the API corrects.
+          const newest = planIds.every(
+            (id) => deposits.items.find((d) => d.lines.some((l) => l.planId === id))?.id === txnId,
+          );
           return {
             context: {
               kind,
-              dailyAmount: account.dailyAmount,
-              depositsCount: account.depositsCount - found.daysCovered,
-              cycleTarget: account.cycleTarget,
-              daysCovered: found.daysCovered,
+              dailyAmount: plan?.dailyAmount ?? firstLine?.dailyAmount ?? 0,
+              paidBefore: Math.max(0, (firstLine?.seqStart ?? 1) - 1),
+              cycleTarget: plan?.cycleTarget ?? 31,
+              payments: found.payments,
+              plans: planIds.length,
             },
             txn: {
               id: found.id,
@@ -101,7 +109,7 @@ export async function loader({
               pending: pending ? toPending(pending, user.id) : null,
             },
             closed: open ? null : "This account is closed, so its deposits are final.",
-            newest: deposits.items[0]?.id === txnId,
+            newest,
             error: null,
           } satisfies Correctable;
         }
@@ -159,8 +167,8 @@ export async function loader({
               id: found.id,
               amount: found.amount,
               locked:
-                found.source === "susu-closure"
-                  ? "This was paid by closing a susu account. It cannot be changed on its own."
+                found.source === "susu" || found.source === "susu-closure"
+                  ? "This was paid from a susu account. It cannot be changed on its own."
                   : found.source === "transfer"
                     ? TRANSFER
                     : found.channel === "paystack"

@@ -298,11 +298,11 @@ function OfficeDashboard({
           hint="Susu, savings, loans and HP"
         />
         <Stat
-          value={formatCount(k.pendingSusuPayouts.count)}
-          label="Pending Susu Payouts"
+          value={formatCount(k.activeSusuPlans)}
+          label="Susu Plans Running"
           icon={ClipboardListIcon}
           tint={2}
-          hint={`${gh(k.pendingSusuPayouts.amount)} owed to customers`}
+          hint={`${gh(p.susu.valueHeld)} held for customers`}
         />
         <Stat
           value={gh(k.amountCollectedToday)}

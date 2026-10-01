@@ -293,10 +293,15 @@ function useHeaderTitle(pathname: string): { title?: string; crumbs?: Crumb[] } 
   const matches = useMatches();
   for (const match of [...matches].reverse()) {
     const handle = match.handle as
-      | { title?: unknown; crumbs?: (data: unknown) => Crumb[] }
+      | {
+          title?: unknown;
+          crumbs?: (data: unknown, params: Record<string, string | undefined>) => Crumb[];
+        }
       | undefined;
     if (typeof handle?.crumbs === "function" && match.loaderData !== undefined) {
-      return { crumbs: handle.crumbs(match.loaderData) };
+      // The params too: a page under a detail — a plan under its account —
+      // names its own step from them when the data alone cannot.
+      return { crumbs: handle.crumbs(match.loaderData, match.params) };
     }
     if (typeof handle?.title === "string") return { title: handle.title };
   }

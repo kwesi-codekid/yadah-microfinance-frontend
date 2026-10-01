@@ -3,134 +3,113 @@
  * Nothing here may import a `.server` module or the API client — it is bundled
  * into the client. The fetch functions live in `~/api/susu`.
  *
- * One account is one cycle: 31 deposits at a fixed daily amount. The amount
- * cannot change once the account is open — a different amount means closing
- * this account and opening another — and a customer may run several at once.
+ * A customer holds ONE susu account, like savings: a balance that deposits go
+ * into and withdrawals come out of, open until the customer leaves. Inside it
+ * run one or more plans — a daily amount each — and every plan counts its own
+ * cycle of 31 payments. A cycle is counted in payments, never in dates: GHS 50
+ * on a GHS 10 plan is five of the thirty-one, whenever it lands.
+ *
+ * Commission is one payment of the plan's amount per cycle, taken the moment
+ * the 31st payment lands. Until then one payment per running plan stays locked
+ * in the balance so it is always collectible; stopping a plan mid-cycle (or
+ * closing the account) charges it on the spot.
  */
 
-/** The 31 deposits a full cycle runs to. The API sends it on every account. */
+/** The 31 payments a full cycle runs to. The API sends it on every plan. */
 export const CYCLE_TARGET = 31;
 
-/** The API's floor on a daily amount: GHS 10, in pesewas. Raised API-side, Aug 2026. */
+/** The API's floor on a daily amount: GHS 10, in pesewas. */
 export const MIN_DAILY_AMOUNT = 1000;
 
-export type SusuStatus =
-  | "active"
-  | "completed"
-  | "pending-payout"
-  | "closed"
-  | "terminated";
+/**
+ * The most one deposit may credit to a plan: the rest of this cycle and one
+ * whole cycle after it. Anything further is far likelier a mistyped amount
+ * than cash somebody handed over, and the API refuses it.
+ */
+export const MAX_CYCLES_PER_DEPOSIT = 2;
+
+export type SusuStatus = "active" | "closed";
+export type PlanStatus = "active" | "stopped";
 
 /** How the cash physically arrived. `transfer` is only ever set by the API. */
 export type DepositChannel = "cash" | "paystack" | "momo";
 
-/** Cycle months, in the three-letter form the branch writes on a passbook. */
-export const CYCLE_MONTHS = [
-  "JAN",
-  "FEB",
-  "MAR",
-  "APR",
-  "MAY",
-  "JUN",
-  "JUL",
-  "AUG",
-  "SEP",
-  "OCT",
-  "NOV",
-  "DEC",
-] as const;
-export type CycleMonth = (typeof CYCLE_MONTHS)[number];
+export interface SusuPlan {
+  id: string;
+  accountId: string;
+  /** Pesewas. Changeable only between cycles. */
+  dailyAmount: number;
+  /** Payments made in the cycle in progress, 0..30. Never 31: that completes it. */
+  paidInCycle: number;
+  cycleTarget: number;
+  /** The cycle in progress — or, between cycles, the one the next deposit starts. */
+  cycleNumber: number;
+  cyclesCompleted: number;
+  status: PlanStatus;
+  /** One payment's amount while a cycle is in progress; 0 between cycles or stopped. */
+  locked: number;
+  /** True between cycles: the amount may be changed before the next deposit. */
+  amountChangeable: boolean;
+  startedAt: string;
+  stoppedAt?: string;
+  /** Charged when stopped mid-cycle; 0 when stopped between cycles. */
+  stopCommission?: number;
+  /**
+   * What the plan holds, pesewas: ended cycles net of commission, plus the
+   * cycle in progress, less withdrawals beyond the days they cost. On the
+   * account detail only; 0 once the account is closed.
+   */
+  balance?: number;
+  /** Σ withdrawals taken off this plan, pesewas. On the account detail only. */
+  withdrawn?: number;
+}
 
-/** The month we are in now, which is what a new cycle is called by default. */
-export function currentCycleMonth(): CycleMonth {
-  // Ghana is UTC+0 year-round, so the UTC month is the Accra month.
-  return CYCLE_MONTHS[new Date().getUTCMonth()] ?? "JAN";
+/** Money out of the account: a withdrawal, or the payout that closed it. */
+export interface SusuPayout {
+  id: string;
+  accountId: string;
+  amount: number;
+  kind: "payout" | "withdrawal";
+  destination: "cash" | "savings" | "loan" | "hire-purchase";
+  commissionAmount: number;
+  /** How the money was spread over the plans; absent on closing payouts and pre-plan rows. */
+  lines?: WithdrawalLine[];
+  recordedById: string;
+  createdAt: string;
+}
+
+/** One plan's share of a withdrawal, as the API reports it. */
+export interface WithdrawalLine {
+  planId: string;
+  /** The plan's amount at the time. */
+  dailyAmount: number;
+  amount: number;
+  /** Whole payments this share took off the plan's cycle in progress. */
+  paymentsRemoved: number;
 }
 
 export interface SusuAccount {
   id: string;
-  /**
-   * The CUSTOMER's susu number with this cycle's month, e.g. `SU26090005-SEP`.
-   *
-   * NOT unique, and not this account's own (client decision, 12 Sep 2026): a
-   * customer is assigned one number for life and their books are separated by
-   * month inside it, the way the branch's paper passbooks work. Two books
-   * opened for one customer in one month render the identical string, so this
-   * can never be used to tell two of them apart — use `id`, and show `ref`
-   * wherever both can be on screen at once.
-   *
-   * Customers registered before the scheme keep their legacy 6 digits as their
-   * number, suffixed the same way.
-   */
+  /** The customer's susu number, e.g. `SU26090005` — one per customer, for life. */
   accountNumber: string;
-  /**
-   * The account's real identity, rendered for people: the second it was opened
-   * plus a tail of its id — `260912134501-a3f9`. Always distinct, and shaped
-   * deliberately unlike an account number so the two are never confused.
-   */
-  ref: string;
   customerId: string;
   /** Present on list responses, for display. */
   customerName?: string;
-  /** Pesewas. Immutable for the life of the cycle. */
-  dailyAmount: number;
-  depositsCount: number;
-  cycleTarget: number;
-  /** Gross paid in over the life of the cycle. Withdrawals never reduce it. */
-  totalDeposited: number;
-  /** Handed back through partial withdrawals, without stopping the cycle. */
-  withdrawnAmount: number;
-  /** `totalDeposited − withdrawnAmount` — what the account actually holds. */
+  /** Pesewas — what the account holds. */
   balance: number;
-  /**
-   * `balance − dailyAmount`, floored at zero. One day stays reserved so the
-   * closing commission is still collectible after a partial withdrawal.
-   */
+  /** One payment per plan with a cycle in progress: the part nothing may take. */
+  locked: number;
+  /** `balance − locked`, floored at zero. */
   availableToWithdraw: number;
+  /** Σ daily amounts of the active plans — what one day's round collects. */
+  dailyTotal: number;
   status: SusuStatus;
-  /**
-   * The month this cycle is called — the `-SEP` on the account number. It need
-   * not be the month the number was issued in: a cycle opened in late August
-   * for a customer who thinks of it as September is a September cycle.
-   * Absent on accounts opened before the field existed.
-   */
-  cycleMonth?: CycleMonth;
-  /** Set when this cycle exists because another one overflowed into it. */
-  carriedFromAccountId?: string;
-  /** Set when the account stops: one day's deposit. */
-  commissionAmount?: number;
-  /** Set when the account stops: total less the commission. */
-  payoutAmount?: number;
-  /** Value awaiting withdrawal — what `pending-payout` still owes. */
-  payoutRemaining: number;
+  /** Active plans first, then stopped; each group oldest first. */
+  plans: SusuPlan[];
   openedAt: string;
   closedAt?: string;
-}
-
-/** One account's share of a payment. More than one only on a carry-forward. */
-export interface DepositLeg {
-  deposit: SusuDeposit;
-  account: SusuAccount;
-  /** True when this leg's account was opened by this very payment. */
-  carried: boolean;
-}
-
-/**
- * What recording a deposit gives back.
- *
- * `deposit` and `account` are always the leg on the account that was paid
- * into, so every existing screen reads the same two fields. A payment that ran
- * past the end of the cycle has more in `legs`, and the accounts it had to
- * open in `openedAccounts`.
- */
-export interface DepositResult {
-  deposit: SusuDeposit;
-  account: SusuAccount;
-  legs: DepositLeg[];
-  /** Pesewas across every leg — what the customer actually handed over. */
-  totalAmount: number;
-  openedAccounts: SusuAccount[];
-  replayed?: boolean;
+  closeCommission?: number;
+  closePayout?: number;
 }
 
 /** An account in the trash. `deletedAt` is what separates it from a live one. */
@@ -140,28 +119,43 @@ export interface TrashedSusuAccount extends SusuAccount {
   deleteReason?: string;
 }
 
+/**
+ * One stretch of a deposit inside one cycle of one plan. A deposit that runs a
+ * plan past its 31st payment has two lines for that plan, the second opening
+ * the next cycle.
+ */
+export interface SusuDepositLine {
+  planId: string;
+  /** The plan's amount at the time. */
+  dailyAmount: number;
+  cycleNumber: number;
+  payments: number;
+  /** 1-based positions within the cycle, 1..31. */
+  seqStart: number;
+  seqEnd: number;
+  /** payments × dailyAmount. */
+  amount: number;
+  /** One payment's amount when this line landed the 31st payment; else 0. */
+  commissionAmount: number;
+  completesCycle: boolean;
+}
+
 export interface SusuDeposit {
   id: string;
   accountId: string;
   customerId: string;
   /** Whoever recorded it — a collector in the field or office staff. */
   collectorId: string;
+  /** The cash handed over. */
   amount: number;
-  daysCovered: number;
-  /** 1-based position in the 31-deposit cycle. */
-  seqStart: number;
-  seqEnd: number;
+  /** Σ lines.payments. */
+  payments: number;
+  lines: SusuDepositLine[];
+  /** Cash beyond whole payments — stays in the balance, counts toward no plan. */
+  leftover: number;
+  /** Taken out of this deposit as cycles completed. */
+  commissionAmount: number;
   channel: DepositChannel | "transfer";
-  /** Set when the deposit came from a collect-all across several accounts. */
-  collectAllBatchId?: string;
-  /**
-   * The other half of a payment that ran past the end of this cycle. The half
-   * that overflowed points forward; the half in the new account points back.
-   */
-  carriedToDepositId?: string;
-  carriedToAccountId?: string;
-  carriedFromDepositId?: string;
-  carriedFromAccountId?: string;
   createdAt: string;
 }
 
@@ -169,6 +163,33 @@ export interface TrashedSusuDeposit extends SusuDeposit {
   deletedAt: string;
   deletedById?: string;
   deleteReason?: string;
+}
+
+/** One ended cycle of one plan — the statement's history and the commission trail. */
+export interface SusuCycle {
+  id: string;
+  planId: string;
+  accountId: string;
+  cycleNumber: number;
+  dailyAmount: number;
+  /** 31 when completed; fewer when cut short. */
+  payments: number;
+  commissionAmount: number;
+  endReason: "completed" | "plan-stopped" | "account-closed";
+  endedAt: string;
+}
+
+/** How many whole payments a deposit credits to each plan. */
+export interface DepositSplit {
+  planId: string;
+  payments: number;
+}
+
+/** What recording a deposit gives back. */
+export interface DepositResult {
+  deposit: SusuDeposit;
+  account: SusuAccount;
+  replayed?: boolean;
 }
 
 /** GET /susu/summary — one Accra day's collection, for reconciliation. */
@@ -188,42 +209,37 @@ export interface SummaryDeposit {
   customerName: string;
   collectorId: string;
   amount: number;
-  daysCovered: number;
+  payments: number;
   at: string;
 }
 
 /* ------------------------------------------------------------------ labels --- */
 
 export const SUSU_STATUS_LABELS: Record<SusuStatus, string> = {
-  active: "Active",
-  completed: "Completed",
-  "pending-payout": "Pending payout",
+  active: "Open",
   closed: "Closed",
-  terminated: "Terminated",
 };
 
-/**
- * What each state means at the counter, in one line. These are the states a
- * clerk has to act on, so the tooltip has to say what to do, not what it is.
- */
+/** What each state means at the counter, in one line. */
 export const SUSU_STATUS_BLURBS: Record<SusuStatus, string> = {
-  active: "Taking deposits.",
-  completed: "31 deposits in. Ready to close and pay out.",
-  "pending-payout": "Stopped with value still owed to the customer.",
-  closed: "Paid out, less one day's commission.",
-  terminated: "Refunded in full, no commission taken.",
+  active: "Taking deposits and withdrawals.",
+  closed: "Paid out. Reopens if the customer comes back.",
 };
 
-/**
- * The tone each state carries in the listing. Money still owed to a customer
- * is the one that must catch the eye, so `pending-payout` takes the warning.
- */
-export const SUSU_STATUS_TONE: Record<SusuStatus, "success" | "info" | "warning" | "muted"> = {
+export const SUSU_STATUS_TONE: Record<SusuStatus, "success" | "muted"> = {
   active: "success",
-  completed: "info",
-  "pending-payout": "warning",
   closed: "muted",
-  terminated: "muted",
+};
+
+export const PLAN_STATUS_LABELS: Record<PlanStatus, string> = {
+  active: "Running",
+  stopped: "Stopped",
+};
+
+export const CYCLE_END_LABELS: Record<SusuCycle["endReason"], string> = {
+  completed: "Completed",
+  "plan-stopped": "Plan stopped",
+  "account-closed": "Account closed",
 };
 
 export const CHANNEL_LABELS: Record<string, string> = {
@@ -239,158 +255,148 @@ export const CHANNEL_OPTIONS: { value: DepositChannel; label: string }[] = [
   { value: "paystack", label: "Paystack" },
 ];
 
+/* ------------------------------------------------------------------- rules --- */
+
 /** True while the account can still take a deposit. */
-export function isOpen(account: SusuAccount): boolean {
+export function isOpen(account: Pick<SusuAccount, "status">): boolean {
   return account.status === "active";
 }
 
+export function activePlans(account: Pick<SusuAccount, "plans">): SusuPlan[] {
+  return account.plans.filter((p) => p.status === "active");
+}
+
+/** "GH₵ 10.00 a day" — how the branch and its customers name a plan. */
+export function planLabel(plan: Pick<SusuPlan, "dailyAmount">): string {
+  return `GH₵ ${(plan.dailyAmount / 100).toFixed(2)} a day`;
+}
+
+/** How far through the cycle in progress, 0–1. */
+export function cycleProgress(plan: Pick<SusuPlan, "paidInCycle" | "cycleTarget">): number {
+  const target = plan.cycleTarget || CYCLE_TARGET;
+  return Math.max(0, Math.min(1, plan.paidInCycle / target));
+}
+
+/** True while a cycle is in progress and its commission is still to come. */
+export function isMidCycle(plan: Pick<SusuPlan, "status" | "paidInCycle">): boolean {
+  return plan.status === "active" && plan.paidInCycle > 0;
+}
+
 /**
- * What the cycle is still holding for the customer — which is NOT the same
- * question as `isOpen`.
- *
- * A completed cycle takes no more deposits but holds every pesewa until it is
- * closed and paid out; one waiting on a staged payout holds whatever has not
- * been handed over yet. A stopped cycle holds nothing, even though `balance`
- * survives closure: that figure is deposits less PARTIAL withdrawals, and the
- * closing payout is recorded separately, so it has to be read with the status
- * beside it or it claims money the branch has already given back.
+ * What closing the account today would do: every plan mid-cycle is charged its
+ * one payment — exactly the amount already locked — and the rest is paid out.
  */
-export function heldBalance(account: SusuAccount): number {
-  if (account.status === "active" || account.status === "completed") {
-    return account.balance;
-  }
-  if (account.status === "pending-payout") return account.payoutRemaining;
-  return 0;
-}
-
-/** True once the cycle has been paid out and holds nothing. */
-export function isStopped(account: SusuAccount): boolean {
-  return account.status === "closed" || account.status === "terminated";
+export function closurePreview(
+  account: Pick<SusuAccount, "balance" | "locked">,
+): { commission: number; payout: number } {
+  return { commission: account.locked, payout: Math.max(0, account.balance - account.locked) };
 }
 
 /**
- * How far through the cycle, 0–1. Deposits can exceed the target only if the
- * API ever lets them, so it is clamped rather than trusted.
- */
-export function cycleProgress(account: SusuAccount): number {
-  const target = account.cycleTarget || CYCLE_TARGET;
-  return Math.max(0, Math.min(1, account.depositsCount / target));
-}
-
-/** What one day's commission will be when the account stops. */
-export function commissionOf(account: SusuAccount): number {
-  return account.commissionAmount ?? account.dailyAmount;
-}
-
-/**
- * What the customer would receive if the account closed now: what the account
- * still holds, less exactly one day. Below one day's deposit there is nothing
- * to take the commission from, and the API refuses the close — that account can
- * only be terminated, which refunds the lot.
- *
- * Read from `balance` rather than `totalDeposited`: since partial withdrawals
- * were allowed, the two diverge, and the deposits already handed back are not
- * owed again.
- */
-export function payoutIfClosedNow(account: SusuAccount): number {
-  return account.balance - commissionOf(account);
-}
-
-/** True when a close would be refused with `COMMISSION_NOT_COVERED`. */
-export function commissionUncovered(account: SusuAccount): boolean {
-  return account.balance < commissionOf(account);
-}
-
-/**
- * A partial withdrawal, checked before the round trip.
- *
- * The API keeps one day's amount back so the closing commission stays
- * collectible, which is exactly what `availableToWithdraw` already is — so this
- * refuses what the API would refuse, using the figure it sent.
+ * A withdrawal, checked before the round trip. The API keeps one payment per
+ * running plan back so the commission stays collectible, which is exactly what
+ * `availableToWithdraw` already is — so this refuses what the API would
+ * refuse, using the figure it sent.
  */
 export function checkWithdrawalAmount(
-  account: SusuAccount,
+  account: Pick<SusuAccount, "availableToWithdraw">,
   pesewas: number | null,
 ): string | null {
   if (pesewas == null || !Number.isFinite(pesewas) || pesewas <= 0) {
     return "Enter what the customer is taking.";
   }
   if (account.availableToWithdraw <= 0) {
-    return "One day's amount has to stay in to cover the closing commission.";
+    return "Everything in the account is locked for the cycles in progress.";
   }
   if (pesewas > account.availableToWithdraw) {
-    return "More than this account can give up while staying open.";
+    return "More than this account can give up while its cycles run.";
   }
   return null;
 }
 
 /** What the account holds once a withdrawal of this size comes off. No fee. */
 export function balanceAfterWithdrawal(
-  account: SusuAccount,
+  account: Pick<SusuAccount, "balance">,
   pesewas: number,
 ): number {
   return account.balance - pesewas;
 }
 
-/** Days still unpaid in this cycle. */
-export function daysRemaining(account: SusuAccount): number {
-  return (account.cycleTarget || CYCLE_TARGET) - account.depositsCount;
+/* ------------------------------------------------------------------ splits --- */
+
+/** The deposit form's starting point: one payment on every running plan. */
+export function defaultSplit(account: Pick<SusuAccount, "plans">): DepositSplit[] {
+  return activePlans(account).map((p) => ({ planId: p.id, payments: 1 }));
+}
+
+/** The most payments one deposit may credit to this plan. */
+export function maxPaymentsFor(plan: Pick<SusuPlan, "paidInCycle" | "cycleTarget">): number {
+  const target = plan.cycleTarget || CYCLE_TARGET;
+  return target - plan.paidInCycle + target * (MAX_CYCLES_PER_DEPOSIT - 1);
+}
+
+/** Pesewas the split credits to plans: Σ payments × daily amount. */
+export function coveredAmount(
+  account: Pick<SusuAccount, "plans">,
+  split: readonly DepositSplit[],
+): number {
+  return split.reduce((sum, s) => {
+    const plan = account.plans.find((p) => p.id === s.planId);
+    return plan ? sum + plan.dailyAmount * s.payments : sum;
+  }, 0);
 }
 
 /**
- * How many new accounts a payment of this size would have to open. A payment
- * fills the rest of this cycle first, then whole cycles after it.
+ * The fault in a deposit and its split, or null when the API would take it.
+ * Mirrors the API's own refusals so the form says no first.
  */
-export function accountsCarried(account: SusuAccount, pesewas: number): number {
-  const days = Math.floor(pesewas / account.dailyAmount);
-  const over = days - daysRemaining(account);
-  return over <= 0 ? 0 : Math.ceil(over / (account.cycleTarget || CYCLE_TARGET));
-}
-
-/**
- * The API derives the days covered from the cash handed over, so the amount
- * must be a whole multiple of the daily amount. Returns the fault, or null.
- *
- * Running past the end of the cycle is no longer a fault: the days that fit
- * finish this cycle and the rest starts a new one. Running past the end of
- * TWO cycles is, because a single payment worth that much is far likelier a
- * mistyped amount than cash somebody actually handed over.
- */
-export function checkDepositAmount(
-  account: SusuAccount,
-  pesewas: number,
+export function checkDeposit(
+  account: Pick<SusuAccount, "plans">,
+  split: readonly DepositSplit[],
+  pesewas: number | null,
 ): string | null {
-  if (!Number.isFinite(pesewas) || pesewas <= 0) return "Enter an amount.";
-  if (pesewas % account.dailyAmount !== 0) {
-    return "The amount has to be a whole number of days.";
+  if (pesewas == null || !Number.isFinite(pesewas) || pesewas <= 0) {
+    return "Enter the cash received.";
   }
-  if (accountsCarried(account, pesewas) > MAX_CARRY_ACCOUNTS) {
-    return "That is more than two full cycles at once — check the amount.";
+  const paying = split.filter((s) => s.payments > 0);
+  if (paying.length === 0) return "Put at least one payment on a plan.";
+  for (const s of paying) {
+    const plan = account.plans.find((p) => p.id === s.planId);
+    if (!plan || plan.status !== "active") return "One of these plans is no longer running.";
+    if (!Number.isInteger(s.payments) || s.payments < 0) {
+      return "Payments are whole numbers.";
+    }
+    if (s.payments > maxPaymentsFor(plan)) {
+      return `At most ${maxPaymentsFor(plan)} payments on ${planLabel(plan)} in one go — check the amount.`;
+    }
+  }
+  const covered = coveredAmount(account, split);
+  if (covered > pesewas) {
+    return `The split needs GH₵ ${(covered / 100).toFixed(2)}, more than the cash received.`;
   }
   return null;
 }
 
-/** The most new accounts one payment may open. Mirrors the API's own limit. */
-export const MAX_CARRY_ACCOUNTS = 1;
-
-/**
- * What will happen to a payment that runs past the end of the cycle, in the
- * words the collector should say to the customer. Null when it simply fits.
- */
-export function carryNotice(account: SusuAccount, pesewas: number): string | null {
-  if (!Number.isFinite(pesewas) || pesewas <= 0) return null;
-  if (pesewas % account.dailyAmount !== 0) return null;
-  if (accountsCarried(account, pesewas) !== 1) return null;
-  const remaining = daysRemaining(account);
-  const carried = Math.floor(pesewas / account.dailyAmount) - remaining;
-  return (
-    `${remaining} day${remaining === 1 ? "" : "s"} finishes this cycle; the ` +
-    `other ${carried} day${carried === 1 ? "" : "s"} will start a new account.`
-  );
+/** What crediting `payments` to a plan would do, said before the cash is taken. */
+export interface PlanPreview {
+  /** Where the cycle in progress ends up, 0..30. */
+  paidAfter: number;
+  /** Cycles this deposit would complete on the plan (0, 1 or 2). */
+  completes: number;
+  /** Commission those completions take, pesewas. */
+  commission: number;
+  /** Payments that spill into the next cycle. */
+  carried: number;
 }
 
-/** How many days a given amount covers, for the "3 days" line under the box. */
-export function daysCovered(account: SusuAccount, pesewas: number): number {
-  if (!account.dailyAmount) return 0;
-  return Math.floor(pesewas / account.dailyAmount);
+export function previewPlan(
+  plan: Pick<SusuPlan, "paidInCycle" | "cycleTarget" | "dailyAmount">,
+  payments: number,
+): PlanPreview {
+  const target = plan.cycleTarget || CYCLE_TARGET;
+  const total = plan.paidInCycle + Math.max(0, payments);
+  const completes = Math.floor(total / target);
+  const paidAfter = total % target;
+  const carried = completes > 0 ? paidAfter : 0;
+  return { paidAfter, completes, commission: completes * plan.dailyAmount, carried };
 }

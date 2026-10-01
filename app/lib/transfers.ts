@@ -10,17 +10,16 @@
  *   - A **savings source is a real withdrawal**: the flat GH₵ 10 fee comes off,
  *     it uses up the one withdrawal that account may take today, and it cannot
  *     dip into the GH₵ 50 minimum.
- *   - A **susu source stops the account** with the usual one-day commission —
- *     or draws down a `pending-payout` balance, which is the only case in the
- *     whole endpoint where a partial amount is allowed.
- *   - A **loan or hire-purchase destination takes at most what it still owes**.
- *     Anything over that stays in the susu account pending withdrawal.
+ *   - A **susu source is a withdrawal too**: no commission, every cycle stays
+ *     where it is, and it cannot dip into what is locked for the cycles in
+ *     progress. A **susu destination is credited in whole rounds** — one
+ *     payment on every running plan — with anything over left in its balance.
+ *   - A **loan or hire-purchase destination takes at most what it still owes**;
+ *     only that much leaves the source.
  *   - An **internal savings credit skips the GH₵ 10 minimum deposit** — the
  *     floor is there to stop pointless counter deposits, not to block a move.
  *
- * `amount` is optional, and omitting it means "the whole balance". That is a
- * genuinely different instruction from any number, and the screen has to make
- * which one is being given unmistakable.
+ * `amount` is always given: what leaves the source.
  */
 
 export type TransferSourceType = "susu" | "savings";
@@ -48,7 +47,7 @@ export interface TransferResult {
   fee: number;
   /** What actually landed on the destination. */
   amountCredited: number;
-  /** What the destination could not take, left pending in the susu account. */
+  /** Always 0 now: only what the destination takes ever leaves the source. */
   excessPending: number;
 }
 

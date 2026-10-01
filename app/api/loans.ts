@@ -1,7 +1,6 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
 import type {
-  ExcessDestination,
   Installment,
   Loan,
   LoanConfig,
@@ -12,7 +11,7 @@ import type {
   PaperLoanInput,
   Repayment,
   RepaymentChannel,
-  SusuClosureResult,
+  SusuWithdrawalResult,
   TrashedLoan,
 } from "~/lib/loans";
 
@@ -234,7 +233,7 @@ export interface RepaymentResult {
   loan: Loan;
   replayed: boolean;
   /** Present only on the susu-closure route — what happened on the susu side. */
-  susuClosure?: SusuClosureResult;
+  susuWithdrawal?: SusuWithdrawalResult;
 }
 
 /**
@@ -262,33 +261,22 @@ export function recordRepayment(
 }
 
 /**
- * POST /loans/{id}/repayments/susu-closure — pay the loan by stopping a susu
- * account, in one transaction across both modules.
- *
- * The susu account closes with the usual commission maths and its payout lands
- * on the loan, capped at what the loan still owes. What is left over either
- * stays in the susu account pending withdrawal — the default — or credits the
- * customer's active savings account in the same transaction. That choice moves
- * real money, so the screen has to make it explicit and show the figures before
- * anyone presses anything.
+ * POST /loans/{id}/repayments/susu — pay the loan from the customer's susu
+ * balance, in one transaction across both modules. A withdrawal on the susu
+ * side: no commission, cycles untouched, never below the lock; at most what
+ * the loan still owes.
  */
-export function repayBySusuClosure(
+export function repayFromSusu(
   accessToken: string,
   id: string,
-  input: {
-    susuAccountId: string;
-    idempotencyKey: string;
-    excessTo?: ExcessDestination;
-  },
+  input: { susuAccountId: string; amount: number; idempotencyKey: string },
 ): Promise<RepaymentResult> {
-  return apiFetch(`/loans/${id}/repayments/susu-closure`, {
+  return apiFetch(`/loans/${id}/repayments/susu`, {
     method: "POST",
     json: input,
     accessToken,
   });
 }
-
-/* --------------------------------------------------------------- receipts --- */
 
 /**
  * GET /loans/{id}/disbursement/receipt — the printable PDF proving the

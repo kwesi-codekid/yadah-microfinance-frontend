@@ -230,22 +230,19 @@ export type TxDirection = Direction;
 
 export interface SusuHolding {
   accountId: string;
-  /** The customer's susu number — every book they hold carries it. */
+  /** The customer's susu number — one per customer. */
   accountNumber: string;
-  /** The month this book is called. */
-  cycleMonth?: string;
-  /** This book's own distinct identity, for when two panels share a number. */
-  ref?: string;
   status: string;
-  dailyAmount: number;
-  depositsCount: number;
-  /** Gross paid in over the cycle. Withdrawals never reduce it. */
-  totalDeposited: number;
-  /** Handed back through partial withdrawals, without stopping the cycle. */
-  withdrawnAmount?: number;
-  /** `totalDeposited − withdrawnAmount` — what the cycle actually holds. */
-  balance?: number;
-  payoutRemaining: number;
+  balance: number;
+  /** One payment on every running plan. */
+  dailyTotal: number;
+  plans: {
+    planId: string;
+    dailyAmount: number;
+    paidInCycle: number;
+    cycleNumber: number;
+    status: string;
+  }[];
 }
 
 export interface SavingsHolding {
@@ -305,6 +302,7 @@ export const TX_TYPE_LABELS: Record<TxType, string> = {
   "susu-deposit": "Susu deposit",
   "susu-payout": "Susu payout",
   "susu-withdrawal": "Susu withdrawal",
+  "susu-commission": "Susu commission",
   "savings-deposit": "Savings deposit",
   "savings-withdrawal": "Savings withdrawal",
   "savings-closure": "Savings closure",

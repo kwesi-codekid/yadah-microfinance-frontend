@@ -72,7 +72,7 @@ import { cn } from "~/lib/utils";
 export interface PendingCorrection {
   id: string;
   amount: number;
-  /** Susu only: the days the asked-for amount covers. */
+  /** Susu only: the payments the asked-for amount makes. */
   units?: number;
   reason: string;
   requestedBy: string;
@@ -299,7 +299,7 @@ export function DecideCorrectionDialog({
   const busy = fetcher.state !== "idle";
   const days =
     pending.units !== undefined
-      ? ` — ${pending.units} day${pending.units === 1 ? "" : "s"} —`
+      ? ` — ${pending.units} payment${pending.units === 1 ? "" : "s"} —`
       : ""
 
   return (

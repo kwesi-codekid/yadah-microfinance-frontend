@@ -95,7 +95,7 @@ export default function PortalHome({ loaderData }: Route.ComponentProps) {
         ) : (
           <ul className="grid gap-3 md:grid-cols-2">
             {accounts.susu.map((a) => {
-              const progress = a.cycleLength > 0 ? a.depositsCount / a.cycleLength : 0;
+              const running = a.plans.filter((p) => p.status === "active");
               return (
                 <li key={a.accountId} className="rounded-xl border border-border bg-card p-4">
                   <div className="flex items-start justify-between gap-2">
@@ -105,26 +105,33 @@ export default function PortalHome({ loaderData }: Route.ComponentProps) {
                     </div>
                     <StatusPill
                       label={statusLabel(SUSU_STATUS_LABELS, a.status)}
-                      tone={a.status === "active" ? "success" : a.status === "pending-payout" ? "warning" : "muted"}
+                      tone={a.status === "active" ? "success" : "muted"}
                     />
                   </div>
-                  <div className="mt-3">
-                    <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                      <span>
-                        Day {formatCount(a.depositsCount)} of {formatCount(a.cycleLength)}
-                      </span>
-                      <span>{formatPesewas(a.dailyAmount)}/day</span>
-                    </div>
-                    <Progress value={Math.min(100, progress * 100)} aria-label="Cycle progress" />
-                  </div>
+                  {running.length > 0 && (
+                    <ul className="mt-3 space-y-2">
+                      {running.map((p) => {
+                        const progress = p.cycleLength > 0 ? p.paidInCycle / p.cycleLength : 0;
+                        return (
+                          <li key={p.planId}>
+                            <div className="mb-1 flex justify-between text-xs text-muted-foreground">
+                              <span>{formatPesewas(p.dailyAmount)} a day · cycle {formatCount(p.cycleNumber)}</span>
+                              <span>
+                                {formatCount(p.paidInCycle)} of {formatCount(p.cycleLength)} paid
+                              </span>
+                            </div>
+                            <Progress value={Math.min(100, progress * 100)} aria-label="Cycle progress" />
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                   <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <Cell label="Paid in" value={formatPesewas(a.totalDeposited)} />
-                    <Cell label="Taken out" value={formatPesewas(a.withdrawnAmount)} />
-                    <Cell label="Can take now" value={formatPesewas(a.maxPartialWithdrawal)} />
+                    <Cell label="Can take now" value={formatPesewas(a.availableToWithdraw)} />
                     <Cell
-                      label="If closed today"
-                      value={formatPesewas(a.closurePreview.payout)}
-                      hint={`after ${formatPesewas(a.closurePreview.commission)} commission`}
+                      label="Locked"
+                      value={formatPesewas(a.locked)}
+                      hint="until the cycles complete"
                     />
                   </dl>
                 </li>

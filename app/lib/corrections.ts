@@ -66,12 +66,12 @@ export interface TxnCorrection {
   customerName?: string;
   /** The account, loan or agreement number, where the record has one. */
   targetNumber?: string;
-  /** A susu account's own ref, or the item on a hire-purchase agreement. */
+  /** The item on a hire-purchase agreement. */
   targetLabel?: string;
   /** The transaction as it stood when the teller asked, and what they asked for. */
   amountBefore: number;
   amount: number;
-  /** Susu only: the days covered before and after. */
+  /** Susu only: the payments made before and after. */
   unitsBefore?: number;
   units?: number;
   reason: string;
@@ -144,11 +144,13 @@ export type CorrectionContext =
   | {
       kind: "susu-deposit";
       dailyAmount: number;
-      /** The cycle without this deposit in it. */
-      depositsCount: number;
+      /** The plan's cycle without this deposit in it, 0..30. */
+      paidBefore: number;
       cycleTarget: number;
-      /** The days this deposit covers as it stands. */
-      daysCovered: number;
+      /** The payments this deposit makes as it stands. */
+      payments: number;
+      /** How many plans it was split across. Only one can be re-credited by amount alone. */
+      plans: number;
     }
   | {
       kind: "savings-txn";
@@ -177,12 +179,15 @@ export function checkCorrectedAmount(
   }
   switch (context.kind) {
     case "susu-deposit": {
-      if (pesewas % context.dailyAmount !== 0) {
-        return "The amount has to be a whole number of days.";
+      if (context.plans > 1) {
+        return "This deposit was split across plans. Trash it and record it again.";
       }
-      const days = pesewas / context.dailyAmount;
-      if (days - context.daysCovered > context.cycleTarget - context.depositsCount) {
-        return "That runs past the end of the cycle.";
+      if (pesewas < context.dailyAmount) {
+        return "Less than one payment on the plan.";
+      }
+      const payments = Math.floor(pesewas / context.dailyAmount);
+      if (payments > context.cycleTarget * 2 - context.paidBefore) {
+        return "That runs more than a cycle past the end of this one.";
       }
       return null;
     }
@@ -211,8 +216,12 @@ export function describeCorrectedAmount(
 ): string {
   switch (context.kind) {
     case "susu-deposit": {
-      const days = pesewas / context.dailyAmount;
-      return `${days} day${days === 1 ? "" : "s"} at GH₵ ${formatAmount(context.dailyAmount)}.`;
+      const payments = Math.floor(pesewas / context.dailyAmount);
+      const leftover = pesewas - payments * context.dailyAmount;
+      return (
+        `${payments} payment${payments === 1 ? "" : "s"} at GH₵ ${formatAmount(context.dailyAmount)}` +
+        (leftover > 0 ? `, GH₵ ${formatAmount(leftover)} kept in the balance.` : ".")
+      );
     }
     case "savings-txn": {
       const after =

@@ -88,7 +88,7 @@ export default function TrashSusu({ loaderData }: Route.ComponentProps) {
         emptyDescription="Susu accounts moved to the trash from an account page will wait here."
         backTo="/susu"
         backLabel="Go to susu"
-        restoreDescription="The account returns to the susu book with its balance, cycle progress and deposit history exactly as they were."
+        restoreDescription="The account returns to the susu book with its plans and history exactly as they were. Refused if the customer has since opened another."
       />
     </Page>
   );
