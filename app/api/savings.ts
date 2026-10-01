@@ -284,6 +284,22 @@ export function txnReceiptPdf(
 }
 
 /**
+ * PATCH /savings/accounts/{id}/number — give the account a different number,
+ * typed by the office. Must be in the current format and not in use.
+ */
+export function changeAccountNumber(
+  accessToken: string,
+  id: string,
+  accountNumber: string,
+): Promise<{ account: SavingsAccount }> {
+  return apiFetch(`/savings/accounts/${id}/number`, {
+    method: "PATCH",
+    json: { accountNumber },
+    accessToken,
+  });
+}
+
+/**
  * POST /savings/accounts/{id}/close — pay the balance out and shut the account
  * (office). The minimum balance is released, the flat fee still applies, and
  * `flagged` comes back true when the balance could not cover it.

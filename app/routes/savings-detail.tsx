@@ -8,6 +8,7 @@ import {
   DownloadIcon,
   FileTextIcon,
   MoreHorizontalIcon,
+  PencilLineIcon,
   RotateCcwIcon,
   SlidersHorizontalIcon,
   SmartphoneIcon,
@@ -37,6 +38,7 @@ import {
 import { getCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
 import {
+  changeAccountNumber,
   closeAccount,
   getAccount,
   listTrashedTxns,
@@ -81,6 +83,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "~/components/ui/dialog";
+import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import {
@@ -322,6 +333,15 @@ export async function action({ request, params }: Route.ActionArgs) {
   try {
     const { data: result, headers } = await withAuth(request, async (token) => {
       switch (intent) {
+        case "renumber": {
+          const number = String(form.get("accountNumber") ?? "").trim().toUpperCase();
+          const { account } = await changeAccountNumber(token, params.id, number);
+          return {
+            message: `Account number is now #${account.accountNumber}.`,
+            flagged: false,
+            gone: false,
+          };
+        }
         case "close": {
           const { fee, payout, flagged } = await closeAccount(token, params.id);
           return {
@@ -500,11 +520,14 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
             <AccountTypeTag type={account.accountType} />
             <SavingsStatusPill status={account.status} />
           </div>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 flex items-center justify-end gap-1 text-sm text-muted-foreground">
             <span className="tabular">#{account.accountNumber}</span>
-            {account.closedAt
-              ? ` · Closed ${formatAccraDate(account.closedAt)}`
-              : ` · Opened ${formatAccraDate(account.openedAt)}`}
+            {canManage && <RenumberButton account={account} fetcher={fetcher} />}
+            <span>
+              {account.closedAt
+                ? ` · Closed ${formatAccraDate(account.closedAt)}`
+                : ` · Opened ${formatAccraDate(account.openedAt)}`}
+            </span>
           </p>
         </div>
       </header>
@@ -1319,4 +1342,85 @@ function describe(details?: Record<string, unknown>): string | undefined {
   ].filter(Boolean);
 
   return parts.length ? parts.join(" · ") : undefined;
+}
+
+/* --------------------------------------------------------------- renumber --- */
+
+/**
+ * The pencil beside the account number. Office only: a number issued under
+ * the monthly-restart rule, or quoted wrongly at opening, is typed over here
+ * (stop-gap, 1 Oct 2026). The API checks the format and that the number is
+ * free, and audits the change.
+ */
+function RenumberButton({ account, fetcher }: { account: SavingsAccount; fetcher: Fetcher }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(account.accountNumber);
+  const busy = fetcher.state !== "idle";
+  const next = value.trim().toUpperCase();
+  const valid = /^(SV\d{8,}|\d{10})$/.test(next);
+  const same = next === account.accountNumber;
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok) setOpen(false);
+  }, [fetcher.state, fetcher.data]);
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="size-6 text-muted-foreground hover:text-foreground"
+        onClick={() => {
+          setValue(account.accountNumber);
+          setOpen(true);
+        }}
+        aria-label="Change the account number"
+      >
+        <PencilLineIcon className="size-3.5" />
+      </Button>
+
+      <Dialog open={open} onOpenChange={(o) => !busy && setOpen(o)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Change the account number</DialogTitle>
+            <DialogDescription>
+              Now #{account.accountNumber}. The new number must be in the current form, like
+              SV26100361, and not already in use.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label
+              htmlFor="account-number"
+              className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+            >
+              New number
+            </Label>
+            <Input
+              id="account-number"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              autoComplete="off"
+              autoFocus
+              aria-invalid={value !== "" && !valid ? true : undefined}
+              className="tabular"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" disabled={busy} onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy || !valid || same}
+              onClick={() =>
+                fetcher.submit({ intent: "renumber", accountNumber: next }, { method: "post" })
+              }
+            >
+              Change number
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
