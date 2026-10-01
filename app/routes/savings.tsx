@@ -30,7 +30,7 @@ import {
 
 import { ApiError } from "~/api/error";
 import { listAccounts, renumberThisMonth } from "~/api/savings";
-import { SavingsRenumberButton, type RenumberResult } from "~/components/savings-renumber";
+import { RenumberButton, type RenumberResult } from "~/components/renumber-button";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -298,7 +298,7 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
             <TypeFilter filters={filters} />
             <DateRangeFilter filters={filters} />
             <ExportMenu filters={filters} total={total} />
-            {office && <SavingsRenumberButton />}
+            {office && <RenumberButton action="/savings" product="savings" />}
             {canManage && (
               <Button asChild size="sm">
                 <Link to={`/savings/new${search}`} prefetch="intent" preventScrollReset>

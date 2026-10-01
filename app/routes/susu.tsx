@@ -13,7 +13,8 @@ import { Link, Outlet, useLocation, useNavigation, useSubmit } from "react-route
 import { data } from "react-router";
 
 import { ApiError } from "~/api/error";
-import { listAccounts, runSusuMigration } from "~/api/susu";
+import { listAccounts, renumberThisMonth, runSusuMigration } from "~/api/susu";
+import { RenumberButton, type RenumberResult } from "~/components/renumber-button";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { SusuMigrateButton, type MigrateResult } from "~/components/susu-migrate";
 import { Button } from "~/components/ui/button";
@@ -168,10 +169,16 @@ export async function action({ request }: Route.ActionArgs) {
   if (!isOffice(user)) throw data({ message: "Office only." }, { status: 403 });
   const form = await request.formData();
   const intent = String(form.get("intent") ?? "");
-  if (intent !== "migrate-preview" && intent !== "migrate-apply") {
-    return data<MigrateResult>({ ok: false, message: "Unknown action." }, { status: 400 });
-  }
   try {
+    if (intent === "renumber-preview" || intent === "renumber-apply") {
+      const { data: report, headers } = await withAuth(request, (token) =>
+        renumberThisMonth(token, { apply: intent === "renumber-apply" }),
+      );
+      return data<RenumberResult>({ ok: true, report }, { headers });
+    }
+    if (intent !== "migrate-preview" && intent !== "migrate-apply") {
+      return data<MigrateResult>({ ok: false, message: "Unknown action." }, { status: 400 });
+    }
     const { data: report, headers } = await withAuth(request, (token) =>
       runSusuMigration(token, { apply: intent === "migrate-apply" }),
     );
@@ -303,6 +310,7 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
     >
       <div className="space-y-4 px-4 py-6 sm:px-6">
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {office && <RenumberButton action="/susu" product="susu" />}
           {office && <SusuMigrateButton />}
           <ExportMenu
             path="/susu/export"

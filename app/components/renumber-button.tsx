@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { useFetcher } from "react-router";
 import { toast } from "sonner";
 
-import type { RenumberReport } from "~/api/savings";
 import { Button } from "~/components/ui/button";
 import {
   Dialog,
@@ -15,17 +14,26 @@ import {
 } from "~/components/ui/dialog";
 import { formatCount } from "~/lib/format";
 
-/** What the list route's action answers a renumbering request with. */
+/** What renumbering this month's accounts did, or would do — the API's report. */
+export interface RenumberReport {
+  apply: boolean;
+  changes: { from: string; to: string }[];
+  /** The product's counter after the run; the next account is this plus one. */
+  counter: number;
+}
+
+/** What a list route's action answers a renumbering request with. */
 export type RenumberResult = { ok: true; report: RenumberReport } | { ok: false; message: string };
 
 /**
- * Bring this month's savings numbers into the continuing sequence, from the
+ * Bring this month's account numbers into the continuing sequence, from a
  * book's toolbar (user request, 1 Oct 2026). Two steps, so nothing is written
  * on a click: opening the dialog previews each change — SV26100001 →
  * SV26100361 and so on — and Apply then writes them, behind a confirmation.
- * Office only, and the API says so again.
+ * Office only, and the API says so again. `action` is the list route whose
+ * action forwards `renumber-preview` and `renumber-apply` to the API.
  */
-export function SavingsRenumberButton() {
+export function RenumberButton({ action, product }: { action: string; product: string }) {
   const fetcher = useFetcher<RenumberResult>();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState(false);
@@ -36,7 +44,7 @@ export function SavingsRenumberButton() {
   const run = (apply: boolean) =>
     fetcher.submit(
       { intent: apply ? "renumber-apply" : "renumber-preview" },
-      { method: "post", action: "/savings" },
+      { method: "post", action },
     );
 
   useEffect(() => {
@@ -48,17 +56,15 @@ export function SavingsRenumberButton() {
     if (result.report.apply) {
       const n = result.report.changes.length;
       toast.success(
-        n === 0
-          ? "Nothing to renumber."
-          : `${formatCount(n)} account${n === 1 ? "" : "s"} renumbered.`,
+        n === 0 ? "Nothing to renumber." : `${formatCount(n)} account${n === 1 ? "" : "s"} renumbered.`,
         {
-          description: `The next savings account will be number ${formatCount(result.report.counter + 1)}.`,
+          description: `The next ${product} account will be number ${formatCount(result.report.counter + 1)}.`,
         },
       );
       setOpen(false);
       setConfirm(false);
     }
-  }, [fetcher.state, result]);
+  }, [fetcher.state, result, product]);
 
   return (
     <>
@@ -80,8 +86,9 @@ export function SavingsRenumberButton() {
           <DialogHeader>
             <DialogTitle>Fix this month&rsquo;s numbers</DialogTitle>
             <DialogDescription>
-              Savings accounts opened this month restarted at 0001. This carries them on from
-              where last month ended, in the order they were opened.
+              {product[0]?.toUpperCase()}
+              {product.slice(1)} accounts opened this month restarted at 0001. This carries them
+              on from where last month ended, in the order they were opened.
             </DialogDescription>
           </DialogHeader>
 

@@ -1,5 +1,6 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
+import type { RenumberReport } from "~/api/savings";
 import type {
   DepositChannel,
   DepositResult,
@@ -366,6 +367,17 @@ export interface SusuMigrationReport {
   backfill: { accounts: number; payouts: number; loose: number };
   /** Zero when the money reconciles. */
   drift: number;
+}
+
+/**
+ * POST /susu/renumber — bring this month's susu numbers into the continuing
+ * sequence. `apply: false` previews; `apply: true` writes. Office only.
+ */
+export function renumberThisMonth(
+  accessToken: string,
+  input: { apply: boolean },
+): Promise<RenumberReport> {
+  return apiFetch(`/susu/renumber`, { method: "POST", json: input, accessToken });
 }
 
 /**
