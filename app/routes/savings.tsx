@@ -28,7 +28,9 @@ import {
   useSubmit,
 } from "react-router";
 
-import { listAccounts } from "~/api/savings";
+import { ApiError } from "~/api/error";
+import { listAccounts, renumberThisMonth } from "~/api/savings";
+import { SavingsRenumberButton, type RenumberResult } from "~/components/savings-renumber";
 import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
@@ -65,7 +67,7 @@ import {
   TableHeader,
   TableRow,
 } from "~/components/ui/table";
-import { isCounter } from "~/lib/auth";
+import { isCounter, isOffice } from "~/lib/auth";
 import {
   formatCount,
   formatDayRange,
@@ -191,6 +193,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       // Opening an account and paying a withdrawal are counter work.
       canManage: isCounter(user),
+      /** Renumbering this month's accounts is the office's. */
+      office: isOffice(user),
       filters,
       page,
       total: result.list.total,
@@ -206,6 +210,32 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 /** Opening the "new account" drawer does not re-read the listing. */
 export const shouldRevalidate = drawerParentShouldRevalidate;
+
+/**
+ * Renumbering this month's accounts into the continuing sequence, asked for
+ * from the toolbar: a preview to see, then an apply behind a confirmation.
+ * Office on this side, and the API insists again.
+ */
+export async function action({ request }: Route.ActionArgs) {
+  const user = await requireUser(request);
+  if (!isOffice(user)) throw data({ message: "Office only." }, { status: 403 });
+  const form = await request.formData();
+  const intent = String(form.get("intent") ?? "");
+  if (intent !== "renumber-preview" && intent !== "renumber-apply") {
+    return data<RenumberResult>({ ok: false, message: "Unknown action." }, { status: 400 });
+  }
+  try {
+    const { data: report, headers } = await withAuth(request, (token) =>
+      renumberThisMonth(token, { apply: intent === "renumber-apply" }),
+    );
+    return data<RenumberResult>({ ok: true, report }, { headers });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return data<RenumberResult>({ ok: false, message: error.message }, { status: error.status });
+    }
+    throw error;
+  }
+}
 
 /* -------------------------------------------------------------------- rows --- */
 
@@ -236,7 +266,7 @@ function toRow(a: SavingsAccount, now: Date): Row {
 }
 
 export default function Savings({ loaderData }: Route.ComponentProps) {
-  const { canManage, filters, page, total, counts, rows } = loaderData;
+  const { canManage, office, filters, page, total, counts, rows } = loaderData;
   const navigation = useNavigation();
   const { search } = useLocation();
 
@@ -268,6 +298,7 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
             <TypeFilter filters={filters} />
             <DateRangeFilter filters={filters} />
             <ExportMenu filters={filters} total={total} />
+            {office && <SavingsRenumberButton />}
             {canManage && (
               <Button asChild size="sm">
                 <Link to={`/savings/new${search}`} prefetch="intent" preventScrollReset>

@@ -283,6 +283,25 @@ export function txnReceiptPdf(
   });
 }
 
+/** What renumbering this month's savings accounts did, or would do. */
+export interface RenumberReport {
+  apply: boolean;
+  changes: { from: string; to: string }[];
+  /** The savings counter after the run; the next account is this plus one. */
+  counter: number;
+}
+
+/**
+ * POST /savings/renumber — bring this month's savings numbers into the
+ * continuing sequence. `apply: false` previews; `apply: true` writes. Office only.
+ */
+export function renumberThisMonth(
+  accessToken: string,
+  input: { apply: boolean },
+): Promise<RenumberReport> {
+  return apiFetch(`/savings/renumber`, { method: "POST", json: input, accessToken });
+}
+
 /**
  * PATCH /savings/accounts/{id}/number — give the account a different number,
  * typed by the office. Must be in the current format and not in use.
