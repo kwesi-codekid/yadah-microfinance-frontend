@@ -36,6 +36,11 @@ export async function loader({ request }: Route.LoaderArgs) {
               ? (statusParam as CustomerStatus)
               : undefined,
           search: url.searchParams.get("search")?.trim() || undefined,
+          age:
+            url.searchParams.get("age") === "adult" ||
+            url.searchParams.get("age") === "child"
+              ? (url.searchParams.get("age") as "adult" | "child")
+              : undefined,
           from: day("from"),
           to: day("to"),
         },

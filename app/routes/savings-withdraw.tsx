@@ -23,6 +23,7 @@ import {
   MIN_BALANCE,
   WITHDRAWAL_FEE,
   balanceAfterWithdrawal,
+  withdrawalFee,
   checkWithdrawalAmount,
 } from "~/lib/savings";
 import { requireCounter, withAuth } from "~/lib/session.server";
@@ -123,6 +124,10 @@ export default function SavingsWithdraw() {
   const after =
     pesewas != null && !issue ? balanceAfterWithdrawal(account, pesewas) : null;
 
+  // A fixed deposit pays out free from its maturity day, and only ever to the
+  // parent who stands as its guardian.
+  const fee = withdrawalFee(account);
+  const fixed = account.accountType === "fixed";
   const closed = account.status !== "active";
   const nothingAvailable = account.availableToWithdraw <= 0;
   const blocked = closed || alreadyToday || nothingAvailable;
@@ -165,6 +170,13 @@ export default function SavingsWithdraw() {
             </div>
           )}
 
+          {fixed && account.guardianName && (
+            <p className="rounded-lg border border-info/40 bg-info/10 px-4 py-3 text-sm">
+              Pay to the guardian:{" "}
+              <span className="font-semibold">{account.guardianName}</span>
+            </p>
+          )}
+
           <div className="rounded-xl border border-border bg-card p-4">
             <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               Balance
@@ -200,7 +212,9 @@ export default function SavingsWithdraw() {
             />
             <p className={cn("text-xs", issue ? "text-destructive" : "text-muted-foreground")}>
               {issue ??
-                `Up to GH₵ ${formatAmount(account.availableToWithdraw)}. The fee comes off on top.`}
+                (fee > 0
+                  ? `Up to GH₵ ${formatAmount(account.availableToWithdraw)}. The fee comes off on top.`
+                  : `Up to GH₵ ${formatAmount(account.availableToWithdraw)}. No charge — matured.`)}
             </p>
           </div>
 
@@ -227,15 +241,15 @@ export default function SavingsWithdraw() {
             />
             <Figure
               label="Fee"
-              value={formatAmount(WITHDRAWAL_FEE)}
-              tone="warning"
-              hint="Flat"
+              value={formatAmount(fee)}
+              tone={fee > 0 ? "warning" : "success"}
+              hint={fee > 0 ? "Flat" : "Matured"}
             />
             <Figure
               label="Balance after"
               value={after != null ? formatAmount(after) : "—"}
               tone={after != null ? undefined : "muted"}
-              hint={after != null ? `GH₵ ${formatAmount(MIN_BALANCE)} held` : undefined}
+              hint={after != null && fee > 0 ? `GH₵ ${formatAmount(MIN_BALANCE)} held` : undefined}
             />
           </dl>
         </div>

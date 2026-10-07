@@ -65,9 +65,15 @@ export function AccountTypeTag({ type }: { type: SavingsAccountType }) {
   return (
     <span
       className="inline-flex items-center rounded-full border border-info/40 bg-info/10 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-info"
-      title="The customer is the minor; the guardian's ID and next-of-kin details are on the customer record."
+      title={
+        type === "fixed"
+          ? "A child's account kept by a guardian. Normal charges until it matures, free after."
+          : type === "loan"
+            ? "Used only to repay the customer's loan — taken at each month end. No withdrawals."
+            : "The customer is the minor; the guardian's ID and next-of-kin details are on the customer record."
+      }
     >
-      {ACCOUNT_TYPE_LABELS.student}
+      {ACCOUNT_TYPE_LABELS[type]}
     </span>
   );
 }
@@ -114,7 +120,8 @@ export function BalanceMeter({
   available: number;
   className?: string;
 }) {
-  const held = Math.min(balance, MIN_BALANCE);
+  // A matured fixed deposit gives up all of it — nothing is held back then.
+  const held = available >= balance ? 0 : Math.min(balance, MIN_BALANCE);
   const width = balance > 0 ? Math.max(0, Math.min(1, available / balance)) : 0;
 
   return (
@@ -134,10 +141,12 @@ export function BalanceMeter({
           <span aria-hidden className="size-2 rounded-full bg-primary" />
           <span className="tabular">{formatAmount(available)}</span> available
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden className="size-2 rounded-full bg-muted-foreground/30" />
-          <span className="tabular">{formatAmount(held)}</span> held back
-        </span>
+        {held > 0 && (
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="size-2 rounded-full bg-muted-foreground/30" />
+            <span className="tabular">{formatAmount(held)}</span> held back
+          </span>
+        )}
       </div>
     </div>
   );

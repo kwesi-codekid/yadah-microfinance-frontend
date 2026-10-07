@@ -9,6 +9,7 @@ import {
   ShoppingCartIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
+  PiggyBankIcon,
   ListChecksIcon,
   ReceiptIcon,
   ReceiptTextIcon,
@@ -193,6 +194,15 @@ export const NAV: NavItem[] = [
     icon: HandCoinsIcon,
     blurb: "Petty cash and bills, from recorded to paid.",
     roles: COUNTER,
+  },
+  // What Yadah keeps — susu commission, savings fees, loan processing fees —
+  // held apart from the cash accounts until the office moves it into one.
+  {
+    to: "/commissions",
+    label: "Commission",
+    icon: PiggyBankIcon,
+    blurb: "What Yadah earned, and moving it to a cash account.",
+    roles: OFFICE,
   },
   // The company's own books, as opposed to its customers': what it holds in
   // the drawer and the bank, what it owns, what the owner put in — and the

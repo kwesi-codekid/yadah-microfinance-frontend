@@ -17,7 +17,9 @@ import {
   type SheetIssue,
   type SheetRow,
 } from "~/components/import-sheet";
+import { ageInYears } from "~/lib/format";
 import {
+  ADULT_AGE,
   ID_NUMBER_RULES,
   PHONE_RE,
   checkIdNumber,
@@ -49,25 +51,46 @@ export type ImportField = (typeof IMPORT_FIELDS)[number];
 export type ImportColumn = SheetColumnSpec<ImportField>;
 export type RowIssue = SheetIssue<ImportField>;
 
-const ID_TYPE_OPTIONS = (Object.keys(ID_NUMBER_RULES) as IdType[]).map((value) => ({
-  value,
-  label:
-    value === "ghana-card"
-      ? "Ghana Card"
-      : value === "drivers-license"
-        ? "Driver's licence"
-        : value === "voter-id"
-          ? "Voter ID"
-          : "Passport",
-}));
+const ID_TYPE_OPTIONS = (Object.keys(ID_NUMBER_RULES) as IdType[]).map(
+  (value) => ({
+    value,
+    label:
+      value === "ghana-card"
+        ? "Ghana Card"
+        : value === "drivers-license"
+          ? "Driver's licence"
+          : value === "voter-id"
+            ? "Voter ID"
+            : value === "nhis"
+              ? "NHIS card"
+              : "Passport",
+  }),
+);
 
 export const IMPORT_COLUMNS: readonly ImportColumn[] = [
-  { field: "fullName", header: "Full name", required: true, input: "text", width: "w-52" },
-  { field: "phone", header: "Phone", required: true, input: "phone", width: "w-36" },
+  {
+    field: "fullName",
+    header: "Full name",
+    required: true,
+    input: "text",
+    width: "w-52",
+  },
+  {
+    field: "phone",
+    header: "Phone",
+    required: true,
+    input: "phone",
+    width: "w-36",
+  },
   /** Drawn by the page: a picker over the collectors the API offered. */
   // Not required: a blank collector is a customer who pays at the counter.
   { field: "collector", header: "Collector", input: "custom", width: "w-44" },
-  { field: "dateOfBirth", header: "Date of birth", input: "date", width: "w-36" },
+  {
+    field: "dateOfBirth",
+    header: "Date of birth",
+    input: "date",
+    width: "w-36",
+  },
   {
     field: "gender",
     header: "Gender",
@@ -91,14 +114,50 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
   },
   { field: "nationality", header: "Nationality", input: "text", width: "w-32" },
   { field: "occupation", header: "Occupation", input: "text", width: "w-40" },
-  { field: "residentialAddress", header: "Residential address", input: "text", width: "w-56" },
-  { field: "altPhone", header: "Secondary phone", input: "phone", width: "w-36" },
-  { field: "idType", header: "ID type", input: "select", options: ID_TYPE_OPTIONS, width: "w-36" },
+  {
+    field: "residentialAddress",
+    header: "Residential address",
+    input: "text",
+    width: "w-56",
+  },
+  {
+    field: "altPhone",
+    header: "Secondary phone",
+    input: "phone",
+    width: "w-36",
+  },
+  {
+    field: "idType",
+    header: "ID type",
+    input: "select",
+    options: ID_TYPE_OPTIONS,
+    width: "w-36",
+  },
   { field: "idNumber", header: "ID number", input: "text", width: "w-44" },
-  { field: "kinFullName", header: "Next of kin name", input: "text", width: "w-48" },
-  { field: "kinRelationship", header: "Next of kin relationship", input: "text", width: "w-40" },
-  { field: "kinPhone", header: "Next of kin phone", input: "phone", width: "w-36" },
-  { field: "kinAddress", header: "Next of kin address", input: "text", width: "w-48" },
+  {
+    field: "kinFullName",
+    header: "Next of kin name",
+    input: "text",
+    width: "w-48",
+  },
+  {
+    field: "kinRelationship",
+    header: "Next of kin relationship",
+    input: "text",
+    width: "w-40",
+  },
+  {
+    field: "kinPhone",
+    header: "Next of kin phone",
+    input: "phone",
+    width: "w-36",
+  },
+  {
+    field: "kinAddress",
+    header: "Next of kin address",
+    input: "text",
+    width: "w-48",
+  },
 ];
 
 export interface ImportRow extends SheetRow<ImportField> {
@@ -146,11 +205,18 @@ const ID_TYPES = new Set<IdType>([
   "passport",
   "drivers-license",
   "voter-id",
+  "nhis",
 ]);
 
 /** Enum cells are matched on letters only, so "Ghana Card" is a ghana-card. */
-export function canonicalEnum(raw: string, allowed: Iterable<string>): string | null {
-  const key = raw.trim().toLowerCase().replace(/[^a-z]/g, "");
+export function canonicalEnum(
+  raw: string,
+  allowed: Iterable<string>,
+): string | null {
+  const key = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
   if (key === "") return null;
   for (const option of allowed) {
     if (option.toLowerCase().replace(/[^a-z]/g, "") === key) return option;
@@ -169,14 +235,25 @@ function dateIssue(raw: string): string | null {
   return null;
 }
 
+/** A valid date of birth under 18 today. Blank or unreadable is an adult. */
+function isChildBorn(raw: string): boolean {
+  if (dateIssue(raw) !== null || raw.trim() === "") return false;
+  const age = ageInYears(`${raw.trim()}T00:00:00Z`);
+  return age !== null && age < ADULT_AGE;
+}
+
 /**
  * Everything the browser can decide about one row on its own. Uniqueness
  * against the books is not in here — that answer belongs to the API, and it
  * gives it again on submit.
  */
-function ownIssues(values: Record<ImportField, string>, hasCollector: boolean): RowIssue[] {
+function ownIssues(
+  values: Record<ImportField, string>,
+  hasCollector: boolean,
+): RowIssue[] {
   const issues: RowIssue[] = [];
-  const add = (field: ImportField | null, message: string) => issues.push({ field, message });
+  const add = (field: ImportField | null, message: string) =>
+    issues.push({ field, message });
 
   if (values.fullName.trim().length < 2) add("fullName", "A name is required");
   // A name that matched nobody is a fault; leaving it blank is not. The second
@@ -187,11 +264,14 @@ function ownIssues(values: Record<ImportField, string>, hasCollector: boolean): 
 
   const phone = normalizePhone(values.phone);
   if (phone === "") add("phone", "A phone number is required");
-  else if (!PHONE_RE.test(phone)) add("phone", "Expected a number like 0241234567");
+  else if (!PHONE_RE.test(phone))
+    add("phone", "Expected a number like 0241234567");
 
   const alt = normalizePhone(values.altPhone);
-  if (alt !== "" && !PHONE_RE.test(alt)) add("altPhone", "Expected a number like 0241234567");
-  else if (alt !== "" && alt === phone) add("altPhone", "Same as the main phone");
+  if (alt !== "" && !PHONE_RE.test(alt))
+    add("altPhone", "Expected a number like 0241234567");
+  else if (alt !== "" && alt === phone)
+    add("altPhone", "Same as the main phone");
 
   const kinPhone = normalizePhone(values.kinPhone);
   if (kinPhone !== "" && !PHONE_RE.test(kinPhone)) {
@@ -206,14 +286,19 @@ function ownIssues(values: Record<ImportField, string>, hasCollector: boolean): 
   if (values.gender.trim() && !canonicalEnum(values.gender, GENDERS)) {
     add("gender", "Male or female");
   }
-  if (values.maritalStatus.trim() && !canonicalEnum(values.maritalStatus, MARITAL)) {
+  if (
+    values.maritalStatus.trim() &&
+    !canonicalEnum(values.maritalStatus, MARITAL)
+  ) {
     add("maritalStatus", "Single, married or other");
   }
 
-  const idType = values.idType.trim() ? canonicalEnum(values.idType, ID_TYPES) : null;
+  const idType = values.idType.trim()
+    ? canonicalEnum(values.idType, ID_TYPES)
+    : null;
   const idNumber = values.idNumber.trim();
   if (values.idType.trim() && !idType) {
-    add("idType", "Ghana Card, passport, driver's licence or voter ID");
+    add("idType", "Ghana Card, passport, driver's licence, voter ID or NHIS");
   }
   if (idType && !idNumber) add("idNumber", "An ID type needs its number");
   if (idNumber && !idType) add("idType", "An ID number needs its type");
@@ -222,9 +307,11 @@ function ownIssues(values: Record<ImportField, string>, hasCollector: boolean): 
     if (fault) add("idNumber", fault);
   }
 
-  const kinRest = [values.kinRelationship, values.kinPhone, values.kinAddress].some(
-    (v) => v.trim() !== "",
-  );
+  const kinRest = [
+    values.kinRelationship,
+    values.kinPhone,
+    values.kinAddress,
+  ].some((v) => v.trim() !== "");
   if (kinRest && values.kinFullName.trim().length < 2) {
     add("kinFullName", "Next of kin needs a name");
   }
@@ -237,18 +324,30 @@ function ownIssues(values: Record<ImportField, string>, hasCollector: boolean): 
  * were about has not been touched — once someone edits a flagged phone, the
  * API's "already taken" no longer describes what is in the box.
  */
-export function checkRows(rows: ImportRow[], collectorIds: Set<string>): ImportRow[] {
+export function checkRows(
+  rows: ImportRow[],
+  collectorIds: Set<string>,
+): ImportRow[] {
   const firstPhone = new Map<string, number>();
   const firstId = new Map<string, number>();
 
   return rows.map((row) => {
-    const issues = ownIssues(row.values, collectorIds.has(row.assignedCollectorId));
+    const issues = ownIssues(
+      row.values,
+      collectorIds.has(row.assignedCollectorId),
+    );
 
+    // Only adults need a number of their own; a child's row may carry a
+    // parent's, as the API allows.
     const phone = normalizePhone(row.values.phone);
-    if (phone !== "" && PHONE_RE.test(phone)) {
+    const child = isChildBorn(row.values.dateOfBirth);
+    if (!child && phone !== "" && PHONE_RE.test(phone)) {
       const earlier = firstPhone.get(phone);
       if (earlier !== undefined) {
-        issues.push({ field: "phone", message: `Same phone as row ${earlier}` });
+        issues.push({
+          field: "phone",
+          message: `Same phone as row ${earlier}`,
+        });
       } else {
         firstPhone.set(phone, row.row);
       }
@@ -258,7 +357,10 @@ export function checkRows(rows: ImportRow[], collectorIds: Set<string>): ImportR
     if (idNumber !== "") {
       const earlier = firstId.get(idNumber);
       if (earlier !== undefined) {
-        issues.push({ field: "idNumber", message: `Same ID number as row ${earlier}` });
+        issues.push({
+          field: "idNumber",
+          message: `Same ID number as row ${earlier}`,
+        });
       } else {
         firstId.set(idNumber, row.row);
       }

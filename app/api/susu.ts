@@ -323,6 +323,34 @@ export function withdraw(
   });
 }
 
+/**
+ * POST /susu/accounts/{id}/withdraw-all — everything out, account open
+ * (counter). Each plan with a cycle in progress ends it and gives one payment
+ * of its own amount to Yadah's commission account; the rest is the cash.
+ * A replay comes back as `200 {}`, like `withdraw`.
+ */
+export function withdrawAll(
+  accessToken: string,
+  id: string,
+  input: { idempotencyKey: string },
+): Promise<{
+  account?: SusuAccount;
+  /** Cash handed over. */
+  amount?: number;
+  /** Moved to Yadah's commission account. */
+  commission?: number;
+  payoutId?: string;
+  lines?: WithdrawalLine[];
+  loose?: number;
+  replayed?: boolean;
+}> {
+  return apiFetch(`/susu/accounts/${id}/withdraw-all`, {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
 /* --------------------------------------------------------------- receipts --- */
 
 /**
@@ -365,6 +393,8 @@ export interface SusuMigrationReport {
     commissionTakenNow: number;
   };
   backfill: { accounts: number; payouts: number; loose: number };
+  /** Commissions already taken, filed into Yadah's commission account. */
+  commissions: { entries: number; amount: number };
   /** Zero when the money reconciles. */
   drift: number;
 }

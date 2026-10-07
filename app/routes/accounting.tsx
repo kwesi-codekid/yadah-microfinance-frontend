@@ -70,6 +70,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       isAdmin: user.role === "admin",
       asOf: result.position.asOf || asOf,
       total: result.position.total,
+      commission: result.position.commission ?? 0,
       rows: result.accounts.map((account) => toRow(account, balances.get(account.id))),
       // Channels with no active account: customer money recorded on them has
       // nowhere to land, and the page says so rather than showing a short total.
@@ -123,7 +124,7 @@ function toRow(account: CashAccount, balance: number | undefined): Row {
  * that is the order the office reads it in: how much is there, then where.
  */
 export default function Accounting({ loaderData }: Route.ComponentProps) {
-  const { isAdmin, asOf, total, rows, uncovered } = loaderData;
+  const { isAdmin, asOf, total, commission, rows, uncovered } = loaderData;
   const navigation = useNavigation();
   const busy =
     navigation.state === "loading" && navigation.location?.pathname === "/accounting";
@@ -211,9 +212,12 @@ export default function Accounting({ loaderData }: Route.ComponentProps) {
           label="Cash position"
           value={formatPesewas(total)}
           note={
-            asOf
+            (asOf
               ? `Across every account, as at ${formatDayRange(asOf, asOf)}`
-              : "Across every account, derived on every read"
+              : "Across every account, derived on every read") +
+            (commission > 0
+              ? ` · includes ${formatPesewas(commission)} in the commission account`
+              : "")
           }
           icon={WalletIcon}
           tone="in"

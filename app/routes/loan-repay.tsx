@@ -8,6 +8,7 @@ import { ApiError } from "~/api/error";
 import { getLoan, recordRepayment } from "~/api/loans";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import {
@@ -35,7 +36,7 @@ export function meta(_: Route.MetaArgs) {
 }
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireCounter(request);
+  const user = await requireCounter(request);
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
@@ -58,6 +59,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       /** The oldest instalment still owing — what a payment lands on first. */
       nextInstallment:
         result.schedule.find((row) => row.amountPaid < row.amountDue) ?? null,
+      /**
+       * The office may date a repayment on the day the customer paid (client
+       * decision, 6 Oct 2026). The counter records today, so it sees no field.
+       */
+      canDate: user.role === "admin" || user.role === "manager",
+      disbursedOn: result.loan.disbursedAt?.slice(0, 10) ?? null,
     },
     { headers },
   );
@@ -76,6 +83,10 @@ export async function action({ request, params }: Route.ActionArgs) {
   const amount = parseCedis(String(form.get("amount") ?? "").trim());
   const channel = String(form.get("channel") ?? "cash") as RepaymentChannel;
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
+  // Left empty — or on today — nothing is sent and the API dates it now.
+  const paidOnRaw = String(form.get("paidOn") ?? "").trim();
+  const paidOn =
+    paidOnRaw && paidOnRaw !== new Date().toISOString().slice(0, 10) ? paidOnRaw : undefined;
 
   if (amount == null || amount <= 0) {
     return data<ActionResult>({ error: "Enter the cash received." }, { status: 400 });
@@ -85,7 +96,12 @@ export async function action({ request, params }: Route.ActionArgs) {
   let headers: { "Set-Cookie": string } | undefined;
   try {
     ({ data: result, headers } = await withAuth(request, (token) =>
-      recordRepayment(token, params.id, { amount, idempotencyKey, channel }),
+      recordRepayment(token, params.id, {
+        amount,
+        idempotencyKey,
+        channel,
+        ...(paidOn ? { paidOn } : {}),
+      }),
     ));
   } catch (error) {
     if (error instanceof ApiError) {
@@ -145,7 +161,8 @@ function remainingFrom(error: ApiError): number | undefined {
 }
 
 export default function LoanRepay({ loaderData }: Route.ComponentProps) {
-  const { loan, nextInstallment } = loaderData;
+  const { loan, canDate, disbursedOn } = loaderData;
+  const today = new Date();
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const { pathname } = useLocation();
@@ -262,6 +279,31 @@ export default function LoanRepay({ loaderData }: Route.ComponentProps) {
             </Select>
           </div>
 
+          {canDate && (
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="paidOn"
+                className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
+              >
+                Date paid
+              </Label>
+              <DateField
+                id="paidOn"
+                name="paidOn"
+                placeholder="Today"
+                matcher={[
+                  { after: today },
+                  ...(disbursedOn ? [{ before: new Date(`${disbursedOn}T00:00:00`) }] : []),
+                ]}
+                startMonth={new Date(today.getFullYear() - 2, today.getMonth())}
+                endMonth={today}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty for today. Pick an earlier day if the customer paid before it was
+                entered.
+              </p>
+            </div>
+          )}
         </div>
 
         <SheetActions>

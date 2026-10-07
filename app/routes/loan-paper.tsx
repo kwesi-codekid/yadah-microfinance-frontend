@@ -7,6 +7,7 @@ import { ApiError } from "~/api/error";
 import { recordPaperLoan } from "~/api/loans";
 import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
 import { GuarantorFields } from "~/components/guarantor-fields";
+import { LoanChargeFields } from "~/components/loan-charge-fields";
 import { IDLE, ScanDrop, type Slot } from "~/components/scan-drop";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -14,7 +15,7 @@ import { DateField } from "~/components/ui/date-field";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { formatPesewas, parseCedis } from "~/lib/format";
-import { DURATIONS, DURATION_LABELS, type LoanDuration } from "~/lib/loans";
+import { DURATIONS, DURATION_LABELS, readLoanCharges, type LoanDuration } from "~/lib/loans";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { readGuarantors } from "~/lib/guarantors";
 import { redirectWithToast } from "~/lib/toast.server";
@@ -74,6 +75,8 @@ export async function action({ request }: Route.ActionArgs) {
   const named = readGuarantors(form);
   if ("error" in named) return data({ error: named.error }, { status: 400 });
   const { guarantors } = named;
+  const charges = readLoanCharges(form);
+  if ("error" in charges) return data({ error: charges.error }, { status: 400 });
 
   if (!customerId) return data({ error: "Choose the customer." }, { status: 400 });
   if (principal == null || principal <= 0) {
@@ -103,6 +106,7 @@ export async function action({ request }: Route.ActionArgs) {
         guarantors,
         ...(paperRef ? { paperRef } : {}),
         ...(paperPhotoUrl ? { paperPhotoUrl } : {}),
+        ...charges,
       }),
     ));
   } catch (error) {
@@ -239,6 +243,8 @@ export default function LoanPaper() {
               </div>
             </fieldset>
           </div>
+
+          <LoanChargeFields labelClassName={label} />
 
           <fieldset className="space-y-2">
             <legend className={cn(label, "mb-1.5")}>Payments already made</legend>

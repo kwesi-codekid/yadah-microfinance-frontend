@@ -61,6 +61,11 @@ export interface CashPositionAccount {
 export interface CashPosition {
   asOf: string;
   accounts: CashPositionAccount[];
+  /**
+   * Yadah's commission account: commission and fees taken out of the accounts
+   * above and not yet moved back into one. Part of `total`.
+   */
+  commission?: number;
   total: number;
 }
 
@@ -160,6 +165,8 @@ export interface BalanceSheet {
     customerDeposits: {
       susuBalances: number;
       savingsBalances: number;
+      /** Cash collateral on loans, not yet handed back. Absent from older APIs. */
+      collateralHeld?: number;
       total: number;
     };
     accruedExpenses: number;
@@ -190,6 +197,8 @@ export interface ProfitAndLoss {
     savingsFees: number;
     outrightSalesProfit: number;
     loanInterest: number;
+    /** Paid on top of loans the day they went out. Absent from older APIs. */
+    loanProcessingFees?: number;
     hirePurchaseInterest: number;
     total: number;
   };

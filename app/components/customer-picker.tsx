@@ -17,6 +17,8 @@ export interface PickedCustomer {
    */
   hasIdNumber?: boolean;
   hasIdDocument?: boolean;
+  /** Under 18 today, by the date of birth. */
+  isMinor?: boolean;
 }
 
 /**

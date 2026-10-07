@@ -1,26 +1,14 @@
 import {
   BanknoteArrowDownIcon,
   BanknoteArrowUpIcon,
-  CalendarIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  DownloadIcon,
   EyeIcon,
-  FileTextIcon,
-  GraduationCapIcon,
-  Loader2Icon,
   MoreHorizontalIcon,
   PlusIcon,
-  SearchIcon,
-  SlidersHorizontalIcon,
   UserIcon,
   WalletIcon,
-  XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   data,
-  Form,
   Link,
   Outlet,
   useLocation,
@@ -31,21 +19,23 @@ import {
 import { ApiError } from "~/api/error";
 import { listAccounts, renumberThisMonth } from "~/api/savings";
 import { RenumberButton, type RenumberResult } from "~/components/renumber-button";
-import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
 import {
-  AccountTypeTag,
-  PagerButton,
-  SavingsStatusPill,
-  Th,
-} from "~/components/savings-bits";
+  DayRangeChip,
+  DayRangeFilter,
+  ExportMenu,
+  FilterBar,
+  FilterChip,
+  ListingFooter,
+  SearchBox,
+} from "~/components/listing";
+import { AccountTypeTag, SavingsStatusPill, Th } from "~/components/savings-bits";
 import { Button } from "~/components/ui/button";
-import { DateField } from "~/components/ui/date-field";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
@@ -56,10 +46,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { Input } from "~/components/ui/input";
-import { Label } from "~/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
-import { FilterMenu } from "~/components/listing";
 import {
   Table,
   TableBody,
@@ -68,12 +54,7 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { isCounter, isOffice } from "~/lib/auth";
-import {
-  formatCount,
-  formatDayRange,
-  formatPesewas,
-  relativeDayLabel,
-} from "~/lib/format";
+import { formatPesewas, relativeDayLabel } from "~/lib/format";
 import {
   ACCOUNT_TYPE_LABELS,
   type SavingsAccount,
@@ -103,7 +84,7 @@ const TABS = [
 type Tab = (typeof TABS)[number]["key"];
 
 const STATUSES: SavingsStatus[] = ["active", "closed"];
-const TYPES: SavingsAccountType[] = ["standard", "student"];
+const TYPES: SavingsAccountType[] = ["standard", "student", "fixed", "loan"];
 
 interface Filters {
   status: Tab;
@@ -165,23 +146,28 @@ export async function loader({ request }: Route.LoaderArgs) {
     // The tab counts have to survive the search, the type and the date range,
     // otherwise "Active 3" contradicts a filtered list showing one row.
     const scope = {
-      accountType: filters.type || undefined,
       search: filters.search || undefined,
       from: filters.from || undefined,
       to: filters.to || undefined,
     };
-    const [list, ...counts] = await Promise.all([
-      listAccounts(token, {
-        ...scope,
-        page,
-        limit: PAGE_SIZE,
-        status: filters.status === "all" ? undefined : filters.status,
-      }),
-      ...STATUSES.map((status) =>
-        listAccounts(token, { ...scope, page: 1, limit: 1, status }),
+    const status = filters.status === "all" ? undefined : filters.status;
+    const accountType = filters.type || undefined;
+    const [list, statusCounts, typeCounts] = await Promise.all([
+      listAccounts(token, { ...scope, accountType, page, limit: PAGE_SIZE, status }),
+      Promise.all(
+        STATUSES.map((s) =>
+          listAccounts(token, { ...scope, accountType, page: 1, limit: 1, status: s }),
+        ),
+      ),
+      // The type section is counted under the status the rail is on, and
+      // without a type of its own — the same pairing the customers book uses.
+      Promise.all(
+        TYPES.map((t) =>
+          listAccounts(token, { ...scope, accountType: t, page: 1, limit: 1, status }),
+        ),
       ),
     ]);
-    return { list, counts };
+    return { list, counts: statusCounts, typeCounts };
   });
 
   const byStatus = Object.fromEntries(
@@ -201,6 +187,13 @@ export async function loader({ request }: Route.LoaderArgs) {
       counts: {
         all: STATUSES.reduce((sum, s) => sum + byStatus[s], 0),
         ...byStatus,
+      },
+      typeCounts: {
+        all: result.typeCounts.reduce((sum, c) => sum + c.total, 0),
+        ...(Object.fromEntries(TYPES.map((t, i) => [t, result.typeCounts[i].total])) as Record<
+          SavingsAccountType,
+          number
+        >),
       },
       rows: result.list.items.map((a) => toRow(a, now)),
     },
@@ -266,38 +259,135 @@ function toRow(a: SavingsAccount, now: Date): Row {
 }
 
 export default function Savings({ loaderData }: Route.ComponentProps) {
-  const { canManage, office, filters, page, total, counts, rows } = loaderData;
+  const { canManage, office, filters, page, total, counts, typeCounts, rows } =
+    loaderData;
   const navigation = useNavigation();
+  const submit = useSubmit();
   const { search } = useLocation();
 
   const busy =
     navigation.state === "loading" && navigation.location?.pathname === "/savings";
 
-  const first = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const last = Math.min(page * PAGE_SIZE, total);
-  const filtered = Boolean(
-    filters.search || filters.type || filters.from || filters.to,
+  const apply = (patch: Partial<Filters>) =>
+    submit(queryFor({ ...filters, ...patch }), {
+      replace: true,
+      preventScrollReset: true,
+    });
+
+  const filtered = Boolean(filters.search || filters.from || filters.to);
+
+  // The views in the rail, each counted under the other section's choice — the
+  // shape the susu and customers books have, so the three read as one product.
+  const sections = [
+    {
+      label: "Status",
+      items: TABS.map((tab) => ({
+        key: tab.key,
+        label: tab.label,
+        count: counts[tab.key],
+        to: hrefFor({ ...filters, status: tab.key }),
+      })),
+    },
+    {
+      label: "Type",
+      items: [
+        {
+          key: "type-all",
+          label: "All types",
+          count: typeCounts.all,
+          to: hrefFor({ ...filters, type: "" }),
+        },
+        ...TYPES.map((type) => ({
+          key: `type-${type}`,
+          label: ACCOUNT_TYPE_LABELS[type],
+          count: typeCounts[type],
+          to: hrefFor({ ...filters, type }),
+        })),
+      ],
+    },
+  ];
+  // One lit item in each section.
+  const lit = [filters.status, `type-${filters.type || "all"}`];
+
+  const searchBox = (
+    <SearchBox
+      value={filters.search}
+      apply={(next) => apply({ search: next })}
+      hidden={{
+        status: filters.status === "all" ? "" : filters.status,
+        type: filters.type,
+        from: filters.from,
+        to: filters.to,
+      }}
+      placeholder="Name, phone or number"
+      label="Search savings accounts"
+      busy={busy}
+      className="sm:w-full"
+    />
+  );
+
+  const dayRange = (align: "start" | "end") => (
+    <DayRangeFilter
+      from={filters.from}
+      to={filters.to}
+      title="Opened"
+      align={align}
+      apply={(next) => apply(next)}
+    />
   );
 
   return (
-    <Page className="max-w-none">
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
-          <FilterMenu
-            label="Status"
-            items={TABS.map((tab) => ({
-              key: tab.key,
-              label: tab.label,
-              count: counts[tab.key],
-              to: hrefFor({ ...filters, status: tab.key }),
-            }))}
-            active={filters.status}
+    <RailFrame
+      rail={({ horizontal }) =>
+        horizontal ? (
+          // Under `lg`: the search and the dates on one line, the views as a
+          // strip under them.
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">{searchBox}</div>
+              {dayRange("end")}
+            </div>
+            <FilterRail
+              label="Filter savings accounts"
+              sections={sections}
+              active={lit}
+              horizontal
+            />
+          </div>
+        ) : (
+          <FilterRail
+            label="Filter savings accounts"
+            sections={sections}
+            active={lit}
+            header={searchBox}
+            footer={
+              <>
+                <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                  Date opened
+                </h3>
+                <div className="[&>button]:w-full [&>button]:justify-start">
+                  {dayRange("start")}
+                </div>
+              </>
+            }
           />
-          <div className="flex flex-wrap items-center gap-2">
-            <SearchBox filters={filters} busy={busy} />
-            <TypeFilter filters={filters} />
-            <DateRangeFilter filters={filters} />
-            <ExportMenu filters={filters} total={total} />
+        )
+      }
+    >
+      <div className="px-4 py-6 sm:px-6">
+        <section className="overflow-hidden rounded-2xl bg-card text-card-foreground">
+          {/* The book's own actions sit on the card, over the rows they act on. */}
+          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3">
+            <ExportMenu
+              path="/savings/export"
+              query={(() => {
+                const p = queryFor(filters);
+                p.delete("page");
+                return p.toString();
+              })()}
+              total={total}
+              noun="account"
+            />
             {office && <RenumberButton action="/savings" product="savings" />}
             {canManage && (
               <Button asChild size="sm">
@@ -308,67 +398,62 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
               </Button>
             )}
           </div>
-        </div>
 
-        {filtered && <ActiveFilters filters={filters} total={total} />}
+          {filtered && (
+            <FilterBar total={total}>
+              {filters.search && (
+                <FilterChip
+                  onDrop={() => apply({ search: "" })}
+                  label={`“${filters.search}”`}
+                />
+              )}
+              {(filters.from || filters.to) && (
+                <DayRangeChip
+                  from={filters.from}
+                  to={filters.to}
+                  onDrop={() => apply({ from: "", to: "" })}
+                />
+              )}
+            </FilterBar>
+          )}
 
-        {rows.length === 0 ? (
-          <SavingsEmpty filters={filters} canManage={canManage} />
-        ) : (
-          <div className={cn("transition-opacity", busy && "opacity-60")}>
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <Th>Account</Th>
-                  <Th className="hidden md:table-cell">Type</Th>
-                  <Th className="text-right">Balance</Th>
-                  <Th className="hidden text-right sm:table-cell">Available</Th>
-                  <Th>Status</Th>
-                  <Th className="hidden lg:table-cell">Opened</Th>
-                  <Th className="w-12 text-right">Actions</Th>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <AccountRow key={row.id} row={row} canManage={canManage} />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-
-        {total > 0 && (
-          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
-            <p>
-              Showing <span className="tabular font-medium text-foreground">{first}</span>
-              –<span className="tabular font-medium text-foreground">{last}</span> of{" "}
-              <span className="tabular font-medium text-foreground">{formatCount(total)}</span>
-            </p>
-            <div className="flex items-center gap-2">
-              <PagerButton
-                to={hrefFor(filters, page - 1)}
-                disabled={page <= 1}
-                label="Previous page"
-              >
-                <ChevronLeftIcon />
-                Prev
-              </PagerButton>
-              <PagerButton
-                to={hrefFor(filters, page + 1)}
-                disabled={last >= total}
-                label="Next page"
-              >
-                Next
-                <ChevronRightIcon />
-              </PagerButton>
+          {rows.length === 0 ? (
+            <SavingsEmpty filters={filters} canManage={canManage} />
+          ) : (
+            <div className={cn("transition-opacity", busy && "opacity-60")}>
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <Th>Account</Th>
+                    <Th className="hidden md:table-cell">Type</Th>
+                    <Th className="text-right">Balance</Th>
+                    <Th className="hidden text-right sm:table-cell">Available</Th>
+                    <Th>Status</Th>
+                    <Th className="hidden lg:table-cell">Opened</Th>
+                    <Th className="w-12 text-right">Actions</Th>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row) => (
+                    <AccountRow key={row.id} row={row} canManage={canManage} />
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-          </div>
-        )}
+          )}
+
+          <ListingFooter
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            hrefFor={(p) => hrefFor(filters, p)}
+          />
+        </section>
       </div>
 
       {/* Open account renders here — a drawer over the book. */}
       <Outlet />
-    </Page>
+    </RailFrame>
   );
 }
 
@@ -467,311 +552,6 @@ function AccountRow({ row, canManage }: { row: Row; canManage: boolean }) {
         </DropdownMenu>
       </TableCell>
     </TableRow>
-  );
-}
-
-/* ------------------------------------------------------------------ search --- */
-
-const DEBOUNCE_MS = 300;
-
-/**
- * Searches as you type. The term lives in the URL so the result is linkable and
- * survives a reload, but typing must not push a history entry per keystroke —
- * hence `replace`. The API's search is typo-tolerant across the customer's
- * name, their phone, and the start of an account number.
- */
-function SearchBox({ filters, busy }: { filters: Filters; busy: boolean }) {
-  const submit = useSubmit();
-  const [value, setValue] = useState(filters.search);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const applied = filters.search;
-  useEffect(() => {
-    setValue((current) => (current === applied ? current : applied));
-  }, [applied]);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  const run = (next: string) => {
-    submit(queryFor({ ...filters, search: next }), {
-      replace: true,
-      preventScrollReset: true,
-    });
-  };
-
-  const onChange = (next: string) => {
-    setValue(next);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => run(next), DEBOUNCE_MS);
-  };
-
-  const clear = () => {
-    clearTimeout(timer.current);
-    setValue("");
-    run("");
-    inputRef.current?.focus();
-  };
-
-  const pending = busy && value.trim() !== applied;
-
-  return (
-    <Form
-      method="get"
-      role="search"
-      className="relative w-full sm:w-64"
-      onSubmit={(e) => {
-        e.preventDefault();
-        clearTimeout(timer.current);
-        run(value);
-      }}
-    >
-      {filters.status !== "all" && (
-        <input type="hidden" name="status" value={filters.status} />
-      )}
-      {filters.type && <input type="hidden" name="type" value={filters.type} />}
-      {filters.from && <input type="hidden" name="from" value={filters.from} />}
-      {filters.to && <input type="hidden" name="to" value={filters.to} />}
-
-      <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        ref={inputRef}
-        type="text"
-        name="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Search name, phone or account no."
-        aria-label="Search savings accounts"
-        autoComplete="off"
-        maxLength={100}
-        className="pr-9 pl-9"
-      />
-      <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center">
-        {pending ? (
-          <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-        ) : value ? (
-          <button
-            type="button"
-            onClick={clear}
-            aria-label="Clear the search"
-            className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            <XIcon className="size-4" />
-          </button>
-        ) : null}
-      </div>
-    </Form>
-  );
-}
-
-/* ----------------------------------------------------------------- filters --- */
-
-/**
- * Standard or student. A tab would put it beside the statuses and imply the two
- * sets are the same kind of thing; they are not — status is what the account is
- * doing, type is what it was opened as.
- */
-function TypeFilter({ filters }: { filters: Filters }) {
-  const submit = useSubmit();
-  const apply = (type: Filters["type"]) =>
-    submit(queryFor({ ...filters, type }), {
-      replace: true,
-      preventScrollReset: true,
-    });
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(filters.type && "border-primary/50 text-primary")}
-        >
-          <GraduationCapIcon />
-          {filters.type ? ACCOUNT_TYPE_LABELS[filters.type] : "Type"}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuItem onSelect={() => apply("")}>All types</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        {TYPES.map((type) => (
-          <DropdownMenuItem key={type} onSelect={() => apply(type)}>
-            {ACCOUNT_TYPE_LABELS[type]}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function DateRangeFilter({ filters }: { filters: Filters }) {
-  const submit = useSubmit();
-  const [open, setOpen] = useState(false);
-  const fieldsRef = useRef<HTMLDivElement>(null);
-  const active = Boolean(filters.from || filters.to);
-
-  const apply = (next: { from: string; to: string }) => {
-    setOpen(false);
-    submit(queryFor({ ...filters, ...next }), {
-      replace: true,
-      preventScrollReset: true,
-    });
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(active && "border-primary/50 text-primary")}
-        >
-          <SlidersHorizontalIcon />
-          {active ? formatDayRange(filters.from, filters.to) : "Opened"}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-3">
-        <div ref={fieldsRef} key={`${filters.from}|${filters.to}`} className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Opened from
-            </Label>
-            <DateField
-              name="from"
-              defaultValue={filters.from || undefined}
-              placeholder="Any date"
-              endMonth={new Date()}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Opened to
-            </Label>
-            <DateField
-              name="to"
-              defaultValue={filters.to || undefined}
-              placeholder="Any date"
-              endMonth={new Date()}
-            />
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={!active}
-            onClick={() => apply({ from: "", to: "" })}
-          >
-            Clear
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              const read = (name: string) =>
-                fieldsRef.current?.querySelector<HTMLInputElement>(
-                  `input[name='${name}']`,
-                )?.value ?? "";
-              apply({ from: read("from"), to: read("to") });
-            }}
-          >
-            Apply
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function ActiveFilters({ filters, total }: { filters: Filters; total: number }) {
-  const submit = useSubmit();
-  const drop = (next: Partial<Filters>) =>
-    submit(queryFor({ ...filters, ...next }), {
-      replace: true,
-      preventScrollReset: true,
-    });
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-4 py-2 text-sm">
-      <span className="text-muted-foreground">
-        {formatCount(total)} {total === 1 ? "match" : "matches"}
-      </span>
-      {filters.search && (
-        <Chip onDrop={() => drop({ search: "" })} label={`“${filters.search}”`} />
-      )}
-      {filters.type && (
-        <Chip
-          onDrop={() => drop({ type: "" })}
-          label={ACCOUNT_TYPE_LABELS[filters.type]}
-        />
-      )}
-      {(filters.from || filters.to) && (
-        <Chip
-          onDrop={() => drop({ from: "", to: "" })}
-          label={
-            <>
-              <CalendarIcon className="size-3" />
-              {formatDayRange(filters.from, filters.to)}
-            </>
-          }
-        />
-      )}
-    </div>
-  );
-}
-
-function Chip({ label, onDrop }: { label: ReactNode; onDrop: () => void }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-0.5 text-xs font-medium">
-      {label}
-      <button
-        type="button"
-        onClick={onDrop}
-        className="text-muted-foreground transition-colors hover:text-foreground"
-        aria-label="Remove this filter"
-      >
-        <XIcon className="size-3" />
-      </button>
-    </span>
-  );
-}
-
-function ExportMenu({ filters, total }: { filters: Filters; total: number }) {
-  const query = useMemo(() => {
-    const p = queryFor(filters);
-    p.delete("page");
-    return p.toString();
-  }, [filters]);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" disabled={total === 0}>
-          <DownloadIcon />
-          Export
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="font-normal text-muted-foreground">
-          {formatCount(Math.min(total, 10_000))} row{total === 1 ? "" : "s"}, matching
-          the filters above
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <a href={`/savings/export?format=csv${query ? `&${query}` : ""}`}>
-            <FileTextIcon />
-            CSV
-          </a>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <a href={`/savings/export?format=xlsx${query ? `&${query}` : ""}`}>
-            <DownloadIcon />
-            Excel (.xlsx)
-          </a>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 

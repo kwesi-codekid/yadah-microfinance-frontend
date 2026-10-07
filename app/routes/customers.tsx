@@ -1,29 +1,20 @@
 import {
   BanIcon,
-  CalendarIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   CircleCheckIcon,
-  DownloadIcon,
   EyeIcon,
   FileTextIcon,
-  Loader2Icon,
   MoreHorizontalIcon,
   PencilIcon,
   UploadIcon,
   PrinterIcon,
-  SearchIcon,
-  SlidersHorizontalIcon,
   Trash2Icon,
   UserPlusIcon,
   UserRoundCogIcon,
   UsersIcon,
-  XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   data,
-  Form,
   Link,
   Outlet,
   useFetcher,
@@ -41,7 +32,6 @@ import {
 } from "~/api/customers";
 import { listCollectors } from "~/api/collectors";
 import { ApiError } from "~/api/error";
-import { Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
@@ -54,12 +44,10 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
-import { DateField } from "~/components/ui/date-field";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu";
@@ -70,13 +58,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "~/components/ui/empty";
-import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "~/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -86,19 +68,24 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { Textarea } from "~/components/ui/textarea";
-import { FilterMenu } from "~/components/listing";
+import { ChildTag } from "~/components/child-tag";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
+import {
+  DayRangeChip,
+  DayRangeFilter,
+  ExportMenu,
+  FilterBar,
+  FilterChip,
+  ListingFooter,
+  SearchBox,
+} from "~/components/listing";
 import { initialsOf, isCounter, isOffice } from "~/lib/auth";
 import {
   ID_TYPE_LABELS,
   type Customer,
   type CustomerStatus,
 } from "~/lib/customers";
-import {
-  ageInYears,
-  formatCount,
-  formatDayRange,
-  relativeDayLabel,
-} from "~/lib/format";
+import { ageInYears, relativeDayLabel } from "~/lib/format";
 import { requireOffice, requireUser, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/customers";
@@ -115,9 +102,18 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
+/** By age today, from the date of birth — the API's reading of it. */
+const AGES = [
+  { key: "all", label: "All ages" },
+  { key: "adult", label: "Adults" },
+  { key: "child", label: "Children" },
+] as const;
+type Age = (typeof AGES)[number]["key"];
+
 /** Every filter the listing understands, as one object. */
 interface Filters {
   status: Tab;
+  age: Age;
   search: string;
   /** Inclusive Accra days on the registration date, `YYYY-MM-DD`. */
   from: string;
@@ -128,6 +124,7 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function readFilters(url: URL): Filters {
   const statusParam = url.searchParams.get("status");
+  const ageParam = url.searchParams.get("age");
   const day = (key: string) => {
     const v = url.searchParams.get(key) ?? "";
     return DAY_RE.test(v) ? v : "";
@@ -137,6 +134,7 @@ function readFilters(url: URL): Filters {
       statusParam === "active" || statusParam === "inactive"
         ? statusParam
         : "all",
+    age: ageParam === "adult" || ageParam === "child" ? ageParam : "all",
     search: url.searchParams.get("search")?.trim() ?? "",
     from: day("from"),
     to: day("to"),
@@ -147,6 +145,7 @@ function readFilters(url: URL): Filters {
 function queryFor(f: Filters, page = 1): URLSearchParams {
   const p = new URLSearchParams();
   if (f.status !== "all") p.set("status", f.status);
+  if (f.age !== "all") p.set("age", f.age);
   if (f.search) p.set("search", f.search);
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
@@ -178,36 +177,63 @@ export async function loader({ request }: Route.LoaderArgs) {
       from: filters.from || undefined,
       to: filters.to || undefined,
     };
-    const [list, active, inactive, collectors] = await Promise.all([
-      listCustomers(token, {
-        ...scope,
-        page,
-        limit: PAGE_SIZE,
-        status: filters.status === "all" ? undefined : filters.status,
-      }),
-      listCustomers(token, { ...scope, page: 1, limit: 1, status: "active" }),
-      listCustomers(token, { ...scope, page: 1, limit: 1, status: "inactive" }),
-      // Read once with the page, not once per drawer. The reassign panel opens
-      // over these rows and needs a round to move a customer to; asking for it
-      // on each opening made the panel wait on the server every single time,
-      // for a list that is identical every single time.
-      //
-      // The roster behind `GET /collectors` rather than the staff directory:
-      // it is the one the counter may read, and a teller may now reassign.
-      // Collectors get nothing — they may not reassign, and the roster is not
-      // theirs to read.
-      //
-      // Soft, for the same reason the bell in the layout is: a page of
-      // customers must not go down because the roster is briefly away.
-      // Without it the drawer falls back to the route that fetches for itself.
-      canReassign
-        ? listCollectors(token).catch((error: unknown) => {
-            // A 401 belongs to `withAuth`, which renews the token and retries.
-            if (error instanceof ApiError && error.status === 401) throw error;
-            return null;
-          })
-        : null,
-    ]);
+    // Each rail section is counted under the other one's choice, so "Children
+    // 4" beside "Active" is four active children.
+    const status = filters.status === "all" ? undefined : filters.status;
+    const age = filters.age === "all" ? undefined : filters.age;
+    const [list, active, inactive, adults, children, collectors] =
+      await Promise.all([
+        listCustomers(token, { ...scope, page, limit: PAGE_SIZE, status, age }),
+        listCustomers(token, {
+          ...scope,
+          page: 1,
+          limit: 1,
+          status: "active",
+          age,
+        }),
+        listCustomers(token, {
+          ...scope,
+          page: 1,
+          limit: 1,
+          status: "inactive",
+          age,
+        }),
+        listCustomers(token, {
+          ...scope,
+          page: 1,
+          limit: 1,
+          status,
+          age: "adult",
+        }),
+        listCustomers(token, {
+          ...scope,
+          page: 1,
+          limit: 1,
+          status,
+          age: "child",
+        }),
+        // Read once with the page, not once per drawer. The reassign panel opens
+        // over these rows and needs a round to move a customer to; asking for it
+        // on each opening made the panel wait on the server every single time,
+        // for a list that is identical every single time.
+        //
+        // The roster behind `GET /collectors` rather than the staff directory:
+        // it is the one the counter may read, and a teller may now reassign.
+        // Collectors get nothing — they may not reassign, and the roster is not
+        // theirs to read.
+        //
+        // Soft, for the same reason the bell in the layout is: a page of
+        // customers must not go down because the roster is briefly away.
+        // Without it the drawer falls back to the route that fetches for itself.
+        canReassign
+          ? listCollectors(token).catch((error: unknown) => {
+              // A 401 belongs to `withAuth`, which renews the token and retries.
+              if (error instanceof ApiError && error.status === 401)
+                throw error;
+              return null;
+            })
+          : null,
+      ]);
     return {
       list,
       collectors:
@@ -216,6 +242,11 @@ export async function loader({ request }: Route.LoaderArgs) {
         all: active.total + inactive.total,
         active: active.total,
         inactive: inactive.total,
+      },
+      ageCounts: {
+        all: adults.total + children.total,
+        adult: adults.total,
+        child: children.total,
       },
     };
   });
@@ -237,6 +268,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       page,
       total: result.list.total,
       counts: result.counts,
+      ageCounts: result.ageCounts,
       rows,
     },
     { headers },
@@ -328,6 +360,8 @@ interface Row {
   idLabel: string | null;
   idNumber: string | null;
   status: CustomerStatus;
+  /** Under 18 today. */
+  isMinor: boolean;
   registered: string;
   /** Empty when they are on nobody's round. Read by the reassign drawer. */
   assignedCollectorId: string;
@@ -348,6 +382,7 @@ function toRow(c: Customer, now: Date): Row {
     idLabel: idType ? ID_TYPE_LABELS[idType] : null,
     idNumber: c.identification?.idNumber ?? null,
     status: c.status,
+    isMinor: c.isMinor,
     registered: relativeDayLabel(c.createdAt, now),
     assignedCollectorId: c.assignedCollectorId ?? "",
   };
@@ -377,9 +412,11 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
     page,
     total,
     counts,
+    ageCounts,
     rows,
   } = loaderData;
   const navigation = useNavigation();
+  const submit = useSubmit();
   // Rides along on every link out of here, so a drawer closes onto the same
   // filters it opened over — and so opening one leaves the query string
   // untouched, which is what `shouldRevalidate` reads to refuse the reload.
@@ -391,30 +428,118 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
     navigation.state === "loading" &&
     navigation.location?.pathname === "/customers";
 
-  const first = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const last = Math.min(page * PAGE_SIZE, total);
+  const apply = (patch: Partial<Filters>) =>
+    submit(queryFor({ ...filters, ...patch }), {
+      replace: true,
+      preventScrollReset: true,
+    });
+
   const filtered = Boolean(filters.search || filters.from || filters.to);
 
+  // The status views in the rail, each counted under the same search and
+  // dates — the shape the susu and loans books have.
+  const sections = [
+    {
+      label: "Status",
+      items: TABS.map((tab) => ({
+        key: tab.key,
+        label: tab.label,
+        count: counts[tab.key],
+        to: hrefFor({ ...filters, status: tab.key }),
+      })),
+    },
+    {
+      label: "Age",
+      items: AGES.map((a) => ({
+        key: `age-${a.key}`,
+        label: a.label,
+        count: ageCounts[a.key],
+        to: hrefFor({ ...filters, age: a.key }),
+      })),
+    },
+  ];
+  // One lit item in each section.
+  const lit = [filters.status, `age-${filters.age}`];
+
+  const searchBox = (
+    <SearchBox
+      value={filters.search}
+      apply={(next) => apply({ search: next })}
+      hidden={{
+        status: filters.status === "all" ? "" : filters.status,
+        from: filters.from,
+        to: filters.to,
+      }}
+      placeholder="Name, phone or ID number"
+      label="Search customers"
+      busy={busy}
+      className="sm:w-full"
+    />
+  );
+
+  const dayRange = (align: "start" | "end") => (
+    <DayRangeFilter
+      from={filters.from}
+      to={filters.to}
+      title="Registered"
+      align={align}
+      apply={(next) => apply(next)}
+    />
+  );
+
   return (
-    <Page className="max-w-none">
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="flex flex-col gap-3 border-b border-border p-3 lg:flex-row lg:items-center lg:justify-between">
-          <FilterMenu
-            label="Status"
-            items={TABS.map((tab) => ({
-              key: tab.key,
-              label: tab.label,
-              count: counts[tab.key],
-              to: hrefFor({ ...filters, status: tab.key }),
-            }))}
-            active={filters.status}
+    <RailFrame
+      rail={({ horizontal }) =>
+        horizontal ? (
+          // Under `lg`: the search and the dates on one line, the statuses as a
+          // strip under them.
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">{searchBox}</div>
+              {dayRange("end")}
+            </div>
+            <FilterRail
+              label="Filter customers by status"
+              sections={sections}
+              active={lit}
+              horizontal
+            />
+          </div>
+        ) : (
+          <FilterRail
+            label="Filter customers by status"
+            sections={sections}
+            active={lit}
+            header={searchBox}
+            footer={
+              <>
+                <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                  Date registered
+                </h3>
+                <div className="[&>button]:w-full [&>button]:justify-start">
+                  {dayRange("start")}
+                </div>
+              </>
+            }
           />
-          <div className="flex flex-wrap items-center gap-2">
-            <SearchBox filters={filters} busy={busy} />
-            <DateRangeFilter filters={filters} />
-            <ExportMenu filters={filters} total={total} />
+        )
+      }
+    >
+      <div className="px-4 py-6 sm:px-6">
+        <section className="overflow-hidden rounded-2xl bg-card text-card-foreground">
+          {/* The book's own actions sit on the card, over the rows they act on. */}
+          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3">
+            <ExportMenu
+              path="/customers/export"
+              query={(() => {
+                const p = queryFor(filters);
+                p.delete("page");
+                return p.toString();
+              })()}
+              total={total}
+            />
             {/* A whole book at once, for when the office is loading the branch
-              rather than signing one person up at the counter. */}
+            rather than signing one person up at the counter. */}
             {canManage && (
               <Button asChild size="sm" variant="outline">
                 <Link to="/customers/import">
@@ -432,84 +557,70 @@ export default function Customers({ loaderData }: Route.ComponentProps) {
               </Button>
             )}
           </div>
-        </div>
 
-        {filtered && <ActiveFilters filters={filters} total={total} />}
+          {filtered && (
+            <FilterBar total={total}>
+              {filters.search && (
+                <FilterChip
+                  onDrop={() => apply({ search: "" })}
+                  label={`“${filters.search}”`}
+                />
+              )}
+              {(filters.from || filters.to) && (
+                <DayRangeChip
+                  from={filters.from}
+                  to={filters.to}
+                  onDrop={() => apply({ from: "", to: "" })}
+                />
+              )}
+            </FilterBar>
+          )}
 
-        {rows.length === 0 ? (
-          <CustomersEmpty filters={filters} />
-        ) : (
-          <div className={cn("transition-opacity", busy && "opacity-60")}>
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <Th>Customer</Th>
-                  <Th className="hidden lg:table-cell">Age / Sex</Th>
-                  <Th className="hidden sm:table-cell">Contact</Th>
-                  <Th className="hidden xl:table-cell">Identification</Th>
-                  <Th>Status</Th>
-                  <Th className="hidden md:table-cell">Registered</Th>
-                  <Th className="w-16 text-right">Actions</Th>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <CustomerRow
-                    key={row.id}
-                    row={row}
-                    canServe={canServe}
-                    canManage={canManage}
-                    canReassign={canReassign}
-                    search={search}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-
-        {total > 0 && (
-          <div className="flex items-center justify-between border-t border-border px-4 py-3 text-sm text-muted-foreground">
-            <p>
-              Showing{" "}
-              <span className="tabular font-medium text-foreground">
-                {first}
-              </span>
-              –
-              <span className="tabular font-medium text-foreground">
-                {last}
-              </span>{" "}
-              of{" "}
-              <span className="tabular font-medium text-foreground">
-                {formatCount(total)}
-              </span>
-            </p>
-            <div className="flex items-center gap-2">
-              <PagerButton
-                to={hrefFor(filters, page - 1)}
-                disabled={page <= 1}
-                label="Previous page"
-              >
-                <ChevronLeftIcon />
-                Prev
-              </PagerButton>
-              <PagerButton
-                to={hrefFor(filters, page + 1)}
-                disabled={last >= total}
-                label="Next page"
-              >
-                Next
-                <ChevronRightIcon />
-              </PagerButton>
+          {rows.length === 0 ? (
+            <CustomersEmpty filters={filters} />
+          ) : (
+            <div className={cn("transition-opacity", busy && "opacity-60")}>
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <Th>Customer</Th>
+                    <Th className="hidden lg:table-cell">Age / Sex</Th>
+                    <Th className="hidden sm:table-cell">Contact</Th>
+                    <Th className="hidden xl:table-cell">Identification</Th>
+                    <Th>Status</Th>
+                    <Th className="hidden md:table-cell">Registered</Th>
+                    <Th className="w-16 text-right">Actions</Th>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row) => (
+                    <CustomerRow
+                      key={row.id}
+                      row={row}
+                      canServe={canServe}
+                      canManage={canManage}
+                      canReassign={canReassign}
+                      search={search}
+                    />
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-          </div>
-        )}
+          )}
+
+          <ListingFooter
+            page={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            hrefFor={(p) => hrefFor(filters, p)}
+          />
+        </section>
       </div>
 
       {/* The reassign drawer renders here — over the rows, not a page away
         from them. */}
       <Outlet />
-    </Page>
+    </RailFrame>
   );
 }
 
@@ -529,296 +640,6 @@ function Th({
     >
       {children}
     </TableHead>
-  );
-}
-
-/* ------------------------------------------------------------------ search --- */
-
-const DEBOUNCE_MS = 300;
-
-/**
- * Searches as you type. The term lives in the URL so the result is linkable and
- * survives a reload, but typing must not push a history entry per keystroke —
- * hence `replace`. The input is controlled from local state rather than from
- * the loader, so the caret never jumps when a response lands mid-word.
- */
-function SearchBox({ filters, busy }: { filters: Filters; busy: boolean }) {
-  const submit = useSubmit();
-  const [value, setValue] = useState(filters.search);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Adopt a term that changed elsewhere — the back button, or a cleared filter
-  // chip — without stepping on what is being typed right now.
-  const applied = filters.search;
-  useEffect(() => {
-    setValue((current) => (current === applied ? current : applied));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applied]);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  const run = (next: string) => {
-    // A new term always returns to page 1; `queryFor` leaves `page` out.
-    submit(queryFor({ ...filters, search: next }), {
-      replace: true,
-      preventScrollReset: true,
-    });
-  };
-
-  const onChange = (next: string) => {
-    setValue(next);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => run(next), DEBOUNCE_MS);
-  };
-
-  const clear = () => {
-    clearTimeout(timer.current);
-    setValue("");
-    run("");
-    inputRef.current?.focus();
-  };
-
-  const pending = busy && value.trim() !== applied;
-
-  return (
-    <Form
-      method="get"
-      role="search"
-      className="relative w-full sm:w-72"
-      onSubmit={(e) => {
-        // Enter should not wait out the debounce.
-        e.preventDefault();
-        clearTimeout(timer.current);
-        run(value);
-      }}
-    >
-      {/* No-JS fallback: without the handler above, these carry the filters. */}
-      {filters.status !== "all" && (
-        <input type="hidden" name="status" value={filters.status} />
-      )}
-      {filters.from && <input type="hidden" name="from" value={filters.from} />}
-      {filters.to && <input type="hidden" name="to" value={filters.to} />}
-
-      <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input
-        ref={inputRef}
-        // Deliberately `type="text"`: the native `search` clear button empties
-        // the box without telling React, which used to leave the results
-        // filtered by a term no longer on screen. The X below replaces it.
-        type="text"
-        name="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Search name, phone or ID number"
-        aria-label="Search customers"
-        autoComplete="off"
-        className="pl-9 pr-9"
-      />
-      <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center">
-        {pending ? (
-          <Loader2Icon className="size-4 animate-spin text-muted-foreground" />
-        ) : value ? (
-          <button
-            type="button"
-            onClick={clear}
-            aria-label="Clear search"
-            className="rounded-sm p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            <XIcon className="size-4" />
-          </button>
-        ) : null}
-      </div>
-    </Form>
-  );
-}
-
-/* ----------------------------------------------------------------- filters --- */
-
-/** Registration-date range. Applies on close, so both ends move together. */
-function DateRangeFilter({ filters }: { filters: Filters }) {
-  const submit = useSubmit();
-  const [open, setOpen] = useState(false);
-  const fieldsRef = useRef<HTMLDivElement>(null);
-  const active = Boolean(filters.from || filters.to);
-
-  const apply = (next: { from: string; to: string }) => {
-    setOpen(false);
-    submit(queryFor({ ...filters, ...next }), {
-      replace: true,
-      preventScrollReset: true,
-    });
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(active && "border-primary/50 text-primary")}
-        >
-          <SlidersHorizontalIcon />
-          {active ? formatDayRange(filters.from, filters.to) : "Registered"}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-3">
-        {/* Keyed on the applied range so reopening after a Clear shows it. */}
-        <div
-          ref={fieldsRef}
-          key={`${filters.from}|${filters.to}`}
-          className="space-y-3"
-        >
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Registered from
-            </Label>
-            <DateField
-              name="from"
-              defaultValue={filters.from || undefined}
-              placeholder="Any date"
-              endMonth={new Date()}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Registered to
-            </Label>
-            <DateField
-              name="to"
-              defaultValue={filters.to || undefined}
-              placeholder="Any date"
-              endMonth={new Date()}
-            />
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={!active}
-            onClick={() => apply({ from: "", to: "" })}
-          >
-            Clear
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              // Each DateField keeps its value in a hidden input; read those
-              // on apply rather than mirroring every calendar click into state.
-              const read = (name: string) =>
-                fieldsRef.current?.querySelector<HTMLInputElement>(
-                  `input[name='${name}']`,
-                )?.value ?? "";
-              apply({ from: read("from"), to: read("to") });
-            }}
-          >
-            Apply
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-/** What is narrowing the list right now, and one click to drop each of them. */
-function ActiveFilters({
-  filters,
-  total,
-}: {
-  filters: Filters;
-  total: number;
-}) {
-  const submit = useSubmit();
-  const drop = (next: Partial<Filters>) =>
-    submit(queryFor({ ...filters, ...next }), {
-      replace: true,
-      preventScrollReset: true,
-    });
-
-  return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/30 px-4 py-2 text-sm">
-      <span className="text-muted-foreground">
-        {formatCount(total)} {total === 1 ? "match" : "matches"}
-      </span>
-      {filters.search && (
-        <Chip
-          onDrop={() => drop({ search: "" })}
-          label={`“${filters.search}”`}
-        />
-      )}
-      {(filters.from || filters.to) && (
-        <Chip
-          onDrop={() => drop({ from: "", to: "" })}
-          label={
-            <>
-              <CalendarIcon className="size-3" />
-              {formatDayRange(filters.from, filters.to)}
-            </>
-          }
-        />
-      )}
-    </div>
-  );
-}
-
-function Chip({ label, onDrop }: { label: ReactNode; onDrop: () => void }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-0.5 text-xs font-medium">
-      {label}
-      <button
-        type="button"
-        onClick={onDrop}
-        className="text-muted-foreground transition-colors hover:text-foreground"
-        aria-label="Remove this filter"
-      >
-        <XIcon className="size-3" />
-      </button>
-    </span>
-  );
-}
-
-/**
- * Downloads the *filtered* listing, not the page. The API ignores pagination on
- * an export and caps it at 10,000 rows, so the count is worth saying out loud.
- */
-function ExportMenu({ filters, total }: { filters: Filters; total: number }) {
-  const query = useMemo(() => {
-    const p = queryFor(filters);
-    p.delete("page");
-    return p.toString();
-  }, [filters]);
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" disabled={total === 0}>
-          <DownloadIcon />
-          Export
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="font-normal text-muted-foreground">
-          {formatCount(Math.min(total, 10_000))} row{total === 1 ? "" : "s"},
-          matching the filters above
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <a href={`/customers/export?format=csv${query ? `&${query}` : ""}`}>
-            <FileTextIcon />
-            CSV
-          </a>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <a href={`/customers/export?format=xlsx${query ? `&${query}` : ""}`}>
-            <DownloadIcon />
-            Excel (.xlsx)
-          </a>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }
 
@@ -858,6 +679,7 @@ function CustomerRow({
             >
               {row.fullName}
             </Link>
+            {row.isMinor && <ChildTag className="mt-0.5" />}
             <p className="tabular truncate text-xs text-muted-foreground">
               #{row.shortId}
             </p>
@@ -1190,33 +1012,6 @@ function CustomersEmpty({ filters }: { filters: Filters }) {
         </Button>
       )}
     </Empty>
-  );
-}
-
-function PagerButton({
-  to,
-  disabled,
-  label,
-  children,
-}: {
-  to: string;
-  disabled: boolean;
-  label: string;
-  children: ReactNode;
-}) {
-  if (disabled) {
-    return (
-      <Button variant="outline" size="sm" disabled aria-label={label}>
-        {children}
-      </Button>
-    );
-  }
-  return (
-    <Button asChild variant="outline" size="sm">
-      <Link to={to} aria-label={label} prefetch="intent" preventScrollReset>
-        {children}
-      </Link>
-    </Button>
   );
 }
 

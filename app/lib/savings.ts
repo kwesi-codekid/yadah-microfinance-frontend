@@ -26,7 +26,32 @@ export type SavingsStatus = "active" | "closed";
  * and the guardian as next of kin. That is office procedure, not something the
  * API enforces, so the opening form is where it has to be said.
  */
-export type SavingsAccountType = "standard" | "student";
+export type SavingsAccountType = "standard" | "student" | "fixed" | "loan";
+
+/**
+ * Fixed deposits (client decision, 6 Oct 2026): a child's account, opened by a
+ * parent who stands as its guardian. No interest. The maturity date is picked
+ * at opening, at least six months out. Before it, the normal savings charges;
+ * from it, withdrawals and closing are free. Deposits are taken throughout.
+ */
+export const FIXED_MIN_MONTHS = 6;
+
+/**
+ * The terms the counter offers, in months. The term is chosen, not a date
+ * (client decision, 6 Oct 2026); the API works the maturity day out from it.
+ */
+export const FIXED_TERMS = [6, 9, 12, 18, 24, 36, 48, 60] as const;
+
+/** The maturity day of a term opened on `openedOn` (`YYYY-MM-DD`), as the API counts it. */
+export function maturityAfter(openedOn: string, months: number): string {
+  const [y, m, d] = openedOn.split("-").map(Number);
+  const target = new Date(Date.UTC(y, m - 1 + months, 1));
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(d, lastDay));
+  return target.toISOString().slice(0, 10);
+}
 
 /** How the cash physically arrived. `transfer` is only ever set by the API. */
 export type SavingsChannel = "cash" | "paystack" | "momo";
@@ -41,6 +66,15 @@ export interface SavingsAccount {
   /** Present on list responses, for display. */
   customerName?: string;
   accountType: SavingsAccountType;
+  /** Fixed deposit: the Accra day withdrawals turn free, `YYYY-MM-DD`. */
+  maturesOn?: string;
+  /** Fixed deposit: the term chosen at opening, in months. */
+  termMonths?: number;
+  /** A fixed deposit on or past its maturity day. Always false otherwise. */
+  matured: boolean;
+  /** Fixed deposit: the parent paid out of it. */
+  guardianId?: string;
+  guardianName?: string;
   /** Pesewas. */
   balance: number;
   /** Pesewas, floored at zero: balance − the minimum − the fee. */
@@ -101,6 +135,8 @@ export const SAVINGS_STATUS_TONE: Record<SavingsStatus, "success" | "muted"> = {
 export const ACCOUNT_TYPE_LABELS: Record<SavingsAccountType, string> = {
   standard: "Standard",
   student: "Student",
+  fixed: "Fixed deposit",
+  loan: "Loan savings",
 };
 
 export const TXN_TYPE_LABELS: Record<SavingsTxnType, string> = {
@@ -160,7 +196,9 @@ export function checkWithdrawalAmount(
     return "Enter what the customer is taking.";
   }
   if (account.availableToWithdraw <= 0) {
-    return "Nothing can be withdrawn without dropping below the GH₵ 50 minimum.";
+    return account.matured
+      ? "Nothing left to withdraw."
+      : "Nothing can be withdrawn without dropping below the GH₵ 10 minimum.";
   }
   if (pesewas > account.availableToWithdraw) {
     return "More than this account can give up today.";
@@ -168,12 +206,17 @@ export function checkWithdrawalAmount(
   return null;
 }
 
+/** The fee a withdrawal or closing costs today: none on a matured fixed deposit. */
+export function withdrawalFee(account: Pick<SavingsAccount, "matured">): number {
+  return account.matured ? 0 : WITHDRAWAL_FEE;
+}
+
 /** What the account holds once a withdrawal of this size and its fee come off. */
 export function balanceAfterWithdrawal(
   account: SavingsAccount,
   pesewas: number,
 ): number {
-  return account.balance - pesewas - WITHDRAWAL_FEE;
+  return account.balance - pesewas - withdrawalFee(account);
 }
 
 /**
@@ -181,7 +224,7 @@ export function balanceAfterWithdrawal(
  * minimum balance, but the flat fee still applies — GHS 200 pays out GHS 190.
  */
 export function closurePayout(account: SavingsAccount): number {
-  return Math.max(0, account.balance - WITHDRAWAL_FEE);
+  return Math.max(0, account.balance - withdrawalFee(account));
 }
 
 /**
@@ -190,7 +233,7 @@ export function closurePayout(account: SavingsAccount): number {
  * see rather than have folded into a cheerful "closed" message.
  */
 export function closureFlagged(account: SavingsAccount): boolean {
-  return account.balance < WITHDRAWAL_FEE;
+  return !account.matured && account.balance < WITHDRAWAL_FEE;
 }
 
 /**

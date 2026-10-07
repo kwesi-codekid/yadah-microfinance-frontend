@@ -72,15 +72,22 @@ export async function loader({ request }: Route.LoaderArgs) {
     count: report.outrightSalesProfit?.count ?? 0,
     amount: report.outrightSalesProfit?.amount ?? 0,
   };
+  // Added 6 Oct 2026: the processing fee paid on top of each loan.
+  const loanFees = {
+    count: report.loanProcessingFees?.count ?? 0,
+    amount: report.loanProcessingFees?.amount ?? 0,
+  };
 
   return data(
     {
       susu,
       savings,
       sales,
+      loanFees,
       // Trust the API's own total when it gives one — it knows about any source
       // of revenue this screen has not been taught to name.
-      total: report.totalRevenue ?? susu.amount + savings.amount + sales.amount,
+      total:
+        report.totalRevenue ?? susu.amount + savings.amount + sales.amount + loanFees.amount,
       range: { from: report.from ?? period.from, to: report.to ?? period.to },
       period,
     },
@@ -89,7 +96,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 export default function ReportCommission({ loaderData }: Route.ComponentProps) {
-  const { susu, savings, sales, total, range, period } = loaderData;
+  const { susu, savings, sales, loanFees, total, range, period } = loaderData;
   const submit = useSubmit();
   const navigation = useNavigation();
   const busy = navigation.state === "loading";
@@ -106,7 +113,7 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
   // period from the screen it came off is worse than no file.
   const query = new URLSearchParams(rangeQuery(period.from, period.to));
 
-  const events = susu.count + savings.count + sales.count;
+  const events = susu.count + savings.count + sales.count + loanFees.count;
   // What the branch keeps out of each event it earned on — the figure that says
   // whether a quiet month was quiet in volume or only in value.
   const average = events > 0 ? Math.round(total / events) : 0;
@@ -148,7 +155,7 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
             busy ? "p-4 opacity-60 transition-opacity sm:p-5" : "p-4 sm:p-5"
           }
         >
-          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <dl className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <Figure
               label="Revenue"
               value={formatPesewas(total)}
@@ -171,6 +178,11 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
               hint={`${formatCount(sales.count)} counter sale${sales.count === 1 ? "" : "s"}`}
             />
             <Figure
+              label="Loan fees"
+              value={formatPesewas(loanFees.amount)}
+              hint={`${formatCount(loanFees.count)} loan${loanFees.count === 1 ? "" : "s"} given out`}
+            />
+            <Figure
               label="Average"
               value={formatPesewas(average)}
               hint="per earning"
@@ -184,7 +196,9 @@ export default function ReportCommission({ loaderData }: Route.ComponentProps) {
             Savings fees are the flat charge on a withdrawal or a closure. Sale
             margin is what an outright counter sale made over cost, with voided
             sales left out — trading profit rather than a fee, but money the
-            branch kept. Nothing else is revenue: deposits, disbursements and
+            branch kept. Loan fees are the processing fee paid on top of each
+            loan the day it went out; cash collateral is not revenue — it is held
+            and handed back. Nothing else is revenue: deposits, disbursements and
             transfers are money moving, not money kept.
           </p>
         </div>

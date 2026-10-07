@@ -157,6 +157,11 @@ export default function AccountingBalanceSheet({ loaderData }: Route.ComponentPr
                 <Group title="Customer deposits">
                   <Line label="Susu balances" value={l.customerDeposits.susuBalances} />
                   <Line label="Savings balances" value={l.customerDeposits.savingsBalances} />
+                  <Line
+                    label="Loan collateral held"
+                    value={l.customerDeposits.collateralHeld ?? 0}
+                    hint="Cash taken on loans, owed back"
+                  />
                   <Subtotal value={l.customerDeposits.total} />
                 </Group>
                 <Group title="Other">

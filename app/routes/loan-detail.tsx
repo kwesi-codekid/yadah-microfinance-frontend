@@ -6,6 +6,7 @@ import {
   CoinsIcon,
   HandCoinsIcon,
   MoreHorizontalIcon,
+  PiggyBankIcon,
   PrinterIcon,
   SmartphoneIcon,
   Trash2Icon,
@@ -90,6 +91,7 @@ import {
   LOAN_STATUS_LABELS,
   LOAN_STATUS_TONE,
   SOURCE_LABELS,
+  canReturnCollateral,
   canTrash,
   daysOverdue,
   isOpen,
@@ -221,7 +223,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         locked:
           r.source === "susu" || r.source === "susu-closure"
             ? "This was paid from a susu account. It cannot be changed on its own."
-            : r.source === "transfer"
+            : r.source === "loan-savings"
+              ? "This was paid from the loan savings account. It cannot be changed on its own."
+              : r.source === "transfer"
               ? "This came from a transfer between accounts. Correct it on the transfer, not here."
               : r.channel === "paystack"
                 ? "This was paid through Paystack, so the amount is what was charged."
@@ -397,6 +401,9 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
             customerId={loan.customerId}
             open={open}
             disbursed={Boolean(loan.disbursedAt)}
+            /* Handing cash back is the office's decision, and only once the
+               loan is repaid. */
+            collateralReturnable={canDecide && canReturnCollateral(loan)}
             /* Taking a loan out of the book is the office's, whatever state
                it is in — so the counter is shown the entry greyed, not live. */
             trashable={canDecide && canTrash(loan)}
@@ -406,6 +413,8 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
 
       <div className="space-y-4">
         <Kpis loan={loan} overdue={overdue} repayments={repayments.length} />
+
+        <Charges loan={loan} />
 
         {pending && canDecide && (
           <Decision
@@ -487,6 +496,36 @@ function Kpis({
         tone={late ? "danger" : "neutral"}
       />
     </div>
+  );
+}
+
+/**
+ * The processing fee and the cash collateral (client decision, 6 Oct 2026),
+ * kept apart from the loan's own figures because neither is part of what it
+ * owes. Drawn only when the loan carries either.
+ */
+function Charges({ loan }: { loan: Route.ComponentProps["loaderData"]["loan"] }) {
+  if (!loan.processingFee && !loan.collateralAmount) return null;
+  return (
+    <dl className="flex flex-wrap gap-x-8 gap-y-2 rounded-2xl bg-card px-4 py-3 text-sm">
+      {loan.processingFee ? (
+        <div className="flex items-baseline gap-2">
+          <dt className="text-muted-foreground">Processing fee</dt>
+          <dd className="tabular font-medium">{formatPesewas(loan.processingFee)}</dd>
+        </div>
+      ) : null}
+      {loan.collateralAmount ? (
+        <div className="flex items-baseline gap-2">
+          <dt className="text-muted-foreground">Cash collateral</dt>
+          <dd className="tabular font-medium">{formatPesewas(loan.collateralAmount)}</dd>
+          <dd className="text-xs text-muted-foreground">
+            {loan.collateralReturnedAt
+              ? `handed back ${formatAccraDate(loan.collateralReturnedAt)}`
+              : "held"}
+          </dd>
+        </div>
+      ) : null}
+    </dl>
   );
 }
 
@@ -854,6 +893,7 @@ function LoanMenu({
   customerId,
   open,
   disbursed,
+  collateralReturnable,
   trashable,
 }: {
   loanId: string;
@@ -861,6 +901,8 @@ function LoanMenu({
   open: boolean;
   /** Whether the money has left the drawer — the receipt exists only after. */
   disbursed: boolean;
+  /** Cash collateral is held and the loan is repaid — it may go back. */
+  collateralReturnable: boolean;
   trashable: boolean;
 }) {
   const fetcher = useFetcher<ActionResult>();
@@ -893,6 +935,12 @@ function LoanMenu({
               Repay from susu balance
             </Link>
           </DropdownMenuItem>
+          <DropdownMenuItem asChild disabled={!open}>
+            <Link to={`/loans/${loanId}/repay/loan-savings`} prefetch="intent">
+              <PiggyBankIcon />
+              Pay from loan savings
+            </Link>
+          </DropdownMenuItem>
           {/* The third way money reaches a loan: a prompt on the customer's own
               handset. It credits when Paystack confirms, not when it is sent. */}
           <DropdownMenuItem asChild disabled={!open}>
@@ -916,6 +964,14 @@ function LoanMenu({
               Print disbursement receipt
             </a>
           </DropdownMenuItem>
+          {collateralReturnable && (
+            <DropdownMenuItem asChild>
+              <Link to={`/loans/${loanId}/collateral/return`} prefetch="intent">
+                <HandCoinsIcon />
+                Return collateral
+              </Link>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
             <Link to={`/customers/${customerId}`}>

@@ -46,7 +46,7 @@ export function SusuMigrateButton() {
     if (result.report.apply) {
       const r = result.report;
       toast.success("Susu data updated.", {
-        description: `${formatCount(r.migration.books)} book${r.migration.books === 1 ? "" : "s"} → plans · ${formatCount(r.backfill.payouts)} withdrawal${r.backfill.payouts === 1 ? "" : "s"} given plan shares.`,
+        description: `${formatCount(r.migration.books)} book${r.migration.books === 1 ? "" : "s"} → plans · ${formatCount(r.backfill.payouts)} withdrawal${r.backfill.payouts === 1 ? "" : "s"} given plan shares · ${formatCount(r.commissions.entries)} commission${r.commissions.entries === 1 ? "" : "s"} filed to Yadah.`,
       });
       setOpen(false);
       setConfirm(false);
@@ -74,7 +74,8 @@ export function SusuMigrateButton() {
             <DialogTitle>Update susu data</DialogTitle>
             <DialogDescription>
               Old per-cycle books become one account with plans, and withdrawals that name no
-              plan get their plan shares. This is what a run would change now.
+              plan get their plan shares, and commissions already taken are filed into Yadah's
+              commission account. This is what a run would change now.
             </DialogDescription>
           </DialogHeader>
 
@@ -103,6 +104,14 @@ export function SusuMigrateButton() {
                 label="Left loose"
                 value={`GH₵ ${formatAmount(preview.backfill.loose)}`}
               />
+              <Row
+                label="Commissions to file"
+                value={formatCount(preview.commissions.entries)}
+              />
+              <Row
+                label="Commission amount"
+                value={`GH₵ ${formatAmount(preview.commissions.amount)}`}
+              />
             </dl>
           ) : (
             <p className="text-sm text-muted-foreground">Nothing to show yet.</p>
@@ -110,7 +119,8 @@ export function SusuMigrateButton() {
 
           {preview &&
             preview.migration.books === 0 &&
-            preview.backfill.payouts === 0 && (
+            preview.backfill.payouts === 0 &&
+            preview.commissions.entries === 0 && (
               <p className="rounded-lg border border-info/40 bg-info/10 px-4 py-3 text-sm">
                 Everything is already in the new shape. Nothing to do.
               </p>
@@ -141,7 +151,9 @@ export function SusuMigrateButton() {
                   busy ||
                   !preview ||
                   preview.drift !== 0 ||
-                  (preview.migration.books === 0 && preview.backfill.payouts === 0)
+                  (preview.migration.books === 0 &&
+                    preview.backfill.payouts === 0 &&
+                    preview.commissions.entries === 0)
                 }
                 onClick={() => setConfirm(true)}
               >

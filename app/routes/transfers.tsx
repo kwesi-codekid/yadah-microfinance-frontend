@@ -136,10 +136,12 @@ export async function loader({ request }: Route.LoaderArgs) {
           amount: a.availableToWithdraw,
         });
       }
+      // Loan savings takes money in like any savings account, but never gives
+      // any out — the API reports nothing available, so it is never a source.
       destinations.push({
         id: a.id,
         kind: "savings",
-        title: `Savings ${a.accountNumber}`,
+        title: `${a.accountType === "loan" ? "Loan savings" : "Savings"} ${a.accountNumber}`,
         subtitle: `GH₵ ${formatAmount(a.balance)} balance`,
         amount: a.balance,
       });

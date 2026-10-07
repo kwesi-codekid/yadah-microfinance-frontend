@@ -136,6 +136,9 @@ export default function CustomerLoans({ loaderData }: Route.ComponentProps) {
       // does not is worse than one that plainly does not.
       openTo="/loans/new"
       openLabel="Apply for a loan"
+      openBlocked={
+        customer.isMinor ? "Under 18 — no loans for children" : undefined
+      }
     />
   );
 }

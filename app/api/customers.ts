@@ -28,6 +28,8 @@ export interface CustomerListParams {
   limit?: number;
   /** Omit for both. */
   status?: CustomerStatus;
+  /** By age today, from the date of birth. Omit for both. */
+  age?: "adult" | "child";
   /** Fuzzy across name and phone, in relevance order. */
   search?: string;
   /** One collector's round. */

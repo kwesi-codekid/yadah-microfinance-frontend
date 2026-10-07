@@ -21,6 +21,7 @@ import {
   trashCustomer,
 } from "~/api/customers";
 import { ApiError } from "~/api/error";
+import { ChildTag } from "~/components/child-tag";
 import { BackLink, Page } from "~/components/page";
 import {
   AlertDialog,
@@ -240,6 +241,7 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
               {customer.fullName}
             </h2>
             <StatusPill status={customer.status} />
+            {customer.isMinor && <ChildTag />}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             <span className="tabular">#{shortId(customer.id)}</span>

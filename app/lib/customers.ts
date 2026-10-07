@@ -15,7 +15,8 @@ import type {
 export type Gender = "male" | "female";
 export type MaritalStatus = "single" | "married" | "other";
 export type CustomerStatus = "active" | "inactive";
-export type IdType = "ghana-card" | "passport" | "drivers-license" | "voter-id";
+export type IdType =
+  "ghana-card" | "passport" | "drivers-license" | "voter-id" | "nhis";
 
 /** The block is optional on a customer; once present, the type and number are not. */
 export interface Identification {
@@ -41,6 +42,12 @@ export interface Customer {
   residentialAddress?: string;
   phone: string;
   altPhone?: string;
+  /**
+   * Under 18 today, by the date of birth (no date of birth is an adult). A
+   * child may share a parent's phone number and cannot take a loan or hire
+   * purchase.
+   */
+  isMinor: boolean;
   identification?: Identification;
   occupation?: string;
   /**
@@ -64,6 +71,7 @@ export const ID_TYPE_LABELS: Record<IdType, string> = {
   passport: "Passport",
   "drivers-license": "Driver's licence",
   "voter-id": "Voter ID",
+  nhis: "NHIS card",
 };
 
 /** Select options, in the order the registration form presents them. */
@@ -83,7 +91,17 @@ export const ID_TYPE_OPTIONS: { value: IdType; label: string }[] = [
   { value: "passport", label: "Passport" },
   { value: "drivers-license", label: "Driver's licence" },
   { value: "voter-id", label: "Voter ID" },
+  { value: "nhis", label: "NHIS card" },
 ];
+
+/**
+ * Children are customers too (client decision, 5 Oct 2026). Nobody ticks a box
+ * for it: under 18 by the date of birth is a child, as the API reads it.
+ */
+export const ADULT_AGE = 18;
+
+/** The ID a child is registered with unless the counter picks another. */
+export const CHILD_ID_TYPE: IdType = "nhis";
 
 /** Ghanaian mobile number: `0` then `2` or `5`, then eight digits. */
 export const PHONE_RE = /^0[25]\d{8}$/;
@@ -140,7 +158,9 @@ export interface CreateCustomerInput {
  * post a change that silently does nothing.
  */
 export type UpdateCustomerInput = {
-  [K in keyof Omit<CreateCustomerInput, "assignedCollectorId">]?: undefined extends CreateCustomerInput[K]
+  [
+    K in keyof Omit<CreateCustomerInput, "assignedCollectorId">
+  ]?: undefined extends CreateCustomerInput[K]
     ? CreateCustomerInput[K] | null
     : CreateCustomerInput[K];
 };
@@ -162,9 +182,10 @@ export type IdDocumentState = "complete" | "partial" | "none";
 export function idDocumentState(
   customer: Pick<Customer, "idDocumentFrontUrl" | "idDocumentBackUrl">,
 ): IdDocumentState {
-  const sides = [customer.idDocumentFrontUrl, customer.idDocumentBackUrl].filter(
-    Boolean,
-  ).length;
+  const sides = [
+    customer.idDocumentFrontUrl,
+    customer.idDocumentBackUrl,
+  ].filter(Boolean).length;
   return sides === 2 ? "complete" : sides === 1 ? "partial" : "none";
 }
 
@@ -201,6 +222,13 @@ export const ID_NUMBER_RULES: Record<
     re: /^[A-Z]\d{8}$/,
     hint: "Passport numbers are a letter then 8 digits, like G12345678.",
     placeholder: "G12345678",
+  },
+  // The older cards carry an 8-digit membership number; newer ones are tied
+  // to the Ghana Card, so the API takes either.
+  nhis: {
+    re: /^(\d{8}|GHA-\d{9}-\d)$/,
+    hint: "NHIS numbers are 8 digits, or a Ghana Card number like GHA-123456789-0.",
+    placeholder: "12345678",
   },
   "drivers-license": {
     re: /^[A-Z0-9]{10,20}$/,
@@ -248,7 +276,7 @@ export interface SusuHolding {
 export interface SavingsHolding {
   accountId: string;
   accountNumber: string;
-  accountType: "standard" | "student";
+  accountType: "standard" | "student" | "fixed" | "loan";
   status: string;
   openingBalance: number;
   closingBalance: number;
@@ -308,6 +336,9 @@ export const TX_TYPE_LABELS: Record<TxType, string> = {
   "savings-closure": "Savings closure",
   "loan-disbursement": "Loan disbursement",
   "loan-repayment": "Loan repayment",
+  "loan-fee": "Loan processing fee",
+  "loan-collateral": "Loan collateral taken",
+  "loan-collateral-return": "Loan collateral returned",
   "hp-deposit": "Hire-purchase deposit",
   "hp-installment": "Hire-purchase instalment",
   "hp-redemption": "Hire-purchase redemption",

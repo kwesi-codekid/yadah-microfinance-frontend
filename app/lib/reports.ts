@@ -34,6 +34,12 @@ export type TxnType =
   | "savings-closure"
   | "loan-disbursement"
   | "loan-repayment"
+  /** The processing fee, paid on top of a loan the day it went out — revenue. */
+  | "loan-fee"
+  /** Cash collateral taken the day a loan went out — held, the customer's. */
+  | "loan-collateral"
+  /** Cash collateral handed back. */
+  | "loan-collateral-return"
   | "hp-deposit"
   | "hp-installment"
   | "hp-redemption"
@@ -205,6 +211,8 @@ export interface DashboardSummary {
      * the API counts it toward `totalRevenue` and so must the screen.
      */
     outrightSalesProfit: Tally;
+    /** Processing fees on loans that went out this month. */
+    loanProcessingFees?: Tally;
     totalRevenue: number;
   };
   portfolio: {
@@ -218,7 +226,7 @@ export interface DashboardSummary {
     savings: {
       activeAccounts: number;
       totalBalance: number;
-      byType: { standard: Tally; student: Tally };
+      byType: { standard: Tally; student: Tally; fixed: Tally };
     };
     loans: { active: number; arrears: number; outstanding: number };
     hirePurchase: { active: number; inArrears: number; outstanding: number };
@@ -429,6 +437,8 @@ export interface CommissionReport {
   savingsFees?: Partial<Tally>;
   /** Margin on outright counter sales in the range. Voided sales excluded. */
   outrightSalesProfit?: Partial<Tally>;
+  /** Processing fees on loans that went out in the range. */
+  loanProcessingFees?: Partial<Tally>;
   totalRevenue?: number;
   rows?: unknown[];
 }
@@ -492,6 +502,9 @@ export const TXN_TYPE_LABELS: Record<TxnType, string> = {
   "savings-closure": "Savings closure",
   "loan-disbursement": "Loan disbursed",
   "loan-repayment": "Loan repayment",
+  "loan-fee": "Loan processing fee",
+  "loan-collateral": "Loan collateral taken",
+  "loan-collateral-return": "Loan collateral returned",
   "hp-deposit": "HP deposit",
   "hp-installment": "HP instalment",
   "hp-redemption": "HP redemption",
@@ -577,7 +590,10 @@ export function receiptPathFor(
     case "savings-closure":
       return `/savings/${t.ref.id}/txns/${t.id}/receipt`;
     // One per loan: the disbursement is the loan's own event, not a row of its own.
+    // The fee and the collateral are printed on the disbursement receipt.
     case "loan-disbursement":
+    case "loan-fee":
+    case "loan-collateral":
       return `/loans/${t.ref.id}/disbursement/receipt`;
     case "loan-repayment":
       return `/loans/${t.ref.id}/repayments/${t.id}/receipt`;

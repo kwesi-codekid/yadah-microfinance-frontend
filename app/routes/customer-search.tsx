@@ -37,6 +37,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       hasIdNumber: Boolean(c.identification?.idNumber),
       /** Both sides of it are uploaded. One side alone counts for nothing. */
       hasIdDocument: hasIdDocument(c),
+      /** Under 18 today — a fixed deposit is theirs to hold, not to guard. */
+      isMinor: c.isMinor,
     })),
   };
 }

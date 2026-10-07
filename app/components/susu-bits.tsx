@@ -126,8 +126,8 @@ export function CycleStrip({
 }
 
 /**
- * How much of the balance the customer may take today, against how much has
- * to stay for the cycles in progress. Two numbers that only mean something
+ * How much of the balance is the customer's, against the commission due to
+ * Yadah on the cycles in progress. Two numbers that only mean something
  * against each other, so they are one bar — the same bar the savings page
  * draws for its minimum balance, because the two products are meant to feel
  * like one.
@@ -149,18 +149,18 @@ export function LockMeter({
       <div
         className="flex h-2 overflow-hidden rounded-full bg-muted"
         role="img"
-        aria-label={`GH₵ ${formatAmount(available)} available of a GH₵ ${formatAmount(balance)} balance`}
+        aria-label={`GH₵ ${formatAmount(available)} customer's money of a GH₵ ${formatAmount(balance)} balance`}
       >
         <div className="h-full bg-primary transition-[width]" style={{ width: `${width * 100}%` }} />
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden className="size-2 rounded-full bg-primary" />
-          <span className="tabular">{formatAmount(available)}</span> available
+          <span className="tabular">{formatAmount(available)}</span> customer's money
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden className="size-2 rounded-full bg-muted-foreground/30" />
-          <span className="tabular">{formatAmount(locked)}</span> locked for cycles in progress
+          <span className="tabular">{formatAmount(locked)}</span> commission due to Yadah
         </span>
       </div>
     </div>

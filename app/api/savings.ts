@@ -27,6 +27,8 @@ export interface AccountListParams {
   page?: number;
   limit?: number;
   customerId?: string;
+  /** The fixed deposits this customer is guardian to. */
+  guardianId?: string;
   accountType?: SavingsAccountType;
   status?: SavingsStatus;
   /** The full `SV` number, or the bare ten digits: `^(SV\d{8}|\d{10})$`. */
@@ -89,6 +91,10 @@ export function openAccount(
   input: {
     customerId: string;
     accountType?: SavingsAccountType;
+    /** Fixed deposit only: the parent paid out of it. */
+    guardianId?: string;
+    /** Fixed deposit only: the term in months, six or more. */
+    termMonths?: number;
     initialDeposit?: number;
     idempotencyKey?: string;
     channel?: SavingsChannel;

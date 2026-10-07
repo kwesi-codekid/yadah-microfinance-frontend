@@ -186,6 +186,13 @@ export default [
     ]),
     route("expenses/:id", "routes/expense.tsx"),
 
+    /* Yadah's commission account: susu commission, savings fees and loan
+       processing fees as they are earned, and the moves that send them on to
+       the cash accounts. Moving is an errand, so it opens as a drawer. */
+    route("commissions", "routes/commissions.tsx", [
+      route("move", "routes/commission-move.tsx"),
+    ]),
+
     layout("routes/accounting-layout.tsx", [
       route("accounting", "routes/accounting.tsx", [
         route("accounts/new", "routes/accounting-account-new.tsx"),
@@ -233,6 +240,8 @@ export default [
     route("loans/:id", "routes/loan-detail.tsx", [
       route("repay", "routes/loan-repay.tsx"),
       route("repay/susu", "routes/loan-repay-susu.tsx"),
+      route("repay/loan-savings", "routes/loan-repay-loan-savings.tsx"),
+      route("collateral/return", "routes/loan-collateral-return.tsx"),
       route("charge", "routes/loan-charge.tsx"),
     ]),
 

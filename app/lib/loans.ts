@@ -16,6 +16,7 @@
  */
 
 import type { IdType } from "~/lib/customers";
+import { parseCedis } from "~/lib/format";
 
 export type LoanTier = "small" | "big";
 
@@ -25,8 +26,19 @@ export type LoanStatus = "pending" | "active" | "repaid" | "rejected" | "arrears
 export const DURATIONS = [3, 6, 12] as const;
 export type LoanDuration = (typeof DURATIONS)[number];
 
-/** How a repayment reached the counter. `susu` is money taken from the customer's susu balance; `susu-closure` is history. */
-export type RepaymentSource = "cash" | "paystack" | "momo" | "susu" | "susu-closure" | "transfer";
+/**
+ * How a repayment reached the counter. `susu` is money taken from the
+ * customer's susu balance, `loan-savings` from their loan savings account;
+ * `susu-closure` is history.
+ */
+export type RepaymentSource =
+  | "cash"
+  | "paystack"
+  | "momo"
+  | "susu"
+  | "susu-closure"
+  | "transfer"
+  | "loan-savings";
 
 export type RepaymentChannel = "cash" | "paystack" | "momo";
 
@@ -89,6 +101,12 @@ export interface Loan {
   paperRef?: string;
   /** A photograph of the paper form. */
   paperPhotoUrl?: string;
+  /** Pesewas. Paid on top of the loan the day it went out — never part of what it owes. */
+  processingFee?: number;
+  /** Pesewas. Cash left as security, held until it is handed back. */
+  collateralAmount?: number;
+  /** When the cash collateral was handed back. */
+  collateralReturnedAt?: string;
 }
 
 /* ------------------------------------------------------------- paper loans --- */
@@ -107,6 +125,8 @@ export interface PaperLoanInput {
   repayments: { paidOn: string; amount: number }[];
   paperRef?: string;
   paperPhotoUrl?: string;
+  processingFee?: number;
+  collateralAmount?: number;
 }
 
 /** One loan in a checked paper-loan sheet. Empty `issues` means ready. */
@@ -161,6 +181,8 @@ export interface Repayment {
   channel?: string;
   /** Set when the repayment came from the customer's susu account. */
   susuAccountId?: string;
+  /** Set when the repayment came from the customer's loan savings account. */
+  savingsAccountId?: string;
   recordedById?: string;
   createdAt?: string;
 }
@@ -317,6 +339,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   susu: "From susu",
   "susu-closure": "Susu closure",
   transfer: "Transfer",
+  "loan-savings": "From loan savings",
 };
 
 export const CHANNEL_OPTIONS: { value: RepaymentChannel; label: string }[] = [
@@ -341,11 +364,45 @@ export const INSTALLMENT_LABELS: Record<string, string> = {
   pending: "Due",
 };
 
+/* ----------------------------------------------------- fee and collateral --- */
+
+/**
+ * The processing fee and cash collateral a form posted, as `LoanChargeFields`
+ * lays them out. Empty boxes are left out; a box holding something that is
+ * not an amount is an error naming it.
+ */
+export function readLoanCharges(
+  form: FormData,
+): { processingFee?: number; collateralAmount?: number } | { error: string } {
+  const out: { processingFee?: number; collateralAmount?: number } = {};
+  for (const [key, label] of [
+    ["processingFee", "processing fee"],
+    ["collateralAmount", "collateral"],
+  ] as const) {
+    const raw = String(form.get(key) ?? "").trim();
+    if (raw === "") continue;
+    const pesewas = parseCedis(raw);
+    if (pesewas == null) return { error: `Enter the ${label} as an amount, like 50.` };
+    if (pesewas > 0) out[key] = pesewas;
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------- rules --- */
 
 /** True while the loan can still take a repayment. */
 export function isOpen(loan: Pick<Loan, "status">): boolean {
   return loan.status === "active" || loan.status === "arrears";
+}
+
+/**
+ * True while there is cash collateral the branch still holds and may hand
+ * back — only once the loan is repaid.
+ */
+export function canReturnCollateral(
+  loan: Pick<Loan, "status" | "collateralAmount" | "collateralReturnedAt">,
+): boolean {
+  return loan.status === "repaid" && Boolean(loan.collateralAmount) && !loan.collateralReturnedAt;
 }
 
 /** True while the application can still be approved or rejected. */

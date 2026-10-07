@@ -141,6 +141,11 @@ export default function CustomerHp({ loaderData }: Route.ComponentProps) {
       // As on the loans page: the form picks its own customer.
       openTo="/hire-purchase/new"
       openLabel="Sign an agreement"
+      openBlocked={
+        customer.isMinor
+          ? "Under 18 — no hire purchase for children"
+          : undefined
+      }
     />
   );
 }

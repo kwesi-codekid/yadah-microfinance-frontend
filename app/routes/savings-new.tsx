@@ -1,6 +1,10 @@
-import { GraduationCapIcon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { data, Form, useActionData, useNavigation } from "react-router";
+import {
+  GraduationCapIcon,
+  Loader2Icon,
+  TriangleAlertIcon,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { data, Form, useActionData, useFetcher, useNavigation } from "react-router";
 import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
@@ -17,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { formatAmount, parseCedis } from "~/lib/format";
+import { accraDay, formatAccraDate, formatAmount, parseCedis } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import {
   ACCOUNT_TYPE_LABELS,
@@ -25,6 +29,8 @@ import {
   MIN_BALANCE,
   MIN_DEPOSIT,
   WITHDRAWAL_FEE,
+  FIXED_TERMS,
+  maturityAfter,
   type SavingsAccountType,
   type SavingsChannel,
 } from "~/lib/savings";
@@ -52,6 +58,16 @@ export async function action({ request }: Route.ActionArgs) {
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
   const typed = String(form.get("initialDeposit") ?? "").trim();
   const initialDeposit = typed ? parseCedis(typed) : null;
+  const fixed = accountType === "fixed";
+  const guardianId = String(form.get("guardianId") ?? "").trim();
+  const termMonths = Number(form.get("termMonths") ?? "");
+
+  if (fixed && !guardianId) {
+    return data({ error: "Choose the parent who is the guardian." }, { status: 400 });
+  }
+  if (fixed && !Number.isInteger(termMonths)) {
+    return data({ error: "Pick the term." }, { status: 400 });
+  }
 
   if (!customerId) {
     return data(
@@ -75,6 +91,7 @@ export async function action({ request }: Route.ActionArgs) {
       openAccount(token, {
         customerId,
         accountType,
+        ...(fixed ? { guardianId, termMonths } : {}),
         // The deposit rides in the same transaction as the opening, so it
         // carries the key that makes a retry safe.
         ...(initialDeposit
@@ -100,7 +117,9 @@ export async function action({ request }: Route.ActionArgs) {
       message: initialDeposit
         ? `Account opened with GH₵ ${formatAmount(initialDeposit)} in it.`
         : "Account opened.",
-      description: `GH₵ ${formatAmount(MIN_BALANCE)} has to stay in the account until it is closed.`,
+      description: fixed
+        ? `Free withdrawals from ${formatAccraDate(maturityAfter(accraDay(), termMonths))}.`
+        : `GH₵ ${formatAmount(MIN_BALANCE)} has to stay in the account until it is closed.`,
     },
     headers,
   );
@@ -114,6 +133,43 @@ export default function SavingsNew() {
   const [customer, setCustomer] = useState<PickedCustomer | null>(null);
   const [type, setType] = useState<SavingsAccountType>("standard");
   const [deposit, setDeposit] = useState("");
+  const [guardian, setGuardian] = useState<PickedCustomer | null>(null);
+
+  // A fixed deposit is a child's account, so it is only offered for one; picking
+  // an adult afterwards puts the type back rather than leaving a choice the
+  // API would refuse.
+  const child = Boolean(customer?.isMinor);
+  const fixed = type === "fixed";
+  // Always listed, so the counter knows it exists; only usable for a child.
+  const types: SavingsAccountType[] = ["standard", "student", "fixed", "loan"];
+  useEffect(() => {
+    if (!child && type === "fixed") setType("standard");
+  }, [child, type]);
+
+  // A child is usually registered on a parent's number, and only one adult
+  // may hold a number, so that adult is the guardian nine times in ten. Looked
+  // up once per child picked and filled in; the counter can still change it.
+  const lookup = useFetcher<{ items: PickedCustomer[] }>();
+  const filledFor = useRef<string | null>(null);
+  useEffect(() => {
+    setGuardian(null);
+    filledFor.current = null;
+    if (customer?.isMinor && customer.phone) {
+      lookup.load(`/customers/search?q=${encodeURIComponent(customer.phone)}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customer?.id]);
+  useEffect(() => {
+    if (!customer?.isMinor || filledFor.current === customer.id) return;
+    const parent = lookup.data?.items.find(
+      (c) => c.phone === customer.phone && !c.isMinor && c.id !== customer.id,
+    );
+    if (parent) {
+      filledFor.current = customer.id;
+      setGuardian(parent);
+    }
+  }, [lookup.data, customer]);
+  const today = accraDay();
 
   // Minted once per open: the first deposit is money, and a double click or a
   // retry after a dropped connection has to carry the same key.
@@ -164,9 +220,14 @@ export default function SavingsNew() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(["standard", "student"] as const).map((t) => (
-                  <SelectItem key={t} value={t}>
+                {types.map((t) => (
+                  <SelectItem key={t} value={t} disabled={t === "fixed" && !child}>
                     {ACCOUNT_TYPE_LABELS[t]}
+                    {t === "fixed" && !child && (
+                      <span className="text-xs text-muted-foreground">
+                        {customer ? "· children only" : "· pick a child first"}
+                      </span>
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -188,6 +249,51 @@ export default function SavingsNew() {
             </div>
           )}
 
+          {fixed && (
+            <>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Guardian<span className="ml-0.5 text-destructive">*</span>
+                </Label>
+                <CustomerPicker
+                  name="guardianId"
+                  value={guardian}
+                  onChange={setGuardian}
+                  placeholder="Parent's name or phone"
+                  warn={(c) =>
+                    c.id === customer?.id
+                      ? "A child cannot be their own guardian."
+                      : c.isMinor
+                        ? "Under 18 — a guardian must be an adult."
+                        : null
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  Term<span className="ml-0.5 text-destructive">*</span>
+                </Label>
+                {/* Each term shows the day it runs to, so the parent hears a date. */}
+                <Select name="termMonths" defaultValue={String(FIXED_TERMS[0])}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FIXED_TERMS.map((months) => (
+                      <SelectItem key={months} value={String(months)}>
+                        {months} months
+                        <span className="text-xs text-muted-foreground">
+                          · {formatAccraDate(maturityAfter(today, months))}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </>
+          )}
+
           <div className="space-y-1.5">
             <Label
               htmlFor="initialDeposit"
@@ -206,16 +312,11 @@ export default function SavingsNew() {
               aria-invalid={tooSmall ? true : undefined}
               className={cn("tabular", tooSmall && "border-destructive")}
             />
-            <p
-              className={cn(
-                "text-xs",
-                tooSmall ? "text-destructive" : "text-muted-foreground",
-              )}
-            >
-              {tooSmall
-                ? `At least GH₵ ${formatAmount(MIN_DEPOSIT)}, or leave it empty.`
-                : "Recorded with the opening, in one transaction. Leave it empty to open at zero."}
-            </p>
+            {tooSmall && (
+              <p className="text-xs text-destructive">
+                At least GH₵ {formatAmount(MIN_DEPOSIT)}, or leave it empty.
+              </p>
+            )}
           </div>
 
           {deposit && !tooSmall && (
@@ -238,17 +339,28 @@ export default function SavingsNew() {
             </div>
           )}
 
-          {/* The two rules that surprise people at the counter later. */}
-          <p className="text-xs text-muted-foreground">
-            GH₵ {formatAmount(MIN_BALANCE)} stays in until closing; each
-            withdrawal costs GH₵ {formatAmount(WITHDRAWAL_FEE)}.
-            {belowMinimum && " Nothing is withdrawable from this first deposit."}
-          </p>
+          {/* The rules that surprise people at the counter later. */}
+          {!fixed && (
+            <p className="text-xs text-muted-foreground">
+              GH₵ {formatAmount(MIN_BALANCE)} stays in until closing; each
+              withdrawal costs GH₵ {formatAmount(WITHDRAWAL_FEE)}.
+              {belowMinimum && " Nothing is withdrawable from this first deposit."}
+            </p>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">
           <SheetCancel />
-          <Button type="submit" disabled={submitting || !customer || tooSmall}>
+          <Button
+            type="submit"
+            disabled={
+              submitting ||
+              !customer ||
+              tooSmall ||
+              (fixed &&
+                (!guardian || guardian.isMinor || guardian.id === customer.id))
+            }
+          >
             {submitting && <Loader2Icon className="animate-spin" />}
             Open account
           </Button>

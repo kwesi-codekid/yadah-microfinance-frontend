@@ -69,16 +69,13 @@ import {
   formatAccraDate,
   formatCount,
   formatPesewas,
-  relativeDayLabel,
 } from "~/lib/format";
 import {
   LOAN_STATUS_BLURBS,
   LOAN_STATUS_LABELS,
-  TIER_LABELS,
   daysOverdue,
   isOpen,
   isPending,
-  repaymentProgress,
   type Loan,
   type LoanStatus,
 } from "~/lib/loans";
@@ -213,7 +210,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         all: STATUSES.reduce((sum, s) => sum + byStatus[s], 0),
         ...byStatus,
       },
-      rows: result.list.items.map((loan) => toRow(loan, now, today)),
+      rows: result.list.items.map((loan) => toRow(loan, today)),
     },
     { headers },
   );
@@ -227,10 +224,8 @@ export const shouldRevalidate = drawerParentShouldRevalidate;
 interface Row {
   id: string;
   /** The tail of the id, the way it is read out at the counter. */
-  ref: string;
   customerId: string;
   customerName: string;
-  tier: string;
   principal: number;
   ratePercent: number;
   durationMonths: number;
@@ -241,27 +236,21 @@ interface Row {
   totalDue: number;
   totalRepaid: number;
   remaining: number;
-  progress: number;
   status: LoanStatus;
-  applied: string;
   /** The last instalment's due day, absent until the loan is approved. */
   due: string | null;
   /** Whole days past the due date, or null while the loan is not late. */
   overdue: number | null;
   open: boolean;
   pending: boolean;
-  /** Copied in from the paper records that predate the system. */
-  paper: boolean;
 }
 
-function toRow(loan: Loan, now: Date, today: string): Row {
+function toRow(loan: Loan, today: string): Row {
   const dueDay = loan.dueDate ? accraDay(new Date(loan.dueDate)) : null;
   return {
     id: loan.id,
-    ref: `#L${loan.id.slice(-5).toUpperCase()}`,
     customerId: loan.customerId,
     customerName: loan.customerName ?? "—",
-    tier: TIER_LABELS[loan.tier],
     principal: loan.principal,
     ratePercent: loan.ratePercent,
     durationMonths: loan.durationMonths,
@@ -270,21 +259,15 @@ function toRow(loan: Loan, now: Date, today: string): Row {
     totalDue: loan.totalDue,
     totalRepaid: loan.totalRepaid,
     remaining: loan.remaining,
-    progress: repaymentProgress(loan),
     status: loan.status,
-    applied: relativeDayLabel(loan.appliedAt, now),
     due: dueDay,
     overdue: daysOverdue(dueDay, today),
     open: isOpen(loan),
     pending: isPending(loan),
-    paper: loan.origin === "paper",
   };
 }
 
 /* ----------------------------------------------------------------- palette --- */
-/* Read from the theme so the night palette restyles the progress bars. */
-const CORAL = "var(--chart-1)";
-const NAVY = "var(--chart-2)";
 
 /** The tinted status pill — the app's tones on their subtle steps. */
 const PILL: Record<LoanStatus, string> = {
@@ -512,16 +495,13 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
               <table className="w-full min-w-5xl text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-left text-xs font-bold text-foreground [&>th]:py-3">
-                    <th className="pr-3">Loan ID</th>
                     <th className="w-[16%] pr-3">Customer</th>
-                    <th className="pr-3">Tier</th>
                     <th className="pr-3 text-right">Term</th>
                     <th className="pr-3 text-right">Principal</th>
                     <th className="pr-3 text-right">Rate</th>
                     <th className="pr-3 text-right">Total due</th>
                     <th className="pr-3 text-right">Repaid</th>
                     <th className="w-[12%] pr-3 text-right">Remaining</th>
-                    <th className="pr-3">Applied</th>
                     <th className="pr-3">Due</th>
                     <th className="pr-3">Status</th>
                     <th className="pl-3 text-right">Actions</th>
@@ -665,21 +645,6 @@ function LoanRow({ row }: { row: Row }) {
 
   return (
     <tr className="border-b border-border/60 last:border-0">
-      <td className="tabular py-3 pr-3 whitespace-nowrap text-muted-foreground">
-        <Link
-          to={`/loans/${row.id}`}
-          className="hover:text-foreground"
-          title={row.id}
-        >
-          {row.ref}
-        </Link>
-        {row.paper && (
-          <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            Paper
-          </span>
-        )}
-      </td>
-
       <td className="py-3 pr-3">
         <Link
           to={`/customers/${row.customerId}`}
@@ -688,8 +653,6 @@ function LoanRow({ row }: { row: Row }) {
           {row.customerName}
         </Link>
       </td>
-
-      <td className="py-3 pr-3 whitespace-nowrap">{row.tier}</td>
 
       <td className="tabular py-3 pr-3 text-right whitespace-nowrap">
         {row.durationMonths} mo
@@ -733,25 +696,6 @@ function LoanRow({ row }: { row: Row }) {
         <span className="tabular font-semibold">
           {formatPesewas(row.remaining)}
         </span>
-        {row.open && (
-          <span
-            className="mt-1 block h-1 overflow-hidden rounded-full bg-muted"
-            role="img"
-            aria-label={`${Math.round(row.progress * 100)}% repaid`}
-          >
-            <span
-              className="block h-full rounded-full"
-              style={{
-                width: `${row.progress * 100}%`,
-                background: row.status === "arrears" ? CORAL : NAVY,
-              }}
-            />
-          </span>
-        )}
-      </td>
-
-      <td className="py-3 pr-3 whitespace-nowrap text-muted-foreground">
-        {row.applied}
       </td>
 
       {/* No due date until approval builds the schedule — an em dash, not a

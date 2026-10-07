@@ -51,8 +51,11 @@ export function FilterRail({
   /** The `aria-label` — "Loans", "Filter customers by status". */
   label: string;
   sections: RailSection[];
-  /** The lit item's key. Leave out to let `NavLink` decide from the URL. */
-  active?: string;
+  /**
+   * The lit item's key — or one per section, where each section is its own
+   * filter. Leave out to let `NavLink` decide from the URL.
+   */
+  active?: string | readonly string[];
   horizontal?: boolean;
   /**
    * Other controls that belong in the same card — a search box above the
@@ -64,10 +67,15 @@ export function FilterRail({
 }) {
   if (horizontal) {
     return (
-      <nav aria-label={label} className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
-        {sections.flatMap((s) => s.items).map((item) => (
-          <RailLink key={item.key} item={item} active={active} compact />
-        ))}
+      <nav
+        aria-label={label}
+        className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1"
+      >
+        {sections
+          .flatMap((s) => s.items)
+          .map((item) => (
+            <RailLink key={item.key} item={item} active={active} compact />
+          ))}
       </nav>
     );
   }
@@ -78,7 +86,10 @@ export function FilterRail({
       {sections.map((section, i) => (
         <section
           key={section.label ?? i}
-          className={cn("px-1 py-2", (i > 0 || header) && "mt-1 border-t border-border")}
+          className={cn(
+            "px-1 py-2",
+            (i > 0 || header) && "mt-1 border-t border-border",
+          )}
         >
           {section.label ? (
             <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
@@ -95,7 +106,11 @@ export function FilterRail({
           </ul>
         </section>
       ))}
-      {footer ? <div className="mt-1 border-t border-border px-1 pt-2 pb-1">{footer}</div> : null}
+      {footer ? (
+        <div className="mt-1 border-t border-border px-1 pt-2 pb-1">
+          {footer}
+        </div>
+      ) : null}
     </nav>
   );
 }
@@ -106,13 +121,15 @@ function RailLink({
   compact = false,
 }: {
   item: RailItem;
-  active?: string;
+  active?: string | readonly string[];
   compact?: boolean;
 }) {
   const classes = (lit: boolean) =>
     cn(
       "flex items-center gap-2 rounded-lg text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-      compact ? "shrink-0 px-3 py-1.5 whitespace-nowrap" : "w-full px-2.5 py-2 text-left",
+      compact
+        ? "shrink-0 px-3 py-1.5 whitespace-nowrap"
+        : "w-full px-2.5 py-2 text-left",
       lit
         ? "bg-primary font-medium text-primary-foreground"
         : "text-foreground/80 hover:bg-secondary hover:text-foreground",
@@ -129,7 +146,9 @@ function RailLink({
         <span
           className={cn(
             "tabular rounded-full px-1.5 py-px text-xs font-semibold",
-            lit ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground",
+            lit
+              ? "bg-primary-foreground/20 text-primary-foreground"
+              : "bg-muted text-muted-foreground",
           )}
         >
           {formatCount(item.count)}
@@ -152,7 +171,10 @@ function RailLink({
     );
   }
 
-  const lit = active === item.key;
+  const lit =
+    typeof active === "string"
+      ? active === item.key
+      : (active ?? []).includes(item.key);
 
   if (item.to) {
     return (
@@ -203,7 +225,9 @@ export function RailFrame({
         {rail({ horizontal: false })}
       </aside>
       <div className="min-w-0 flex-1">
-        <div className="px-4 pt-4 sm:px-6 lg:hidden">{rail({ horizontal: true })}</div>
+        <div className="px-4 pt-4 sm:px-6 lg:hidden">
+          {rail({ horizontal: true })}
+        </div>
         {children}
       </div>
     </div>

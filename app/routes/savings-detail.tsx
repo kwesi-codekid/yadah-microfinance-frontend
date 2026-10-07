@@ -1,7 +1,6 @@
 import {
   BanknoteArrowDownIcon,
   BanknoteArrowUpIcon,
-  CalendarIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   DoorClosedIcon,
@@ -10,12 +9,11 @@ import {
   MoreHorizontalIcon,
   PencilLineIcon,
   RotateCcwIcon,
-  SlidersHorizontalIcon,
   SmartphoneIcon,
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   data,
   Link,
@@ -56,6 +54,8 @@ import {
   type PendingCorrection,
 } from "~/components/txn-correction";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
+import { FilterRail, RailFrame, type RailSection } from "~/components/filter-rail";
+import { DayRangeFilter, SearchBox } from "~/components/listing";
 import {
   AccountTypeTag,
   PagerButton,
@@ -74,7 +74,6 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
-import { DateField } from "~/components/ui/date-field";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -93,7 +92,6 @@ import {
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "~/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -473,6 +471,19 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
     trashed,
   } = loaderData;
   const [searchParams] = useSearchParams();
+  const submit = useSubmit();
+
+  // Which rows the statement shows and what they are searched by — client
+  // state over the page in hand, as the susu account page does with its plans.
+  const [view, setView] = useState<TxnView>("all");
+  const [query, setQuery] = useState("");
+  const needle = query.trim().replace(/,/g, "");
+  const shownTxns = txns.items.filter(
+    (t) =>
+      (view === "all" ||
+        (view === "deposits" ? t.type === "deposit" : t.type !== "deposit")) &&
+      (!needle || (t.amount / 100).toFixed(2).includes(needle)),
+  );
 
   const fetcher = useFetcher<ActionResult>();
   useEffect(() => {
@@ -500,7 +511,101 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
     return `/savings/${account.id}${s ? `?${s}` : ""}`;
   };
 
+  // A new range means a new first page.
+  const applyRange = (next: { from: string; to: string }) => {
+    const p = new URLSearchParams(searchParams);
+    p.delete("page");
+    for (const [key, value] of Object.entries(next)) {
+      if (value) p.set(key, value);
+      else p.delete(key);
+    }
+    submit(p, { replace: true, preventScrollReset: true });
+  };
+
+  const sections: RailSection[] = [
+    {
+      label: "Type",
+      items: (
+        [
+          ["all", "All"],
+          ["deposits", "Deposits"],
+          ["withdrawals", "Withdrawals"],
+        ] as const
+      ).map(([key, label]) => ({ key, label, onSelect: () => setView(key) })),
+    },
+    // The trashed pane is the office's; everyone else only has the statement.
+    ...(canManage
+      ? [
+          {
+            label: "View",
+            items: [
+              {
+                key: "statement",
+                label: "Statement",
+                to: withParams({ trashed: null, page: null }),
+              },
+              {
+                key: "trashed",
+                label: "Trashed",
+                to: withParams({ trashed: "1", page: null }),
+              },
+            ],
+          },
+        ]
+      : []),
+  ];
+  const active = [view, showTrashed ? "trashed" : "statement"];
+
+  const searchBox = (
+    <SearchBox
+      value={query}
+      apply={setQuery}
+      placeholder="Amount, e.g. 20"
+      label="Search transactions"
+      className="sm:w-full"
+    />
+  );
+  const dayRange = (align: "start" | "end") => (
+    <DayRangeFilter
+      from={range.from}
+      to={range.to}
+      title="Date"
+      align={align}
+      apply={applyRange}
+    />
+  );
+
   return (
+    <RailFrame
+      rail={({ horizontal }) =>
+        horizontal ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">{searchBox}</div>
+              {dayRange("end")}
+            </div>
+            <FilterRail label="Filter the statement" sections={sections} active={active} horizontal />
+          </div>
+        ) : (
+          <FilterRail
+            label="Filter the statement"
+            sections={sections}
+            active={active}
+            header={searchBox}
+            footer={
+              <>
+                <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                  Date
+                </h3>
+                <div className="[&>button]:w-full [&>button]:justify-start">
+                  {dayRange("start")}
+                </div>
+              </>
+            }
+          />
+        )
+      }
+    >
     <Page className="max-w-none">
       {/* Back on the left, whose account this is on the right — the same header
           the susu account page uses, so the two read as one product. */}
@@ -529,6 +634,7 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
                 : ` · Opened ${formatAccraDate(account.openedAt)}`}
             </span>
           </p>
+          {account.accountType === "fixed" && <FixedDepositLine account={account} />}
         </div>
       </header>
 
@@ -541,22 +647,6 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
             {showTrashed ? "Trashed transactions" : "Statement"}
           </h3>
           <div className="flex flex-wrap items-center gap-2">
-            {!showTrashed && <StatementRange range={range} />}
-            {/* No way *into* the trash from here — the row menu is where a
-                transaction is thrown away, so a toolbar button beside it only
-                said the same word twice. The pane is still served at
-                `?trashed=1`, and this is the way back out of it. */}
-            {showTrashed && (
-              <Button asChild variant="ghost" size="sm">
-                <Link
-                  to={withParams({ trashed: null, page: null })}
-                  preventScrollReset
-                  replace
-                >
-                  Back to statement
-                </Link>
-              </Button>
-            )}
             <ExportMenu
               accountId={account.id}
               range={range}
@@ -569,7 +659,8 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
               canManage={canManage}
               fetcher={fetcher}
             />
-            {open && canServe && (
+            {/* Loan savings is never withdrawn — its money only goes to the loan. */}
+            {open && canServe && account.accountType !== "loan" && (
               <Button asChild variant="outline" size="sm">
                 <Link to={`/savings/${account.id}/withdraw`} prefetch="intent" preventScrollReset>
                   <BanknoteArrowUpIcon />
@@ -605,16 +696,18 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
 
         {showTrashed ? (
           <TrashedTxns rows={trashed ?? []} fetcher={fetcher} />
-        ) : txns.items.length === 0 ? (
+        ) : shownTxns.length === 0 ? (
           <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-            {range.from || range.to
-              ? "Nothing moved in that date range."
-              : "Nothing has moved through this account yet."}
+            {txns.items.length > 0
+              ? "No transaction on this page matches."
+              : range.from || range.to
+                ? "Nothing moved in that date range."
+                : "Nothing has moved through this account yet."}
           </p>
         ) : (
           <TxnTable
             canCorrect={canCorrect}
-            rows={txns.items}
+            rows={shownTxns}
             newestId={newestId}
             canManage={canManage}
             account={account}
@@ -656,8 +749,11 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
       {/* The deposit and withdrawal drawers open over all of it. */}
       <Outlet />
     </Page>
+    </RailFrame>
   );
 }
+
+type TxnView = "all" | "deposits" | "withdrawals";
 
 /** The one-line consequences a clerk has to see before choosing an action. */
 function Notices({
@@ -667,7 +763,8 @@ function Notices({
   account: SavingsAccount;
   usedTodaysWithdrawal: boolean;
 }) {
-  if (account.status === "closed") return null;
+  // Loan savings is never withdrawn, so none of the withdrawal warnings apply.
+  if (account.status === "closed" || account.accountType === "loan") return null;
 
   if (closureFlagged(account)) {
     return (
@@ -677,7 +774,8 @@ function Notices({
       </Note>
     );
   }
-  if (account.availableToWithdraw <= 0) {
+  // A matured fixed deposit holds nothing back, so an empty one is just empty.
+  if (account.availableToWithdraw <= 0 && !account.matured) {
     return (
       <Note tone="warning">
         Nothing can be withdrawn without breaking the GH₵{" "}
@@ -747,7 +845,10 @@ function AccountActions({
   const [reason, setReason] = useState("");
 
   const open = account.status === "active";
-  const canClose = open && canServe;
+  // Loan savings closes only once it is empty: closing pays out, and its money
+  // goes to the loan or nowhere.
+  const canClose =
+    open && canServe && (account.accountType !== "loan" || account.balance === 0);
   // The API refuses anything else: a balance, a transaction ever recorded, or
   // an account already closed.
   const canTrash = open && canManage && neverUsed && account.balance === 0;
@@ -803,9 +904,19 @@ function AccountActions({
                     still closes, nothing is paid out, and it comes back flagged
                     for the office to look at.
                   </>
+                ) : account.matured ? (
+                  <>
+                    {account.guardianName ?? "The guardian"} receives GH₵{" "}
+                    {formatAmount(closurePayout(account))} in cash, with no
+                    charge — the deposit has matured. The account cannot be
+                    reopened.
+                  </>
                 ) : (
                   <>
-                    The customer receives GH₵ {formatAmount(closurePayout(account))}{" "}
+                    {account.accountType === "fixed"
+                      ? (account.guardianName ?? "The guardian")
+                      : "The customer"}{" "}
+                    receives GH₵ {formatAmount(closurePayout(account))}{" "}
                     in cash. The GH₵ {formatAmount(MIN_BALANCE)} minimum is
                     released and GH₵ {formatAmount(WITHDRAWAL_FEE)} is kept as the
                     fee. The account cannot be reopened.
@@ -1189,96 +1300,6 @@ function TrashedTxns({
 
 /* ---------------------------------------------------------------- toolbars --- */
 
-/**
- * The statement's date range. Unlike a cycle, a savings history has no end, so
- * narrowing it is how anyone reads one — and the same range travels into the
- * export, so the file matches what was on screen.
- */
-function StatementRange({ range }: { range: { from: string; to: string } }) {
-  const submit = useSubmit();
-  const [open, setOpen] = useState(false);
-  const fieldsRef = useRef<HTMLDivElement>(null);
-  const [searchParams] = useSearchParams();
-  const active = Boolean(range.from || range.to);
-
-  const apply = (next: { from: string; to: string }) => {
-    setOpen(false);
-    const p = new URLSearchParams(searchParams);
-    // A new range means a new first page.
-    p.delete("page");
-    for (const [key, value] of Object.entries(next)) {
-      if (value) p.set(key, value);
-      else p.delete(key);
-    }
-    submit(p, { replace: true, preventScrollReset: true });
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          className={cn(active && "border-primary/50 text-primary")}
-        >
-          {active ? <CalendarIcon /> : <SlidersHorizontalIcon />}
-          {active ? formatDayRange(range.from, range.to) : "Any date"}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-3">
-        <div ref={fieldsRef} key={`${range.from}|${range.to}`} className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              From
-            </Label>
-            <DateField
-              name="from"
-              defaultValue={range.from || undefined}
-              placeholder="Any date"
-              endMonth={new Date()}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              To
-            </Label>
-            <DateField
-              name="to"
-              defaultValue={range.to || undefined}
-              placeholder="Any date"
-              endMonth={new Date()}
-            />
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={!active}
-            onClick={() => apply({ from: "", to: "" })}
-          >
-            Clear
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              const read = (name: string) =>
-                fieldsRef.current?.querySelector<HTMLInputElement>(
-                  `input[name='${name}']`,
-                )?.value ?? "";
-              apply({ from: read("from"), to: read("to") });
-            }}
-          >
-            Apply
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function ExportMenu({
   accountId,
   range,
@@ -1422,5 +1443,43 @@ function RenumberButton({ account, fetcher }: { account: SavingsAccount; fetcher
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * When a fixed deposit turns free, and who it is paid to. The date is the
+ * thing the parent asks about at the counter, so it sits under the name.
+ */
+function FixedDepositLine({ account }: { account: SavingsAccount }) {
+  const days = account.maturesOn
+    ? Math.round(
+        (Date.parse(`${account.maturesOn}T00:00:00Z`) -
+          Date.parse(`${accraDay()}T00:00:00Z`)) /
+          86_400_000,
+      )
+    : null;
+  return (
+    <p className="mt-1 flex flex-wrap items-center justify-end gap-x-1 text-sm text-muted-foreground">
+      {account.termMonths !== undefined && <span>{account.termMonths}-month term ·</span>}
+      {account.matured ? (
+        <span className="font-medium text-success">Matured · free withdrawals</span>
+      ) : account.maturesOn ? (
+        <span>
+          Matures {formatAccraDate(account.maturesOn)}
+          {days !== null && ` · ${days} ${days === 1 ? "day" : "days"} to go`}
+        </span>
+      ) : null}
+      {account.guardianId && (
+        <span>
+          {" · Guardian "}
+          <Link
+            to={`/customers/${account.guardianId}`}
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            {account.guardianName ?? "—"}
+          </Link>
+        </span>
+      )}
+    </p>
   );
 }

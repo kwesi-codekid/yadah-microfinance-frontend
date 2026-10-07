@@ -36,7 +36,7 @@ import {
   trashAccount,
   trashDeposit,
 } from "~/api/susu";
-import { Figure, Th } from "~/components/susu-bits";
+import { Figure, LockMeter, Th } from "~/components/susu-bits";
 import { describe, toRow } from "~/components/susu-deposits";
 import {
   toPending,
@@ -469,6 +469,17 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
           <Figure className="bg-card" label="Withdrawn · all plans" value={formatPesewas(sum(account.plans, withdrawnOf))} />
         </dl>
 
+        {/* The commission due sits in the balance until a cycle completes or the
+            customer takes everything — said apart so nobody reads it as theirs. */}
+        {open && account.locked > 0 && (
+          <LockMeter
+            className="rounded-xl border border-border bg-card px-4 py-3"
+            balance={account.balance}
+            available={account.availableToWithdraw}
+            locked={account.locked}
+          />
+        )}
+
         {/* The plans are the page: each row opens into the deposits that landed on it. */}
         <PlansSection
           account={account}
@@ -585,7 +596,7 @@ function PlansSection({
               <Th>Cycle</Th>
               <Th className="hidden text-right sm:table-cell">Withdrawn</Th>
               <Th className="text-right">Balance</Th>
-              <Th className="text-right">Locked</Th>
+              <Th className="text-right">Commission due</Th>
               <Th className="hidden lg:table-cell">Started</Th>
               {canServe && open && <Th className="w-12 text-right">Actions</Th>}
             </TableRow>

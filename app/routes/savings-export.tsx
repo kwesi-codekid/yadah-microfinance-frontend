@@ -14,7 +14,7 @@ import type { Route } from "./+types/savings-export";
  */
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const STATUSES = ["active", "closed"];
-const TYPES = ["standard", "student"];
+const TYPES = ["standard", "student", "fixed", "loan"];
 
 export async function loader({ request }: Route.LoaderArgs) {
   await requireUser(request);

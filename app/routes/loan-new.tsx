@@ -17,6 +17,7 @@ import { ApiError } from "~/api/error";
 import { apply as applyForLoan, getConfig } from "~/api/loans";
 import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
 import { GuarantorFields } from "~/components/guarantor-fields";
+import { LoanChargeFields } from "~/components/loan-charge-fields";
 import { IDLE, ScanDrop, type Slot } from "~/components/scan-drop";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -28,6 +29,7 @@ import {
   DURATION_LABELS,
   checkPrincipal,
   rateFor,
+  readLoanCharges,
   withDefaults,
   type LoanDuration,
   type LoanEligibility,
@@ -63,6 +65,7 @@ export async function action({ request }: Route.ActionArgs) {
   const durationMonths = Number(form.get("durationMonths") ?? 0);
   const principal = parseCedis(String(form.get("principal") ?? "").trim());
   const signatureUrl = String(form.get("signatureUrl") ?? "").trim();
+  const charges = readLoanCharges(form);
 
   if (!customerId) {
     return data({ error: "Choose the customer applying." }, { status: 400 });
@@ -80,6 +83,7 @@ export async function action({ request }: Route.ActionArgs) {
   if (!DURATIONS.includes(durationMonths as LoanDuration)) {
     return data({ error: "Choose a duration." }, { status: 400 });
   }
+  if ("error" in charges) return data({ error: charges.error }, { status: 400 });
 
   let result: { loan: { id: string } };
   let headers: { "Set-Cookie": string } | undefined;
@@ -91,6 +95,7 @@ export async function action({ request }: Route.ActionArgs) {
         durationMonths,
         guarantors: named.guarantors,
         signatureUrl,
+        ...charges,
       }),
     ));
   } catch (error) {
@@ -285,6 +290,8 @@ export default function LoanNew({ loaderData }: Route.ComponentProps) {
               ))}
             </div>
           </fieldset>
+
+          <LoanChargeFields />
 
           {/* The customer signs the paper application; the picture of that
               signature is what the record keeps. */}

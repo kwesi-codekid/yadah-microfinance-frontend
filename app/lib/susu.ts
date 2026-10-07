@@ -9,11 +9,14 @@
  * cycle of 31 payments. A cycle is counted in payments, never in dates: GHS 50
  * on a GHS 10 plan is five of the thirty-one, whenever it lands.
  *
- * Commission is one payment of the plan's amount per cycle, taken the moment
- * the 31st payment lands. Until then one payment per running plan stays locked
- * in the balance so it is always collectible; stopping a plan mid-cycle (or
- * closing the account) charges it on the spot.
+ * Commission is one payment of the plan's amount per cycle, moved to Yadah's
+ * commission account the moment the 31st payment lands. Until then that one
+ * payment per running plan is commission due: an ordinary withdrawal leaves it
+ * behind, and withdrawing everything, stopping a plan mid-cycle or closing the
+ * account hands it to Yadah on the spot (client decision, 7 Oct 2026).
  */
+
+import { formatAmount } from "~/lib/format";
 
 /** The 31 payments a full cycle runs to. The API sends it on every plan. */
 export const CYCLE_TARGET = 31;
@@ -306,12 +309,22 @@ export function checkWithdrawalAmount(
     return "Enter what the customer is taking.";
   }
   if (account.availableToWithdraw <= 0) {
-    return "Everything in the account is locked for the cycles in progress.";
+    return "What is in the account is the commission due on the cycles in progress.";
   }
   if (pesewas > account.availableToWithdraw) {
-    return "More than this account can give up while its cycles run.";
+    return `Up to GH₵ ${formatAmount(account.availableToWithdraw)} leaves the commission behind — or withdraw everything.`;
   }
   return null;
+}
+
+/**
+ * What withdrawing everything does today: each plan mid-cycle gives its one
+ * payment — exactly `locked` — to Yadah, and the customer takes the rest.
+ */
+export function withdrawAllPreview(
+  account: Pick<SusuAccount, "balance" | "locked">,
+): { commission: number; cash: number } {
+  return { commission: account.locked, cash: Math.max(0, account.balance - account.locked) };
 }
 
 /** What the account holds once a withdrawal of this size comes off. No fee. */

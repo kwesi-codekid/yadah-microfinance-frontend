@@ -169,6 +169,10 @@ export function apply(
     guarantors: { fullName: string; phone: string; idNumber?: string }[];
     /** From POST /uploads?kind=signature. */
     signatureUrl: string;
+    /** Pesewas, paid on top of the loan when it goes out. */
+    processingFee?: number;
+    /** Pesewas, cash left as security until the loan is repaid. */
+    collateralAmount?: number;
   },
 ): Promise<{ loan: Loan }> {
   return apiFetch("/loans/applications", {
@@ -234,6 +238,8 @@ export interface RepaymentResult {
   replayed: boolean;
   /** Present only on the susu-closure route — what happened on the susu side. */
   susuWithdrawal?: SusuWithdrawalResult;
+  /** Present only on the loan savings route — what is left in the account. */
+  loanSavingsWithdrawal?: SusuWithdrawalResult;
 }
 
 /**
@@ -251,7 +257,16 @@ export interface RepaymentResult {
 export function recordRepayment(
   accessToken: string,
   id: string,
-  input: { amount: number; idempotencyKey: string; channel?: RepaymentChannel },
+  input: {
+    amount: number;
+    idempotencyKey: string;
+    channel?: RepaymentChannel;
+    /**
+     * `YYYY-MM-DD`, the day the customer paid. Omit for today. Office only —
+     * a teller is refused with `FORBIDDEN`.
+     */
+    paidOn?: string;
+  },
 ): Promise<RepaymentResult> {
   return apiFetch(`/loans/${id}/repayments`, {
     method: "POST",
@@ -272,6 +287,40 @@ export function repayFromSusu(
   input: { susuAccountId: string; amount: number; idempotencyKey: string },
 ): Promise<RepaymentResult> {
   return apiFetch(`/loans/${id}/repayments/susu`, {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+/**
+ * POST /loans/{id}/repayments/loan-savings — pay the loan from the customer's
+ * loan savings account, the only way money leaves it. No fee and no daily
+ * limit; at most the account balance and at most what the loan still owes.
+ * Refused with `NO_LOAN_SAVINGS` when the customer has none.
+ */
+export function repayFromLoanSavings(
+  accessToken: string,
+  id: string,
+  input: { amount: number; idempotencyKey: string },
+): Promise<RepaymentResult> {
+  return apiFetch(`/loans/${id}/repayments/loan-savings`, {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+/**
+ * POST /loans/{id}/collateral/return — hand the cash collateral back, once the
+ * loan is repaid. `returnedOn` dates it (omit for today). Office only.
+ */
+export function returnCollateral(
+  accessToken: string,
+  id: string,
+  input: { returnedOn?: string },
+): Promise<{ loan: Loan }> {
+  return apiFetch(`/loans/${id}/collateral/return`, {
     method: "POST",
     json: input,
     accessToken,

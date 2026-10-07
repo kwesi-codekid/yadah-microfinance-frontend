@@ -127,11 +127,11 @@ export default function PortalHome({ loaderData }: Route.ComponentProps) {
                     </ul>
                   )}
                   <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                    <Cell label="Can take now" value={formatPesewas(a.availableToWithdraw)} />
+                    <Cell label="Your money" value={formatPesewas(a.availableToWithdraw)} />
                     <Cell
-                      label="Locked"
+                      label="Commission due"
                       value={formatPesewas(a.locked)}
-                      hint="until the cycles complete"
+                      hint="one day per plan, per cycle"
                     />
                   </dl>
                 </li>

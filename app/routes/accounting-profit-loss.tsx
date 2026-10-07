@@ -104,6 +104,11 @@ export default function AccountingProfitLoss({ loaderData }: Route.ComponentProp
     { label: "Savings fees", value: inc.savingsFees, hint: "Flat fee on withdrawals and closures" },
     { label: "Sale margin", value: inc.outrightSalesProfit, hint: "Counter sales over cost" },
     { label: "Loan interest", value: inc.loanInterest, hint: "Recognised as repaid" },
+    {
+      label: "Loan processing fees",
+      value: inc.loanProcessingFees ?? 0,
+      hint: "Paid when the loan goes out",
+    },
     { label: "Hire purchase interest", value: inc.hirePurchaseInterest, hint: "Recognised as repaid" },
   ];
 

@@ -140,6 +140,7 @@ export async function getCashPosition(
   return {
     asOf: String(record.asOf ?? params.asOf ?? ""),
     accounts,
+    ...(typeof record.commission === "number" ? { commission: record.commission } : {}),
     total,
   };
 }

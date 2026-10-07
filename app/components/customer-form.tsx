@@ -15,9 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "~/components/ui/select";
-import { Textarea } from "~/components/ui/textarea";
 import { NO_COLLECTOR, toDay } from "~/lib/customer-form";
+import { ageInYears } from "~/lib/format";
 import {
+  ADULT_AGE,
+  CHILD_ID_TYPE,
   GENDER_OPTIONS,
   ID_NUMBER_RULES,
   ID_TYPE_OPTIONS,
@@ -91,6 +93,23 @@ export function CustomerForm({
   const idIssue =
     idType && idNumber.trim() ? checkIdNumber(idType, idNumber) : null;
 
+  // Child or adult is never ticked — it is read off the date of birth, as the
+  // API reads it. A child may use a parent's phone number and usually has no
+  // ID but an NHIS card, so that is offered first; no date is an adult.
+  const [dateOfBirth, setDateOfBirth] = useState(
+    toDay(customer?.dateOfBirth) ?? "",
+  );
+  const age = dateOfBirth ? ageInYears(`${dateOfBirth}T00:00:00Z`) : null;
+  const child = age !== null && age < ADULT_AGE;
+  const onDateOfBirth = (day: string) => {
+    setDateOfBirth(day);
+    const nextAge = day ? ageInYears(`${day}T00:00:00Z`) : null;
+    // Only fills an empty choice; one somebody made is theirs.
+    if (nextAge !== null && nextAge < ADULT_AGE && !idType) {
+      setIdType(CHILD_ID_TYPE);
+    }
+  };
+
   // "No collector" first, because it is a real answer rather than an absence:
   // plenty of customers bring their deposits to the counter and are collected
   // from by nobody. The sentinel is turned back into "no round" by the action.
@@ -137,7 +156,6 @@ export function CustomerForm({
         </h2>
       </div>
 
-
       {/* Hidden fields carry the uploaded URLs into the submission. */}
       <input type="hidden" name="photoUrl" value={photo.url ?? ""} />
       <input type="hidden" name="idDocumentFrontUrl" value={front.url ?? ""} />
@@ -175,10 +193,20 @@ export function CustomerForm({
                   autoComplete="off"
                 />
               </Fld>
-              <Fld label="Date of birth">
+              <Fld
+                label="Date of birth"
+                hint={
+                  age === null
+                    ? undefined
+                    : child
+                      ? `Child · ${age} yrs`
+                      : `Adult · ${age} yrs`
+                }
+              >
                 <DateField
                   name="dateOfBirth"
                   defaultValue={toDay(customer?.dateOfBirth)}
+                  onValueChange={onDateOfBirth}
                   placeholder="DD/MM/YYYY"
                   matcher={{ after: new Date() }}
                   startMonth={new Date(1920, 0)}
@@ -219,13 +247,12 @@ export function CustomerForm({
                 <SelectField
                   name="idType"
                   options={ID_TYPE_OPTIONS}
-                  defaultValue={customer?.identification?.idType}
+                  value={idType ?? ""}
                   onValueChange={(v) => setIdType(v as IdType)}
                 />
               </Fld>
               <Fld
                 label="ID number"
-                hint={idType ? ID_NUMBER_RULES[idType].hint : undefined}
                 issue={idIssue}
               >
                 <CapsInput
@@ -264,38 +291,29 @@ export function CustomerForm({
               </Fld>
               <Fld
                 label="Residential address"
-                className="sm:col-span-2 xl:col-span-2"
+                className={editing ? "xl:col-span-2" : undefined}
               >
-                <CapsTextarea
+                <CapsInput
                   name="residentialAddress"
                   defaultValue={customer?.residentialAddress}
                   maxLength={300}
-                  rows={2}
                 />
               </Fld>
-            </div>
-          </Section>
-
-          {/* Only when registering. A round moves through the admin-only
-              reassignment route, which writes an audit entry — `PATCH` on the
-              profile ignores the field, so offering it on an edit would be a
-              control that silently does nothing. */}
-          {!editing && (
-            <Section title="Collection">
-              <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-                <Fld
-                  label="Collector"
-                  hint="Whose round this customer joins, if anyone's. Leave it as “No collector” for someone who brings their deposits to the counter. Changing it later is an admin job and is recorded against the customer."
-                >
+              {/* Only when registering. A round moves through the admin-only
+                  reassignment route, which writes an audit entry — `PATCH` on
+                  the profile ignores the field, so offering it on an edit would
+                  be a control that silently does nothing. */}
+              {!editing && (
+                <Fld label="Collector">
                   <SelectField
                     name="assignedCollectorId"
                     options={collectorOptions}
                     defaultValue={NO_COLLECTOR}
                   />
                 </Fld>
-              </div>
-            </Section>
-          )}
+              )}
+            </div>
+          </Section>
 
           <Section title="Next of kin">
             <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -426,7 +444,10 @@ const FIELD_LABELS: Record<string, string> = {
 function describeIssues(details: unknown): string[] {
   if (!Array.isArray(details)) return [];
   return details.slice(0, 12).map((issue) => {
-    const obj = issue && typeof issue === "object" ? (issue as Record<string, unknown>) : null;
+    const obj =
+      issue && typeof issue === "object"
+        ? (issue as Record<string, unknown>)
+        : null;
     const msg = obj && "message" in obj ? String(obj.message) : String(issue);
     const rawPath = obj?.path ?? obj?.field;
     const segments = Array.isArray(rawPath)
@@ -455,17 +476,21 @@ function SelectField({
   name,
   options,
   defaultValue,
+  value,
   onValueChange,
 }: {
   name: string;
   options: readonly { value: string; label: string }[];
   defaultValue?: string;
+  /** Controlled, for a choice the form may make itself. "" shows the placeholder. */
+  value?: string;
   onValueChange?: (value: string) => void;
 }) {
   return (
     <Select
       name={name}
       defaultValue={defaultValue}
+      value={value}
       onValueChange={onValueChange}
     >
       <SelectTrigger className="w-full">
@@ -493,20 +518,6 @@ function CapsInput({
 }: React.ComponentProps<typeof Input>) {
   return (
     <Input
-      autoCapitalize="characters"
-      className={cn("uppercase placeholder:normal-case", className)}
-      {...props}
-    />
-  );
-}
-
-/** The textarea twin of `CapsInput`, for the fields that run to a line or two. */
-function CapsTextarea({
-  className,
-  ...props
-}: React.ComponentProps<typeof Textarea>) {
-  return (
-    <Textarea
       autoCapitalize="characters"
       className={cn("uppercase placeholder:normal-case", className)}
       {...props}

@@ -31,6 +31,8 @@ export function HoldingsPage<T>({
   emptyIcon,
   openTo,
   openLabel,
+  openBlocked,
+  after,
 }: {
   customer: { id: string; fullName: string; status: string };
   /** What this page is a table of — "Susu cycles". */
@@ -49,6 +51,14 @@ export function HoldingsPage<T>({
   /** Where a new one is opened. Omitted where the counter cannot start one. */
   openTo?: string;
   openLabel?: string;
+  /**
+   * Why a new one cannot be opened for this customer — a child cannot take
+   * credit. The button stays, greyed out, with this said beside it, so the
+   * counter learns why rather than wondering where it went.
+   */
+  openBlocked?: string;
+  /** More of the same customer's holdings, under the table. */
+  after?: ReactNode;
 }) {
   const navigate = useNavigate();
   // Deactivated customers are readable but not workable — the API refuses the
@@ -62,12 +72,26 @@ export function HoldingsPage<T>({
       </BackLink>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="font-heading text-xl font-semibold tracking-tight">{title}</h2>
-        {openTo && openLabel && !inactive && (
-          <Button asChild size="sm">
-            <Link to={openTo}>{openLabel}</Link>
-          </Button>
-        )}
+        <h2 className="font-heading text-xl font-semibold tracking-tight">
+          {title}
+        </h2>
+        {openTo &&
+          openLabel &&
+          !inactive &&
+          (openBlocked ? (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {openBlocked}
+              </span>
+              <Button size="sm" disabled>
+                {openLabel}
+              </Button>
+            </div>
+          ) : (
+            <Button asChild size="sm">
+              <Link to={openTo}>{openLabel}</Link>
+            </Button>
+          ))}
       </div>
 
       {inactive && (
@@ -90,7 +114,9 @@ export function HoldingsPage<T>({
           // The page lives in the URL, so a row opened and closed comes back
           // to the page it was on.
           onPageChange: (next) =>
-            navigate(next > 1 ? `?page=${String(next)}` : "", { replace: true }),
+            navigate(next > 1 ? `?page=${String(next)}` : "", {
+              replace: true,
+            }),
         }}
         empty={
           <div className="py-12 text-center">
@@ -102,6 +128,7 @@ export function HoldingsPage<T>({
           </div>
         }
       />
+      {after}
     </Page>
   );
 }

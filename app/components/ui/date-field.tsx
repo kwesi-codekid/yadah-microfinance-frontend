@@ -55,6 +55,7 @@ export function DateField({
   startMonth,
   endMonth,
   className,
+  onValueChange,
 }: {
   name: string;
   id?: string;
@@ -67,6 +68,8 @@ export function DateField({
   startMonth?: Date;
   endMonth?: Date;
   className?: string;
+  /** The picked day as `yyyy-mm-dd`, or "" when cleared. */
+  onValueChange?: (day: string) => void;
 }) {
   const [value, setValue] = React.useState<Date | undefined>(() =>
     parseDay(defaultValue),
@@ -102,6 +105,7 @@ export function DateField({
             onSelect={(date) => {
               setValue(date);
               setOpen(false);
+              onValueChange?.(date ? toDay(date) : "");
             }}
             disabled={matcher}
             captionLayout={captionLayout}
