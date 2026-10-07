@@ -78,10 +78,15 @@ export async function action({ request, params }: Route.ActionArgs) {
         `/susu/${params.id}`,
         {
           tone: "success",
-          message: `GH₵ ${formatAmount(result.amount)} handed over — everything.`,
+          message:
+            result.amount > 0
+              ? `GH₵ ${formatAmount(result.amount)} handed over — everything.`
+              : `GH₵ ${formatAmount(result.commission ?? 0)} commission moved to Yadah.`,
           description:
             (result.commission ?? 0) > 0
-              ? `GH₵ ${formatAmount(result.commission ?? 0)} commission moved to Yadah. The cycles in progress have ended; the next deposit starts new ones.`
+              ? result.amount > 0
+                ? `GH₵ ${formatAmount(result.commission ?? 0)} commission moved to Yadah. The cycles in progress have ended; the next deposit starts new ones.`
+                : "Only commission was left, so nothing was handed over. The cycles in progress have ended; the next deposit starts new ones."
               : "No cycle was in progress, so no commission was due.",
         },
         headers,
@@ -132,6 +137,10 @@ export async function action({ request, params }: Route.ActionArgs) {
               }`,
           ),
           ...(result.loose ? [`GH₵ ${formatAmount(result.loose)} from the loose balance`] : []),
+          // Only commission was left behind, so it went to Yadah and the cycles ended.
+          ...((result.commission ?? 0) > 0
+            ? [`GH₵ ${formatAmount(result.commission ?? 0)} commission left over moved to Yadah`]
+            : []),
           `GH₵ ${formatAmount(result.account.balance)} still in the account`,
         ].join(" · "),
       },
@@ -155,7 +164,10 @@ export default function SusuWithdraw() {
   const submitting = navigation.state === "submitting";
 
   const [amount, setAmount] = useState("");
-  const [everything, setEverything] = useState(false);
+  // Opens on everything when only commission is left: that is all there is to do.
+  const [everything, setEverything] = useState(
+    () => detail?.account != null && detail.account.availableToWithdraw <= 0 && detail.account.balance > 0,
+  );
   const idempotencyKey = useMemo(() => newIdempotencyKey(), []);
 
   useEffect(() => {
@@ -164,23 +176,21 @@ export default function SusuWithdraw() {
 
   const account = detail?.account ?? null;
   const closed = account ? account.status !== "active" : false;
-  const nothingAvailable = account ? account.availableToWithdraw <= 0 : false;
-  const blocked = closed || nothingAvailable;
   const balance = account?.balance ?? 0;
+  const nothingAvailable = account ? account.availableToWithdraw <= 0 : false;
+  // Only commission left still goes to Yadah through "Withdraw everything".
+  const onlyCommission = nothingAvailable && balance > 0;
+  const blocked = closed || balance <= 0;
 
   // What stands in the way is said once, as a toast, when the drawer opens.
   // The form itself is the one field.
   useEffect(() => {
     if (closed) {
       toast.warning("This account is closed. Nothing more can be taken out of it.");
-    } else if (nothingAvailable) {
-      toast.warning(
-        balance > 0
-          ? `What is in the account — GH₵ ${formatAmount(balance)} — is the commission due on the cycles in progress.`
-          : "There is nothing in the account to withdraw.",
-      );
+    } else if (balance <= 0) {
+      toast.warning("There is nothing in the account to withdraw.");
     }
-  }, [closed, nothingAvailable, balance]);
+  }, [closed, balance]);
 
   if (!account) return null;
 
@@ -220,13 +230,18 @@ export default function SusuWithdraw() {
               </dl>
               {all.commission > 0 && (
                 <p className="text-xs text-muted-foreground">
+                  {onlyCommission
+                    ? "Only commission is left, so nothing is handed over. "
+                    : ""}
                   The cycles in progress end here, one day of each plan's amount going to Yadah.
                   The plans keep running — the next deposit starts their new cycles.
                 </p>
               )}
-              <Button type="button" variant="link" className="h-auto p-0" onClick={() => setEverything(false)}>
-                Withdraw part instead
-              </Button>
+              {!onlyCommission && (
+                <Button type="button" variant="link" className="h-auto p-0" onClick={() => setEverything(false)}>
+                  Withdraw part instead
+                </Button>
+              )}
             </div>
           ) : (
             <div className="space-y-1.5">
@@ -275,7 +290,11 @@ export default function SusuWithdraw() {
             disabled={submitting || blocked || Boolean(issue) || (!everything && !amount)}
           >
             {submitting ? <Loader2Icon className="animate-spin" /> : <BanknoteArrowUpIcon />}
-            {everything ? `Hand over GH₵ ${formatAmount(all.cash)}` : "Hand over cash"}
+            {everything
+              ? all.cash > 0
+                ? `Hand over GH₵ ${formatAmount(all.cash)}`
+                : `Move GH₵ ${formatAmount(all.commission)} to Yadah`
+              : "Hand over cash"}
           </Button>
         </SheetActions>
       </Form>

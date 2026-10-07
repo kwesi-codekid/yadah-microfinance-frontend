@@ -314,6 +314,8 @@ export function withdraw(
   lines?: WithdrawalLine[];
   /** The part that sat on no plan. */
   loose?: number;
+  /** Moved to Yadah because the withdrawal left only commission behind; usually 0. */
+  commission?: number;
   replayed?: boolean;
 }> {
   return apiFetch(`/susu/accounts/${id}/withdraw`, {
