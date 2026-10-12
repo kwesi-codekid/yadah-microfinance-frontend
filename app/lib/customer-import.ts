@@ -45,6 +45,7 @@ export const IMPORT_FIELDS = [
   "kinRelationship",
   "kinPhone",
   "kinAddress",
+  "joinedOn",
 ] as const;
 
 export type ImportField = (typeof IMPORT_FIELDS)[number];
@@ -158,6 +159,8 @@ export const IMPORT_COLUMNS: readonly ImportColumn[] = [
     input: "text",
     width: "w-48",
   },
+  // When they started saving with Yadah, on paper before the app. Blank is today.
+  { field: "joinedOn", header: "Date joined", input: "date", width: "w-36" },
 ];
 
 export interface ImportRow extends SheetRow<ImportField> {
@@ -224,14 +227,17 @@ export function canonicalEnum(
   return null;
 }
 
-function dateIssue(raw: string): string | null {
+function dateIssue(
+  raw: string,
+  future = "Date of birth cannot be in the future",
+): string | null {
   const v = raw.trim();
   if (v === "") return null;
   const iso = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
   if (!iso) return "Use the form 1990-04-12";
   const at = Date.parse(`${v}T00:00:00Z`);
   if (Number.isNaN(at)) return "Not a real date";
-  if (at > Date.now()) return "Date of birth cannot be in the future";
+  if (at > Date.now()) return future;
   return null;
 }
 
@@ -282,6 +288,8 @@ function ownIssues(
 
   const dob = dateIssue(values.dateOfBirth);
   if (dob) add("dateOfBirth", dob);
+  const joined = dateIssue(values.joinedOn, "The date joined cannot be in the future");
+  if (joined) add("joinedOn", joined);
 
   if (values.gender.trim() && !canonicalEnum(values.gender, GENDERS)) {
     add("gender", "Male or female");

@@ -51,6 +51,12 @@ export interface Customer {
   identification?: Identification;
   occupation?: string;
   /**
+   * `YYYY-MM-DD` the customer started saving with Yadah — often years before
+   * the app, on paper. Customers registered before the field existed report
+   * their registration day.
+   */
+  joinedOn?: string;
+  /**
    * The collector whose round this customer sits on. Set at registration and
    * changed *only* through `PATCH /customers/{id}/collector` — a plain profile
    * update ignores the field, so responsibility never moves by accident.
@@ -135,6 +141,8 @@ export interface CreateCustomerInput {
     idNumber: string;
   };
   occupation?: string;
+  /** `YYYY-MM-DD` they started saving with Yadah. Omitted, the API uses today. */
+  joinedOn?: string;
   nextOfKin?: {
     fullName: string;
     relationship?: string;

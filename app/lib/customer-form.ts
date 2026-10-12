@@ -70,6 +70,8 @@ export function parseCustomerForm(form: FormData): CreateCustomerInput {
     residentialAddress: up("residentialAddress"),
     altPhone: get("altPhone"),
     occupation: up("occupation"),
+    // The picker posts `yyyy-mm-dd`, the form the API takes. Blank is today.
+    joinedOn: get("joinedOn"),
   };
 
   const idType = get("idType") as IdType | undefined;
@@ -142,6 +144,8 @@ const SCALARS = [
   "phone",
   "altPhone",
   "occupation",
+  // Not clearable: every customer has one, so a blank on an edit leaves it be.
+  "joinedOn",
   "photoUrl",
   "idDocumentFrontUrl",
   "idDocumentBackUrl",

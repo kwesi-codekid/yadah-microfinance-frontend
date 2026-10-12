@@ -312,6 +312,18 @@ export function CustomerForm({
                   />
                 </Fld>
               )}
+              {/* Many customers saved with Yadah on paper long before the app.
+                  Left blank, the API takes today. */}
+              <Fld label="Date joined">
+                <DateField
+                  name="joinedOn"
+                  defaultValue={customer?.joinedOn}
+                  placeholder="DD/MM/YYYY"
+                  matcher={{ after: new Date() }}
+                  startMonth={new Date(1990, 0)}
+                  endMonth={new Date()}
+                />
+              </Fld>
             </div>
           </Section>
 
@@ -428,6 +440,7 @@ const FIELD_LABELS: Record<string, string> = {
   maritalStatus: "Marital status",
   residentialAddress: "Residential address",
   occupation: "Occupation",
+  joinedOn: "Date joined",
   identification: "Identification",
   idType: "ID type",
   idNumber: "ID number",

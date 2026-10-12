@@ -387,6 +387,14 @@ export default function CustomerDetail({ loaderData }: Route.ComponentProps) {
           <Section title="Record">
             <div className="grid gap-x-4 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
               <Fld
+                label="With Yadah since"
+                value={
+                  customer.joinedOn
+                    ? formatAccraDate(`${customer.joinedOn}T00:00:00Z`)
+                    : undefined
+                }
+              />
+              <Fld
                 label="Registered by"
                 value={registeredBy ?? undefined}
                 fallback={`Staff #${shortId(customer.registeredById)}`}
