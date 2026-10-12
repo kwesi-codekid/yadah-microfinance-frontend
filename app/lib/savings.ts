@@ -9,6 +9,8 @@
  * module — every figure on every savings screen is derived from them.
  */
 
+import type { CollectedBy } from "~/lib/collected-by";
+
 /** The API's floor on a deposit: GHS 5, in pesewas. Lowered API-side, Aug 2026. */
 export const MIN_DEPOSIT = 500;
 
@@ -104,6 +106,8 @@ export interface SavingsTxn {
   channel: SavingsChannel | "transfer";
   /** The Accra calendar day it belongs to, `YYYY-MM-DD`. */
   accraDay: string;
+  /** Someone the holder sent to collect a withdrawal; absent when they came themselves. */
+  collectedBy?: CollectedBy;
   recordedById: string;
   createdAt: string;
 }

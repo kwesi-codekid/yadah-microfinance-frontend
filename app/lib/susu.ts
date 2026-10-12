@@ -17,6 +17,7 @@
  */
 
 import { formatAmount } from "~/lib/format";
+import type { CollectedBy } from "~/lib/collected-by";
 
 /** The 31 payments a full cycle runs to. The API sends it on every plan. */
 export const CYCLE_TARGET = 31;
@@ -77,6 +78,8 @@ export interface SusuPayout {
   commissionAmount: number;
   /** How the money was spread over the plans; absent on closing payouts and pre-plan rows. */
   lines?: WithdrawalLine[];
+  /** Someone the holder sent to collect; absent when they came themselves. */
+  collectedBy?: CollectedBy;
   recordedById: string;
   createdAt: string;
 }

@@ -1,5 +1,6 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
+import type { CollectedBy } from "~/lib/collected-by";
 import type {
   SavingsAccount,
   SavingsAccountType,
@@ -263,6 +264,8 @@ export function recordWithdrawal(
    * unless backdating is switched on for the data-population stage.
    */
   occurredOn?: string;
+  /** Someone the holder sent to collect for them; omitted when they came themselves. */
+  collectedBy?: CollectedBy;
   },
 ): Promise<{ txn: SavingsTxn; account: SavingsAccount; replayed: boolean }> {
   return apiFetch(`/savings/accounts/${id}/withdrawals`, {

@@ -1,5 +1,6 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
 import { queryOf, type ExportFormat, type Paginated } from "~/api/query";
+import type { CollectedBy } from "~/lib/collected-by";
 import type { RenumberReport } from "~/api/savings";
 import type {
   DepositChannel,
@@ -305,7 +306,7 @@ export function closeAccount(
 export function withdraw(
   accessToken: string,
   id: string,
-  input: { amount: number; idempotencyKey: string },
+  input: { amount: number; idempotencyKey: string; collectedBy?: CollectedBy },
 ): Promise<{
   account?: SusuAccount;
   amount?: number;
@@ -334,7 +335,7 @@ export function withdraw(
 export function withdrawAll(
   accessToken: string,
   id: string,
-  input: { idempotencyKey: string },
+  input: { idempotencyKey: string; collectedBy?: CollectedBy },
 ): Promise<{
   account?: SusuAccount;
   /** Cash handed over. */

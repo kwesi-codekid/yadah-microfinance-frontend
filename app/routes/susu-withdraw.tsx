@@ -11,11 +11,13 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { withdraw, withdrawAll } from "~/api/susu";
+import { CollectedByFields } from "~/components/collected-by-fields";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { LockMeter } from "~/components/susu-bits";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
+import { readCollectedBy } from "~/lib/collected-by";
 import { formatAmount, parseCedis } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
 import { checkWithdrawalAmount, planLabel, withdrawAllPreview } from "~/lib/susu";
@@ -50,6 +52,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const everything = form.get("intent") === "all";
   const amount = parseCedis(String(form.get("amount") ?? ""));
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
+  const { collectedBy, error: collectorError } = readCollectedBy(form);
 
   if (idempotencyKey.length < 8) {
     return data({ error: "Reload the page and try again." }, { status: 400 });
@@ -57,11 +60,15 @@ export async function action({ request, params }: Route.ActionArgs) {
   if (!everything && (amount == null || amount <= 0)) {
     return data({ error: "Enter what the customer is taking." }, { status: 400 });
   }
+  if (collectorError) {
+    return data({ error: collectorError }, { status: 400 });
+  }
+  const handedTo = collectedBy ? ` to ${collectedBy.name}` : "";
 
   if (everything) {
     try {
       const { data: result, headers } = await withAuth(request, (token) =>
-        withdrawAll(token, params.id, { idempotencyKey }),
+        withdrawAll(token, params.id, { idempotencyKey, ...(collectedBy ? { collectedBy } : {}) }),
       );
       if (result.replayed || !result.account || result.amount == null) {
         return redirectWithToast(
@@ -80,7 +87,7 @@ export async function action({ request, params }: Route.ActionArgs) {
           tone: "success",
           message:
             result.amount > 0
-              ? `GH₵ ${formatAmount(result.amount)} handed over — everything.`
+              ? `GH₵ ${formatAmount(result.amount)} handed over${handedTo} — everything.`
               : `GH₵ ${formatAmount(result.commission ?? 0)} commission moved to Yadah.`,
           description:
             (result.commission ?? 0) > 0
@@ -107,7 +114,11 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
   try {
     const { data: result, headers } = await withAuth(request, (token) =>
-      withdraw(token, params.id, { amount, idempotencyKey }),
+      withdraw(token, params.id, {
+        amount,
+        idempotencyKey,
+        ...(collectedBy ? { collectedBy } : {}),
+      }),
     );
     if (result.replayed || !result.account || result.amount == null) {
       return redirectWithToast(
@@ -124,7 +135,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       `/susu/${params.id}`,
       {
         tone: "success",
-        message: `GH₵ ${formatAmount(result.amount)} handed over.`,
+        message: `GH₵ ${formatAmount(result.amount)} handed over${handedTo}.`,
         // Which plans gave what, and the days it cost each — the money walked
         // them, so the counter is told where it came from.
         description: [
@@ -164,6 +175,7 @@ export default function SusuWithdraw() {
   const submitting = navigation.state === "submitting";
 
   const [amount, setAmount] = useState("");
+  const [collectorReady, setCollectorReady] = useState(true);
   // Opens on everything when only commission is left: that is all there is to do.
   const [everything, setEverything] = useState(
     () => detail?.account != null && detail.account.availableToWithdraw <= 0 && detail.account.balance > 0,
@@ -281,13 +293,24 @@ export default function SusuWithdraw() {
               )}
             </div>
           )}
+
+          {/* Only commission left: nothing is handed to anyone. */}
+          {!(everything && all.cash <= 0) && (
+            <CollectedByFields disabled={blocked} onReadyChange={setCollectorReady} />
+          )}
         </div>
 
         <SheetActions>
           <SheetCancel />
           <Button
             type="submit"
-            disabled={submitting || blocked || Boolean(issue) || (!everything && !amount)}
+            disabled={
+              submitting ||
+              blocked ||
+              Boolean(issue) ||
+              (!everything && !amount) ||
+              (!collectorReady && !(everything && all.cash <= 0))
+            }
           >
             {submitting ? <Loader2Icon className="animate-spin" /> : <BanknoteArrowUpIcon />}
             {everything

@@ -11,21 +11,16 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { recordWithdrawal } from "~/api/savings";
+import { CollectedByFields } from "~/components/collected-by-fields";
 import { OccurredOnField } from "~/components/occurred-on-field";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
-import { BalanceMeter, Figure } from "~/components/savings-bits";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
+import { readCollectedBy } from "~/lib/collected-by";
 import { formatAmount, parseCedis, toCedisInput } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
-import {
-  MIN_BALANCE,
-  WITHDRAWAL_FEE,
-  balanceAfterWithdrawal,
-  withdrawalFee,
-  checkWithdrawalAmount,
-} from "~/lib/savings";
+import { MIN_BALANCE, WITHDRAWAL_FEE, checkWithdrawalAmount } from "~/lib/savings";
 import { requireCounter, withAuth } from "~/lib/session.server";
 import { occurredOnFromForm } from "~/lib/backdating.server";
 import { redirectWithToast } from "~/lib/toast.server";
@@ -56,9 +51,13 @@ export async function action({ request, params }: Route.ActionArgs) {
   const amount = parseCedis(String(form.get("amount") ?? ""));
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
   const occurredOn = occurredOnFromForm(form);
+  const { collectedBy, error: collectorError } = readCollectedBy(form);
 
   if (amount == null || amount <= 0) {
     return data({ error: "Enter what the customer is taking." }, { status: 400 });
+  }
+  if (collectorError) {
+    return data({ error: collectorError }, { status: 400 });
   }
   if (idempotencyKey.length < 8) {
     return data({ error: "Reload the page and try again." }, { status: 400 });
@@ -70,6 +69,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         amount,
         idempotencyKey,
         ...(occurredOn ? { occurredOn } : {}),
+        ...(collectedBy ? { collectedBy } : {}),
       }),
     );
     if (result.replayed) {
@@ -82,7 +82,9 @@ export async function action({ request, params }: Route.ActionArgs) {
       `/savings/${params.id}`,
       {
         tone: "success",
-        message: `GH₵ ${formatAmount(amount)} handed over.`,
+        message: collectedBy
+          ? `GH₵ ${formatAmount(amount)} handed to ${collectedBy.name}.`
+          : `GH₵ ${formatAmount(amount)} handed over.`,
         description: `GH₵ ${formatAmount(result.txn.fee ?? WITHDRAWAL_FEE)} fee · balance now GH₵ ${formatAmount(result.account.balance)}.`,
       },
       headers,
@@ -105,6 +107,7 @@ export default function SavingsWithdraw() {
   const submitting = navigation.state === "submitting";
 
   const [amount, setAmount] = useState("");
+  const [collectorReady, setCollectorReady] = useState(true);
 
   // One intent, one key: a retry after a dropped connection must not pay the
   // customer twice.
@@ -121,12 +124,8 @@ export default function SavingsWithdraw() {
 
   const pesewas = parseCedis(amount);
   const issue = amount === "" ? null : checkWithdrawalAmount(account, pesewas);
-  const after =
-    pesewas != null && !issue ? balanceAfterWithdrawal(account, pesewas) : null;
 
-  // A fixed deposit pays out free from its maturity day, and only ever to the
-  // parent who stands as its guardian.
-  const fee = withdrawalFee(account);
+  // A fixed deposit is paid only ever to the parent who stands as its guardian.
   const fixed = account.accountType === "fixed";
   const closed = account.status !== "active";
   const nothingAvailable = account.availableToWithdraw <= 0;
@@ -141,7 +140,7 @@ export default function SavingsWithdraw() {
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
         <input type="hidden" name="idempotencyKey" value={idempotencyKey} />
 
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        <div className="min-h-0 flex-1 space-y-8 overflow-y-auto px-6 py-6">
           {actionData?.error && (
             <div
               role="alert"
@@ -177,21 +176,7 @@ export default function SavingsWithdraw() {
             </p>
           )}
 
-          <div className="rounded-xl border border-border bg-card p-4">
-            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Balance
-            </p>
-            <p className="tabular mt-0.5 text-2xl font-bold">
-              GH₵ {formatAmount(account.balance)}
-            </p>
-            <BalanceMeter
-              className="mt-3"
-              balance={account.balance}
-              available={account.availableToWithdraw}
-            />
-          </div>
-
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label
               htmlFor="amount"
               className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
@@ -208,57 +193,35 @@ export default function SavingsWithdraw() {
               autoFocus
               disabled={blocked}
               aria-invalid={issue ? true : undefined}
-              className={cn("tabular text-lg", issue && "border-destructive")}
+              className={cn("tabular h-11 text-lg", issue && "border-destructive")}
             />
-            <p className={cn("text-xs", issue ? "text-destructive" : "text-muted-foreground")}>
-              {issue ??
-                (fee > 0
-                  ? `Up to GH₵ ${formatAmount(account.availableToWithdraw)}. The fee comes off on top.`
-                  : `Up to GH₵ ${formatAmount(account.availableToWithdraw)}. No charge — matured.`)}
-            </p>
+            {issue && <p className="text-xs text-destructive">{issue}</p>}
+            {!blocked && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-1"
+                onClick={() => setAmount(toCedisInput(account.availableToWithdraw))}
+              >
+                Everything available · {formatAmount(account.availableToWithdraw)}
+              </Button>
+            )}
           </div>
 
-          {!blocked && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setAmount(toCedisInput(account.availableToWithdraw))}
-            >
-              Everything available · {formatAmount(account.availableToWithdraw)}
-            </Button>
+          {/* A fixed deposit is only ever paid to its guardian, named above. */}
+          {!fixed && (
+            <CollectedByFields disabled={blocked} onReadyChange={setCollectorReady} />
           )}
 
           <OccurredOnField enabled={detail.backdating} noun="withdrawal" />
-
-          {/* What the drawer and the account each end up with. The fee is the
-              part customers dispute, so it is a line of its own, not a footnote. */}
-          <dl className="grid grid-cols-3 gap-3">
-            <Figure
-              label="Customer gets"
-              value={pesewas != null && !issue ? formatAmount(pesewas) : "—"}
-              tone={pesewas != null && !issue ? "success" : "muted"}
-            />
-            <Figure
-              label="Fee"
-              value={formatAmount(fee)}
-              tone={fee > 0 ? "warning" : "success"}
-              hint={fee > 0 ? "Flat" : "Matured"}
-            />
-            <Figure
-              label="Balance after"
-              value={after != null ? formatAmount(after) : "—"}
-              tone={after != null ? undefined : "muted"}
-              hint={after != null && fee > 0 ? `GH₵ ${formatAmount(MIN_BALANCE)} held` : undefined}
-            />
-          </dl>
         </div>
 
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-6 py-4">
           <SheetCancel />
           <Button
             type="submit"
-            disabled={submitting || blocked || Boolean(issue) || !amount}
+            disabled={submitting || blocked || Boolean(issue) || !amount || !collectorReady}
           >
             {submitting ? (
               <Loader2Icon className="animate-spin" />
