@@ -1,9 +1,12 @@
 import {
+  BanknoteArrowDownIcon,
+  CoinsIcon,
   FileSignatureIcon,
   HandCoinsIcon,
   LandmarkIcon,
   PackageIcon,
   PiggyBankIcon,
+  ReceiptIcon,
   Trash2Icon,
   UsersIcon,
 } from "lucide-react";
@@ -34,6 +37,11 @@ export default function TrashLayout() {
 
 const SECTIONS: RailSection[] = [
   {
+    label: "Overview",
+    icon: Trash2Icon,
+    items: [{ key: "all", to: "/trash/all", label: "All deleted", icon: Trash2Icon }],
+  },
+  {
     label: "People",
     icon: UsersIcon,
     items: [{ key: "customers", to: "/trash", label: "Customers", icon: UsersIcon, end: true }],
@@ -45,6 +53,25 @@ const SECTIONS: RailSection[] = [
       { key: "susu", to: "/trash/susu", label: "Susu accounts", icon: HandCoinsIcon },
       { key: "savings", to: "/trash/savings", label: "Savings accounts", icon: PiggyBankIcon },
       { key: "loans", to: "/trash/loans", label: "Loans", icon: LandmarkIcon },
+    ],
+  },
+  {
+    label: "Transactions",
+    icon: ReceiptIcon,
+    items: [
+      { key: "susu-deposits", to: "/trash/susu-deposits", label: "Susu deposits", icon: CoinsIcon },
+      {
+        key: "savings-txns",
+        to: "/trash/savings-txns",
+        label: "Savings transactions",
+        icon: ReceiptIcon,
+      },
+      {
+        key: "payments",
+        to: "/trash/payments",
+        label: "Loan payments",
+        icon: BanknoteArrowDownIcon,
+      },
     ],
   },
   {

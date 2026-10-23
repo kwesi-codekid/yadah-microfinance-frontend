@@ -4,17 +4,21 @@ import {
   EyeIcon,
   MoreHorizontalIcon,
   PlusIcon,
+  Trash2Icon,
   UserIcon,
   WalletIcon,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 import {
   data,
   Link,
   Outlet,
+  useFetcher,
   useLocation,
   useNavigation,
   useSubmit,
 } from "react-router";
+import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { listAccounts, renumberThisMonth } from "~/api/savings";
@@ -31,7 +35,19 @@ import {
   SearchBox,
 } from "~/components/listing";
 import { AccountTypeTag, SavingsStatusPill, Th } from "~/components/savings-bits";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
+import { Label } from "~/components/ui/label";
+import { Textarea } from "~/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -461,6 +477,18 @@ function AccountRow({ row, canManage }: { row: Row; canManage: boolean }) {
   const open = row.status === "active";
   const nothingAvailable = row.availableToWithdraw <= 0;
 
+  // Deleting posts to the account's own page action, which reverses the money
+  // and redirects back here on success; only a failure returns to this fetcher.
+  const trash = useFetcher<{ ok?: boolean; message?: string }>();
+  const [confirmTrash, setConfirmTrash] = useState(false);
+  const [trashReason, setTrashReason] = useState("");
+  useEffect(() => {
+    if (trash.state === "idle" && trash.data && !trash.data.ok) {
+      toast.error(trash.data.message ?? "Could not delete the account.");
+    }
+  }, [trash.state, trash.data]);
+  const hasMoney = row.balance > 0;
+
   return (
     <TableRow className="group">
       <TableCell className="px-4 py-3">
@@ -548,8 +576,74 @@ function AccountRow({ row, canManage }: { row: Row; canManage: boolean }) {
                 Customer
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {/* Deleting a savings account is the office's; the counter sees it greyed. */}
+            <DropdownMenuItem
+              disabled={!canManage}
+              variant="destructive"
+              onSelect={(event) => {
+                event.preventDefault();
+                setTrashReason("");
+                setConfirmTrash(true);
+              }}
+            >
+              <Trash2Icon />
+              Delete account
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <AlertDialog open={confirmTrash} onOpenChange={setConfirmTrash}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Delete {row.customerName}’s savings account?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {hasMoney ? (
+                  <>
+                    The account and every deposit and withdrawal on it leave the
+                    book together. The balance of {formatPesewas(row.balance)} is
+                    the customer’s money, cash for the office to hand back, and
+                    any withdrawal fees come back out. It can be restored from
+                    Trash.
+                  </>
+                ) : (
+                  <>
+                    The account and its history leave the book. It can be
+                    restored from Trash.
+                  </>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-1.5">
+              <Label htmlFor={`trash-reason-${row.id}`} className="text-sm font-medium">
+                Reason <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Textarea
+                id={`trash-reason-${row.id}`}
+                value={trashReason}
+                onChange={(event) => setTrashReason(event.target.value)}
+                rows={2}
+                placeholder="Opened in error."
+              />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() =>
+                  trash.submit(
+                    { intent: "trash-account", reason: trashReason },
+                    { method: "post", action: `/savings/${row.id}` },
+                  )
+                }
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete account
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </TableCell>
     </TableRow>
   );

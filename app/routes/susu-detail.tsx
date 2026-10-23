@@ -6,7 +6,9 @@ import {
   PencilLineIcon,
   PlusIcon,
   SquareIcon,
+  Trash2Icon,
   TriangleAlertIcon,
+  Undo2Icon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { data, Link, Outlet, useFetcher, useNavigate } from "react-router";
@@ -31,6 +33,7 @@ import {
   listCycles,
   listDeposits,
   listPayouts,
+  listTrashedDeposits,
   restoreDeposit,
   stopPlan,
   trashAccount,
@@ -132,7 +135,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const { account } = await getAccount(token, params.id);
-      const [customer, deposits, payouts, cycles, staff, corrections] = await Promise.all([
+      const [customer, deposits, payouts, cycles, staff, corrections, trashedDeposits] =
+        await Promise.all([
         getCustomer(token, account.customerId)
           .then((r) => r.customer)
           .catch(() => null),
@@ -148,8 +152,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
               () => null,
             )
           : Promise.resolve(null),
+        // Deleted deposits, so the office can always see and restore them.
+        office
+          ? listTrashedDeposits(token, params.id, { limit: ALL_ROWS }).catch(() => null)
+          : Promise.resolve(null),
       ]);
-      return { account, customer, deposits, payouts, cycles, staff, corrections };
+      return { account, customer, deposits, payouts, cycles, staff, corrections, trashedDeposits };
     } catch (error) {
       throwAsRouteError(error);
     }
@@ -198,6 +206,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           recordedBy: nameOf(p.recordedById),
         })),
       },
+      trashedDeposits: (result.trashedDeposits?.items ?? []).map((d) => ({
+        id: d.id,
+        amount: d.amount,
+        at: formatAccraDateTime(d.createdAt),
+        deletedAt: formatAccraDateTime(d.deletedAt),
+        recordedBy: nameOf(d.collectorId),
+        reason: d.deleteReason ?? null,
+      })),
     },
     { headers },
   );
@@ -381,7 +397,7 @@ function trimmedReason(value: FormDataEntryValue | null): string | undefined {
 /* -------------------------------------------------------------------- page --- */
 
 export default function SusuDetail({ loaderData }: Route.ComponentProps) {
-  const { canServe, account } = loaderData;
+  const { canServe, account, trashedDeposits } = loaderData;
 
   const fetcher = useFetcher<ActionResult>();
   useEffect(() => {
@@ -497,9 +513,91 @@ export default function SusuDetail({ loaderData }: Route.ComponentProps) {
           }
         />
 
+        {trashedDeposits.length > 0 && (
+          <DeletedDeposits rows={trashedDeposits} fetcher={fetcher} />
+        )}
+
         <Outlet />
       </div>
     </RailFrame>
+  );
+}
+
+/**
+ * Deleted deposits, shown so the office can see what was removed and restore
+ * it. Restoring re-applies the deposit to the plans and the balance.
+ */
+function DeletedDeposits({
+  rows,
+  fetcher,
+}: {
+  rows: {
+    id: string;
+    amount: number;
+    at: string;
+    deletedAt: string;
+    recordedBy: string;
+    reason: string | null;
+  }[];
+  fetcher: ReturnType<typeof useFetcher<ActionResult>>;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="border-b border-border px-4 py-3">
+        <h3 className="flex items-center gap-2 text-sm font-semibold">
+          <Trash2Icon className="size-4 text-muted-foreground" />
+          Deleted deposits
+        </h3>
+        <p className="mt-0.5 text-xs text-muted-foreground">
+          Removed from this account and their money reversed. Restore one to put
+          it back on the plans.
+        </p>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <Th>Was recorded</Th>
+            <Th className="hidden sm:table-cell">Reason</Th>
+            <Th>Deleted</Th>
+            <Th className="text-right">Amount</Th>
+            <Th className="w-12 text-right">Actions</Th>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row) => (
+            <TableRow key={row.id}>
+              <TableCell className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                {row.at}
+              </TableCell>
+              <TableCell className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
+                {row.reason ?? "—"}
+              </TableCell>
+              <TableCell className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                {row.deletedAt}
+              </TableCell>
+              <TableCell className="tabular px-4 py-3 text-right font-medium whitespace-nowrap">
+                {formatPesewas(row.amount)}
+              </TableCell>
+              <TableCell className="px-4 py-3 text-right">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    fetcher.submit(
+                      { intent: "restore-deposit", depositId: row.id },
+                      { method: "post" },
+                    )
+                  }
+                >
+                  <Undo2Icon />
+                  Restore
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </section>
   );
 }
 

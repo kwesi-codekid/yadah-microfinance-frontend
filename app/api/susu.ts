@@ -224,6 +224,28 @@ export function listTrashedDeposits(
   });
 }
 
+/** One deleted susu deposit, with the account and customer it belonged to. */
+export interface TrashedDepositRow {
+  id: string;
+  accountId: string;
+  accountNumber: string;
+  customerId: string;
+  customerName: string;
+  amount: number;
+  deletedAt: string;
+  deleteReason?: string;
+}
+
+/** GET /susu/deposits/trash — every deleted susu deposit (office). */
+export function listTrashedDepositsAll(
+  accessToken: string,
+  params: { page?: number; limit?: number } = {},
+): Promise<Paginated<TrashedDepositRow>> {
+  return apiFetch(`/susu/deposits/trash${queryOf({ ...params })}`, {
+    accessToken,
+  });
+}
+
 /**
  * POST /susu/accounts/{id}/deposits — record the cash handed over. `split`
  * says how many whole payments go to each plan; omitted, it is one on every

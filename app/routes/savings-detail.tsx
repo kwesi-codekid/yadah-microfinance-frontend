@@ -172,8 +172,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         // corrected, and a date filter or a second page would otherwise make
         // the answer depend on what happens to be on screen.
         listTxns(token, params.id, { limit: RECENT }),
-        // Only fetched when it is being looked at — the office pane is a
-        // deliberate detour, not something every page view should pay for.
         showTrashed
           ? listTrashedTxns(token, params.id, { limit: PAGE_SIZE })
           : Promise.resolve(null),
@@ -466,7 +464,6 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
     range,
     usedTodaysWithdrawal,
     newestId,
-    neverUsed,
     txns,
     trashed,
   } = loaderData;
@@ -652,13 +649,7 @@ export default function SavingsDetail({ loaderData }: Route.ComponentProps) {
               range={range}
               total={txns.total}
             />
-            <AccountActions
-              account={account}
-              neverUsed={neverUsed}
-              canServe={canServe}
-              canManage={canManage}
-              fetcher={fetcher}
-            />
+            <AccountActions account={account} canServe={canServe} fetcher={fetcher} />
             {/* Loan savings is never withdrawn — its money only goes to the loan. */}
             {open && canServe && account.accountType !== "loan" && (
               <Button asChild variant="outline" size="sm">
@@ -821,148 +812,81 @@ function Note({ tone, children }: { tone: "info" | "warning"; children: ReactNod
 type Fetcher = ReturnType<typeof useFetcher<ActionResult>>;
 
 /**
- * Close and trash — whichever the state allows, rendered straight into the
- * statement toolbar rather than wrapped in a row of their own, so they sit with
- * the other things you can do to this account.
+ * Close, when the state allows it, rendered straight into the statement toolbar
+ * rather than wrapped in a row of its own, so it sits with the other things you
+ * can do to this account.
  */
 function AccountActions({
   account,
-  neverUsed,
   canServe,
-  canManage,
   fetcher,
 }: {
   account: SavingsAccount;
-  /** Nothing has ever moved through it, so the API will accept a trash. */
-  neverUsed: boolean;
   /** Paying a customer out is the counter's, teller included. */
   canServe: boolean;
-  /** Taking the account out of the book is not. */
-  canManage: boolean;
   fetcher: Fetcher;
 }) {
-  const [confirm, setConfirm] = useState<"close" | "trash" | null>(null);
-  const [reason, setReason] = useState("");
+  const [confirm, setConfirm] = useState(false);
 
   const open = account.status === "active";
   // Loan savings closes only once it is empty: closing pays out, and its money
   // goes to the loan or nowhere.
   const canClose =
     open && canServe && (account.accountType !== "loan" || account.balance === 0);
-  // The API refuses anything else: a balance, a transaction ever recorded, or
-  // an account already closed.
-  const canTrash = open && canManage && neverUsed && account.balance === 0;
 
-  if (!canClose && !canTrash) return null;
-
-  const submit = (intent: string, extra: Record<string, string> = {}) =>
-    fetcher.submit({ intent, ...extra }, { method: "post" });
+  if (!canClose) return null;
 
   return (
     <>
-      {canClose && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="border-primary/25 bg-success-subtle text-primary hover:bg-success-subtle hover:text-primary"
-          onClick={() => setConfirm("close")}
-        >
-          <DoorClosedIcon />
-          Close &amp; pay out
-        </Button>
-      )}
+      <Button
+        size="sm"
+        variant="outline"
+        className="border-primary/25 bg-success-subtle text-primary hover:bg-success-subtle hover:text-primary"
+        onClick={() => setConfirm(true)}
+      >
+        <DoorClosedIcon />
+        Close &amp; pay out
+      </Button>
 
-      {canTrash && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={() => {
-            setReason("");
-            setConfirm("trash");
-          }}
-        >
-          <Trash2Icon />
-          Move to trash
-        </Button>
-      )}
-
-      <AlertDialog open={confirm !== null} onOpenChange={(o) => !o && setConfirm(null)}>
+      <AlertDialog open={confirm} onOpenChange={setConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirm === "close"
-                ? "Close and pay out?"
-                : "Move this account to the trash?"}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Close and pay out?</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirm === "close" ? (
-                closureFlagged(account) ? (
-                  <>
-                    The balance of GH₵ {formatAmount(account.balance)} does not
-                    cover the GH₵ {formatAmount(WITHDRAWAL_FEE)} fee. The account
-                    still closes, nothing is paid out, and it comes back flagged
-                    for the office to look at.
-                  </>
-                ) : account.matured ? (
-                  <>
-                    {account.guardianName ?? "The guardian"} receives GH₵{" "}
-                    {formatAmount(closurePayout(account))} in cash, with no
-                    charge — the deposit has matured. The account cannot be
-                    reopened.
-                  </>
-                ) : (
-                  <>
-                    {account.accountType === "fixed"
-                      ? (account.guardianName ?? "The guardian")
-                      : "The customer"}{" "}
-                    receives GH₵ {formatAmount(closurePayout(account))}{" "}
-                    in cash. The GH₵ {formatAmount(MIN_BALANCE)} minimum is
-                    released and GH₵ {formatAmount(WITHDRAWAL_FEE)} is kept as the
-                    fee. The account cannot be reopened.
-                  </>
-                )
+              {closureFlagged(account) ? (
+                <>
+                  The balance of GH₵ {formatAmount(account.balance)} does not
+                  cover the GH₵ {formatAmount(WITHDRAWAL_FEE)} fee. The account
+                  still closes, nothing is paid out, and it comes back flagged
+                  for the office to look at.
+                </>
+              ) : account.matured ? (
+                <>
+                  {account.guardianName ?? "The guardian"} receives GH₵{" "}
+                  {formatAmount(closurePayout(account))} in cash, with no
+                  charge — the deposit has matured. The account cannot be
+                  reopened.
+                </>
               ) : (
                 <>
-                  Only an account nothing has ever moved through can be trashed.
-                  It disappears from the book and can be restored later.
+                  {account.accountType === "fixed"
+                    ? (account.guardianName ?? "The guardian")
+                    : "The customer"}{" "}
+                  receives GH₵ {formatAmount(closurePayout(account))}{" "}
+                  in cash. The GH₵ {formatAmount(MIN_BALANCE)} minimum is
+                  released and GH₵ {formatAmount(WITHDRAWAL_FEE)} is kept as the
+                  fee. The account cannot be reopened.
                 </>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          {confirm === "trash" && (
-            <div className="space-y-1.5">
-              <Label
-                htmlFor="trash-reason"
-                className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
-              >
-                Reason (optional)
-              </Label>
-              <Textarea
-                id="trash-reason"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                maxLength={300}
-                rows={2}
-                placeholder="Opened in error…"
-              />
-            </div>
-          )}
-
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className={cn(
-                confirm !== "close" && "bg-destructive text-white hover:bg-destructive/90",
-              )}
-              onClick={() =>
-                confirm === "trash"
-                  ? submit("trash-account", { reason })
-                  : submit("close")
-              }
+              onClick={() => fetcher.submit({ intent: "close" }, { method: "post" })}
             >
-              {confirm === "close" ? "Close & pay out" : "Move to trash"}
+              Close &amp; pay out
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1124,6 +1048,15 @@ function TxnActions({
       ? row.balanceAfter - row.amount
       : row.balanceAfter + row.amount + row.fee;
 
+  // Deleting is not tied to the newest-only correction rule: any deposit or
+  // withdrawal on an open account can go, unless it is a transfer leg, a
+  // closure, a Paystack charge, or has a correction still waiting on it.
+  const deletable =
+    canManage &&
+    account.status === "active" &&
+    lockedReason(row) === null &&
+    row.pending == null;
+
   return (
     <>
       <TxnRowMenu
@@ -1147,7 +1080,7 @@ function TxnActions({
           canManage && (
             <DropdownMenuItem
               variant="destructive"
-              disabled={blocked !== null}
+              disabled={!deletable}
               onSelect={(e) => {
                 e.preventDefault();
                 setReason("");
@@ -1170,13 +1103,13 @@ function TxnActions({
                 <>
                   GH₵ {formatAmount(row.amount)} goes back onto the account, along
                   with the GH₵ {formatAmount(row.fee)} fee, and today's withdrawal
-                  slot is freed. It can be restored while nothing newer has taken
-                  its place.
+                  slot is freed. Later balances on the account are recalculated.
+                  It can be restored from Trash.
                 </>
               ) : (
                 <>
-                  GH₵ {formatAmount(row.amount)} comes back off the account. It can
-                  be restored while nothing newer has taken its place.
+                  GH₵ {formatAmount(row.amount)} comes back off the account and
+                  later balances are recalculated. It can be restored from Trash.
                 </>
               )}
             </AlertDialogDescription>

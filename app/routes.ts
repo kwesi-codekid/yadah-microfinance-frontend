@@ -365,9 +365,13 @@ export default [
        with its own query; the layout only supplies the rail. */
     layout("routes/trash-layout.tsx", [
       route("trash", "routes/trash.tsx"),
+      route("trash/all", "routes/trash-all.tsx"),
       route("trash/susu", "routes/trash-susu.tsx"),
+      route("trash/susu-deposits", "routes/trash-susu-deposits.tsx"),
       route("trash/savings", "routes/trash-savings.tsx"),
+      route("trash/savings-txns", "routes/trash-savings-txns.tsx"),
       route("trash/loans", "routes/trash-loans.tsx"),
+      route("trash/payments", "routes/trash-payments.tsx"),
       route("trash/inventory", "routes/trash-inventory.tsx"),
       route("trash/agreements", "routes/trash-agreements.tsx"),
     ]),

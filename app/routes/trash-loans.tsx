@@ -88,7 +88,7 @@ export default function TrashLoans({ loaderData }: Route.ComponentProps) {
         emptyDescription="Loan applications moved to the trash from a loan page will wait here."
         backTo="/loans"
         backLabel="Go to loans"
-        restoreDescription="The loan returns to the book with its schedule and every repayment against it exactly as they were."
+        restoreDescription="The application returns to the book as it was. A loan that went out cannot be restored — its money was reversed when it was deleted."
       />
     </Page>
   );

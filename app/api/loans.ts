@@ -13,6 +13,7 @@ import type {
   RepaymentChannel,
   SusuWithdrawalResult,
   TrashedLoan,
+  TrashedRepayment,
 } from "~/lib/loans";
 
 /**
@@ -133,6 +134,28 @@ export function listTrashedLoans(
   return apiFetch(`/loans/trash${queryOf({ ...params })}`, { accessToken });
 }
 
+/** One deleted loan repayment, with the loan and customer it belonged to. Not
+ *  restorable — shown for the record. */
+export interface TrashedRepaymentRow {
+  id: string;
+  loanId: string;
+  loanAccountNumber: string;
+  customerId: string;
+  customerName: string;
+  amount: number;
+  source: string;
+  deletedAt: string;
+  deleteReason?: string;
+}
+
+/** GET /loans/repayments/trash — every deleted loan repayment (office). */
+export function listTrashedRepaymentsAll(
+  accessToken: string,
+  params: { page?: number; limit?: number } = {},
+): Promise<Paginated<TrashedRepaymentRow>> {
+  return apiFetch(`/loans/repayments/trash${queryOf({ ...params })}`, { accessToken });
+}
+
 /**
  * GET /loans/{id} — the loan with its instalment schedule and every repayment
  * against it. The schedule is empty until approval generates it.
@@ -140,7 +163,12 @@ export function listTrashedLoans(
 export function getLoan(
   accessToken: string,
   id: string,
-): Promise<{ loan: Loan; schedule: Installment[]; repayments: Repayment[] }> {
+): Promise<{
+  loan: Loan;
+  schedule: Installment[];
+  repayments: Repayment[];
+  trashedRepayments?: TrashedRepayment[];
+}> {
   return apiFetch(`/loans/${id}`, { accessToken });
 }
 
@@ -228,6 +256,23 @@ export function trashLoan(
  */
 export function restoreLoan(accessToken: string, id: string): Promise<{ loan: Loan }> {
   return apiFetch(`/loans/${id}/restore`, { method: "POST", accessToken });
+}
+
+/**
+ * DELETE /loans/{id}/repayments/{repaymentId} — remove one repayment, reversing
+ * its money. Any repayment, not only the newest; office only.
+ */
+export function trashRepayment(
+  accessToken: string,
+  id: string,
+  repaymentId: string,
+  reason?: string,
+): Promise<{ loan: Loan }> {
+  return apiFetch(`/loans/${id}/repayments/${repaymentId}`, {
+    method: "DELETE",
+    json: reason ? { reason } : {},
+    accessToken,
+  });
 }
 
 /* -------------------------------------------------------------- repayments --- */

@@ -36,6 +36,7 @@ import {
   getLoan,
   reject,
   trashLoan,
+  trashRepayment,
 } from "~/api/loans";
 import { listUsers } from "~/api/users";
 import { StatusPill, Th } from "~/components/listing";
@@ -92,7 +93,6 @@ import {
   LOAN_STATUS_TONE,
   SOURCE_LABELS,
   canReturnCollateral,
-  canTrash,
   daysOverdue,
   isOpen,
   isPending,
@@ -247,6 +247,7 @@ const OFFICE_INTENTS = new Set([
   "approve",
   "reject",
   "trash",
+  "trash-repayment",
   "correct-txn",
   "approve-correction",
   "reject-correction",
@@ -294,7 +295,12 @@ export async function action({ request, params }: Route.ActionArgs) {
       }
       if (intent === "trash") {
         await trashLoan(token, params.id, reason || undefined);
-        return { message: "Application moved to the trash.", gone: true };
+        return { message: "Loan moved to the trash.", gone: true };
+      }
+      if (intent === "trash-repayment") {
+        if (!txnId) throw new Response("Which repayment?", { status: 400 });
+        await trashRepayment(token, params.id, txnId, reason || undefined);
+        return { message: "Payment deleted and its money reversed.", gone: false };
       }
       if (intent === "correct-txn" || intent === "propose-correction") {
         const amount = parseCedis(String(form.get("amount") ?? ""));
@@ -406,7 +412,7 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
             collateralReturnable={canDecide && canReturnCollateral(loan)}
             /* Taking a loan out of the book is the office's, whatever state
                it is in — so the counter is shown the entry greyed, not live. */
-            trashable={canDecide && canTrash(loan)}
+            trashable={canDecide}
           />
         </div>
       </header>
@@ -774,6 +780,14 @@ function Repayments({
     else toast.error(fetcher.data.message);
   }, [fetcher.state, fetcher.data]);
 
+  // Deleting one payment reverses only its money. Any payment, not just the
+  // newest — the running balances are rebuilt on reload. Office only.
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok) setDeleting(null);
+  }, [fetcher.state, fetcher.data]);
+
   // A repayment can be corrected while the loan is open or was settled by
   // it; anything else on the loan is final.
   const closed =
@@ -875,6 +889,24 @@ function Repayments({
                         <DropdownMenuSeparator />
                       </>
                     }
+                    after={
+                      canDecide ? (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            variant="destructive"
+                            onSelect={(event) => {
+                              event.preventDefault();
+                              setDeleteReason("");
+                              setDeleting(row.id);
+                            }}
+                          >
+                            <Trash2Icon />
+                            Delete payment
+                          </DropdownMenuItem>
+                        </>
+                      ) : null
+                    }
                   />
                 </TableCell>
               </TableRow>
@@ -882,6 +914,52 @@ function Repayments({
           </TableBody>
         </Table>
       )}
+
+      <AlertDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this payment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Its amount comes off the loan, and the schedule is rebuilt. If it
+              was paid from the customer’s susu, savings or loan savings, the
+              money goes back into that account today; cash and Paystack are
+              yours to hand back. A loan this payment had settled reopens. This
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="delete-payment-reason" className="text-sm font-medium">
+              Reason <span className="text-muted-foreground">(optional)</span>
+            </Label>
+            <Textarea
+              id="delete-payment-reason"
+              value={deleteReason}
+              onChange={(event) => setDeleteReason(event.target.value)}
+              rows={2}
+              placeholder="Recorded against the wrong loan."
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleting) {
+                  fetcher.submit(
+                    { intent: "trash-repayment", txnId: deleting, reason: deleteReason },
+                    { method: "post" },
+                  );
+                }
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete payment
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }
@@ -998,12 +1076,13 @@ function LoanMenu({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Move this application to the trash?
+              {disbursed
+                ? "Delete this loan and reverse its money?"
+                : "Move this application to the trash?"}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              Only a pending or rejected application can be trashed. It can be
-              restored from Trash.
-            </AlertDialogDescription>
+            {!disbursed && (
+              <AlertDialogDescription>It can be restored from Trash.</AlertDialogDescription>
+            )}
           </AlertDialogHeader>
           <div className="space-y-1.5">
             <Label htmlFor="trash-reason" className="text-sm font-medium">

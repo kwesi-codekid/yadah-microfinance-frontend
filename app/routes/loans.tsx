@@ -10,6 +10,7 @@ import {
   LandmarkIcon,
   PlusIcon,
   SettingsIcon,
+  Trash2Icon,
   TrendingUpIcon,
   UploadIcon,
   UserIcon,
@@ -50,6 +51,8 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
+import { Label } from "~/components/ui/label";
+import { Textarea } from "~/components/ui/textarea";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -243,6 +246,8 @@ interface Row {
   overdue: number | null;
   open: boolean;
   pending: boolean;
+  /** Whether money went out — decides the delete warning's wording. */
+  disbursed: boolean;
 }
 
 function toRow(loan: Loan, today: string): Row {
@@ -264,6 +269,7 @@ function toRow(loan: Loan, today: string): Row {
     overdue: daysOverdue(dueDay, today),
     open: isOpen(loan),
     pending: isPending(loan),
+    disbursed: Boolean(loan.disbursedAt),
   };
 }
 
@@ -643,6 +649,17 @@ function LoanRow({ row }: { row: Row }) {
   const busy = approval.state !== "idle";
   const [confirming, setConfirming] = useState(false);
 
+  // Deleting posts to the loan's own page action, which reverses the money and
+  // redirects back here on success; only a failure returns to this fetcher.
+  const trash = useFetcher<{ ok?: boolean; message?: string }>();
+  const [confirmTrash, setConfirmTrash] = useState(false);
+  const [trashReason, setTrashReason] = useState("");
+  useEffect(() => {
+    if (trash.state === "idle" && trash.data && !trash.data.ok) {
+      toast.error(trash.data.message ?? "Could not delete the loan.");
+    }
+  }, [trash.state, trash.data]);
+
   return (
     <tr className="border-b border-border/60 last:border-0">
       <td className="py-3 pr-3">
@@ -766,8 +783,63 @@ function LoanRow({ row }: { row: Row }) {
                 Customer
               </Link>
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {/* Deleting a loan is the office's, whatever state it is in — the
+                counter sees it greyed. */}
+            <DropdownMenuItem
+              disabled={!office}
+              variant="destructive"
+              onSelect={(event) => {
+                event.preventDefault();
+                setConfirmTrash(true);
+              }}
+            >
+              <Trash2Icon />
+              Delete loan
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <AlertDialog open={confirmTrash} onOpenChange={setConfirmTrash}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {row.disbursed
+                  ? `Delete ${row.customerName}’s loan and reverse its money?`
+                  : `Move ${row.customerName}’s application to the trash?`}
+              </AlertDialogTitle>
+              {!row.disbursed && (
+                <AlertDialogDescription>It can be restored from Trash.</AlertDialogDescription>
+              )}
+            </AlertDialogHeader>
+            <div className="space-y-1.5">
+              <Label htmlFor={`trash-reason-${row.id}`} className="text-sm font-medium">
+                Reason <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Textarea
+                id={`trash-reason-${row.id}`}
+                value={trashReason}
+                onChange={(event) => setTrashReason(event.target.value)}
+                rows={2}
+                placeholder="Duplicate application."
+              />
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() =>
+                  trash.submit(
+                    { intent: "trash", reason: trashReason },
+                    { method: "post", action: `/loans/${row.id}` },
+                  )
+                }
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {row.disbursed ? "Delete loan" : "Move to trash"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <AlertDialog open={confirming} onOpenChange={setConfirming}>
           <AlertDialogContent>

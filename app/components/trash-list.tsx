@@ -77,6 +77,7 @@ export function TrashList({
   backTo,
   backLabel,
   restoreDescription,
+  restorable = true,
 }: {
   rows: TrashRow[];
   page: number;
@@ -92,6 +93,9 @@ export function TrashList({
   backLabel: string;
   /** What restoring means for this kind of record, in one or two sentences. */
   restoreDescription: string;
+  /** Some records cannot be restored (a deleted loan payment) — the row then
+   *  shows no action, only the record of what was removed. */
+  restorable?: boolean;
 }) {
   const now = new Date();
 
@@ -120,7 +124,7 @@ export function TrashList({
               ) : null}
               <Th className="hidden lg:table-cell">Reason</Th>
               <Th>Removed</Th>
-              <Th className="w-12 text-right">Actions</Th>
+              {restorable ? <Th className="w-12 text-right">Actions</Th> : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -146,9 +150,11 @@ export function TrashList({
                   <p>{relativeDayLabel(row.deletedAt, now)}</p>
                   <p className="text-xs">{formatAccraDate(row.deletedAt)}</p>
                 </TableCell>
-                <TableCell className="px-4 py-3 text-right">
-                  <RestoreMenu row={row} noun={noun} description={restoreDescription} />
-                </TableCell>
+                {restorable ? (
+                  <TableCell className="px-4 py-3 text-right">
+                    <RestoreMenu row={row} noun={noun} description={restoreDescription} />
+                  </TableCell>
+                ) : null}
               </TableRow>
             ))}
           </TableBody>

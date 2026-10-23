@@ -187,6 +187,19 @@ export interface Repayment {
   createdAt?: string;
 }
 
+/** A repayment that was deleted on its own. Shown for the record: its money was
+ *  reversed, so it is not restorable — reverse it by re-entering the payment. */
+export interface TrashedRepayment {
+  id: string;
+  amount: number;
+  source: string;
+  recordedById?: string;
+  createdAt?: string;
+  deletedAt: string;
+  deletedById?: string;
+  deleteReason?: string;
+}
+
 /** What a repayment from susu did on the susu side, so both halves show. */
 export interface SusuWithdrawalResult {
   accountId: string;
@@ -408,14 +421,6 @@ export function canReturnCollateral(
 /** True while the application can still be approved or rejected. */
 export function isPending(loan: Pick<Loan, "status">): boolean {
   return loan.status === "pending";
-}
-
-/**
- * Only a pending or rejected application may be trashed. Once money has been
- * disbursed the loan is ledger history, and history does not leave the books.
- */
-export function canTrash(loan: Pick<Loan, "status">): boolean {
-  return loan.status === "pending" || loan.status === "rejected";
 }
 
 /** How much of the total has been paid off, 0–1. */

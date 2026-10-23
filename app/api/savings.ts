@@ -73,6 +73,30 @@ export function listTrashedAccounts(
   });
 }
 
+/** One deleted savings transaction, with the account and customer it belonged to. */
+export interface TrashedSavingsTxnRow {
+  id: string;
+  accountId: string;
+  accountNumber: string;
+  customerId: string;
+  customerName: string;
+  type: string;
+  amount: number;
+  fee: number;
+  deletedAt: string;
+  deleteReason?: string;
+}
+
+/** GET /savings/transactions/trash — every deleted savings transaction (office). */
+export function listTrashedTxnsAll(
+  accessToken: string,
+  params: { page?: number; limit?: number } = {},
+): Promise<Paginated<TrashedSavingsTxnRow>> {
+  return apiFetch(`/savings/transactions/trash${queryOf({ ...params })}`, {
+    accessToken,
+  });
+}
+
 /** GET /savings/accounts/{id} — the account, including `availableToWithdraw`. */
 export function getAccount(
   accessToken: string,
