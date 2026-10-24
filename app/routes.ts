@@ -54,6 +54,7 @@ export default [
       // table pages against its own module's endpoint rather than a summary.
       route("customers/:id/susu", "routes/customer-susu.tsx"),
       route("customers/:id/savings", "routes/customer-savings.tsx"),
+      route("customers/:id/susu-loan", "routes/customer-susu-loan.tsx"),
       route("customers/:id/loans", "routes/customer-loans.tsx"),
       route("customers/:id/hire-purchase", "routes/customer-hp.tsx"),
       route("customers/:id/statement", "routes/customer-statement.tsx"),
@@ -93,6 +94,18 @@ export default [
       route("withdraw", "routes/susu-withdraw.tsx"),
       route("charge", "routes/susu-charge.tsx"),
       route("plans/new", "routes/susu-plan-new.tsx"),
+    ]),
+    /* Susu loan (client decision, 23 Oct 2026): the customer's loan passbook,
+       beside susu but with none of its rules — a balance, deposits at the
+       office, and the money going to the loan by itself. Same shape as
+       savings: the book is a page with the opening drawer over it, the
+       account a page with the deposit drawer over it. */
+    route("susu-loans", "routes/susu-loans.tsx", [
+      route("new", "routes/susu-loan-new.tsx"),
+    ]),
+    route("susu-loans/:id/txns/:txnId/receipt", "routes/susu-loan-txn-receipt.tsx"),
+    route("susu-loans/:id", "routes/susu-loan-detail.tsx", [
+      route("deposit", "routes/susu-loan-deposit.tsx"),
     ]),
     /* Savings. Same shape as susu: the book is a page, opening an account is an
        errand and renders as a drawer over the rows. The account itself is a
@@ -240,7 +253,7 @@ export default [
     route("loans/:id", "routes/loan-detail.tsx", [
       route("repay", "routes/loan-repay.tsx"),
       route("repay/susu", "routes/loan-repay-susu.tsx"),
-      route("repay/loan-savings", "routes/loan-repay-loan-savings.tsx"),
+      route("repay/susu-loan", "routes/loan-repay-susu-loan.tsx"),
       route("collateral/return", "routes/loan-collateral-return.tsx"),
       route("charge", "routes/loan-charge.tsx"),
     ]),

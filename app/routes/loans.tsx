@@ -226,6 +226,8 @@ export const shouldRevalidate = drawerParentShouldRevalidate;
 
 interface Row {
   id: string;
+  /** The loan's account number, or null on loans that predate them. */
+  accountNumber: string | null;
   /** The tail of the id, the way it is read out at the counter. */
   customerId: string;
   customerName: string;
@@ -254,6 +256,7 @@ function toRow(loan: Loan, today: string): Row {
   const dueDay = loan.dueDate ? accraDay(new Date(loan.dueDate)) : null;
   return {
     id: loan.id,
+    accountNumber: loan.accountNumber ?? null,
     customerId: loan.customerId,
     customerName: loan.customerName ?? "—",
     principal: loan.principal,
@@ -501,6 +504,7 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
               <table className="w-full min-w-5xl text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-left text-xs font-bold text-foreground [&>th]:py-3">
+                    <th className="pr-3">Account</th>
                     <th className="w-[16%] pr-3">Customer</th>
                     <th className="pr-3 text-right">Term</th>
                     <th className="pr-3 text-right">Principal</th>
@@ -662,6 +666,20 @@ function LoanRow({ row }: { row: Row }) {
 
   return (
     <tr className="border-b border-border/60 last:border-0">
+      {/* Links to the loan once it is past the queue, like "View loan" does. */}
+      <td className="tabular py-3 pr-3 whitespace-nowrap">
+        {row.accountNumber && !row.pending ? (
+          <Link
+            to={`/loans/${row.id}`}
+            className="font-medium text-foreground underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+          >
+            {row.accountNumber}
+          </Link>
+        ) : (
+          <span className="text-muted-foreground">{row.accountNumber ?? "—"}</span>
+        )}
+      </td>
+
       <td className="py-3 pr-3">
         <Link
           to={`/customers/${row.customerId}`}

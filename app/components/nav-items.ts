@@ -9,6 +9,7 @@ import {
   ShoppingCartIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
+  NotebookPenIcon,
   PiggyBankIcon,
   ListChecksIcon,
   ReceiptIcon,
@@ -77,6 +78,14 @@ export const NAV: NavItem[] = [
     label: "Susu",
     icon: CoinsIcon,
     blurb: "Accounts, plans and collections.",
+  },
+  // The loan passbook: deposits at the office only, so not a collector's.
+  {
+    to: "/susu-loans",
+    label: "Susu loan",
+    icon: NotebookPenIcon,
+    blurb: "Loan passbooks — paid in, taken to the loan.",
+    roles: COUNTER,
   },
   {
     to: "/savings",

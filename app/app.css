@@ -462,6 +462,197 @@
 }
 
 /* =============================================================================
+   GLASS — the frosted look of glassyui.com's select: a recessed well to type
+   in, and a slab of glass for the choices that float over the form. Values
+   follow that library's light and dark tokens.
+   ========================================================================== */
+
+.glass-well {
+  border-radius: 16px;
+  border: 1px solid rgb(0 0 0 / 0.14);
+  background: #ffffff;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.08), inset 0 -1px 0 rgb(255 255 255 / 0.8);
+  -webkit-backdrop-filter: blur(16px) saturate(1.6);
+  backdrop-filter: blur(16px) saturate(1.6);
+  transition:
+    background 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+/* No focus border or ring: the open list is what shows it is active. These
+   rules sit outside any layer, so they also beat the input's own focus ring. */
+.glass-well:focus,
+.glass-well:focus-visible {
+  outline: none;
+}
+.dark .glass-well {
+  border-color: rgb(245 245 247 / 0.22);
+  background: rgb(255 255 255 / 0.06);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.24), inset 0 -1px 0 rgb(255 255 255 / 0.06);
+}
+.dark .glass-well:focus,
+.dark .glass-well:focus-visible {
+  background: rgb(255 255 255 / 0.1);
+}
+
+.glass-slab {
+  border-radius: 1.25rem;
+  border: 1px solid rgb(0 0 0 / 0.1);
+  background: rgb(255 255 255 / 0.72);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 2px 6px rgb(0 0 0 / 0.06),
+    0 28px 56px -18px rgb(0 0 0 / 0.26);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  backdrop-filter: blur(24px) saturate(1.8);
+}
+.dark .glass-slab {
+  border-color: rgb(245 245 247 / 0.16);
+  background: rgb(44 44 46 / 0.62);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    0 2px 6px rgb(0 0 0 / 0.2),
+    0 30px 60px -18px rgb(0 0 0 / 0.55);
+}
+
+.glass-item {
+  border-radius: 0.75rem;
+  transition: background 120ms ease;
+}
+.glass-item:hover,
+.glass-item:focus-visible {
+  background: rgb(0 0 0 / 0.06);
+  outline: none;
+}
+.dark .glass-item:hover,
+.dark .glass-item:focus-visible {
+  background: rgb(255 255 255 / 0.14);
+}
+
+/* A panel of glass sitting on the page: a faint white tint over a blur, a
+   sheen across the top, a bright white rim all the way round and a small
+   shadow — glassyui.com's glass panel without its pointer-driven lighting. */
+.glass-panel {
+  position: relative;
+  isolation: isolate;
+  border-radius: 24px;
+  border: 1.5px solid rgb(255 255 255 / 0.9);
+  /* Frosted milk glass: a translucent white the grey page tints through,
+     clearer toward the bottom right where the light falls away. */
+  background:
+    linear-gradient(150deg, rgb(255 255 255 / 0.5), rgb(255 255 255 / 0.25) 60%),
+    rgb(255 255 255 / 0.3);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 1),
+    inset 2px 3px 2px -2px rgb(255 255 255 / 0.95),
+    inset -2px -3px 2px -2px rgb(255 255 255 / 0.7),
+    inset 0 0 18px -6px rgb(255 255 255 / 0.9),
+    0 1px 3px rgb(0 0 0 / 0.08),
+    0 4px 12px -4px rgb(0 0 0 / 0.08);
+  -webkit-backdrop-filter: blur(16px) brightness(1.06) saturate(1.6);
+  backdrop-filter: blur(16px) brightness(1.06) saturate(1.6);
+}
+/* The blended wash that sits under a glass panel: coral, peach and a cool
+   lavender-blue melted together, faded to nothing at the edges so it glows
+   out from behind the panel instead of ending in a shape. */
+.glass-backdrop {
+  position: absolute;
+  inset: -1.25rem -1rem;
+  pointer-events: none;
+  background:
+    radial-gradient(45% 35% at 18% 78%, rgb(240 80 58 / 0.55), transparent 70%),
+    radial-gradient(40% 30% at 85% 30%, rgb(255 166 120 / 0.55), transparent 70%),
+    radial-gradient(45% 35% at 70% 88%, rgb(126 140 255 / 0.4), transparent 70%),
+    radial-gradient(35% 25% at 25% 20%, rgb(255 200 170 / 0.5), transparent 70%);
+  filter: blur(18px) saturate(1.2);
+  -webkit-mask: radial-gradient(closest-side, #000 70%, transparent);
+  mask: radial-gradient(closest-side, #000 70%, transparent);
+}
+.dark .glass-backdrop {
+  opacity: 0.6;
+}
+
+/* Light inside the glass, so it reads as glass with nothing behind it: a
+   bright bloom where the light enters at the top left, and a faint coral
+   glint, the brand colour, caught in the far corner. */
+.glass-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(90% 55% at 0% 0%, rgb(255 255 255 / 0.45), transparent 60%),
+    radial-gradient(70% 45% at 100% 100%, rgb(240 80 58 / 0.07), transparent 70%),
+    linear-gradient(180deg, transparent 70%, rgb(0 0 0 / 0.025));
+}
+.dark .glass-panel::before {
+  background:
+    radial-gradient(90% 55% at 0% 0%, rgb(255 255 255 / 0.08), transparent 60%),
+    radial-gradient(70% 45% at 100% 100%, rgb(240 80 58 / 0.08), transparent 70%);
+}
+
+/* The specular edge: bright white the whole way round, brightest where the
+   light lands at the top left. Drawn in the border's own band only. */
+.glass-panel::after {
+  content: "";
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    rgb(255 255 255 / 1) 0%,
+    rgb(255 255 255 / 0.9) 35%,
+    rgb(255 255 255 / 0.85) 60%,
+    rgb(255 255 255 / 0.95) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+.dark .glass-panel::after {
+  background: linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0.45) 0%,
+    rgb(255 255 255 / 0.3) 35%,
+    rgb(255 255 255 / 0.25) 60%,
+    rgb(255 255 255 / 0.35) 100%
+  );
+}
+.dark .glass-panel {
+  border-color: rgb(255 255 255 / 0.12);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.05), transparent 45%),
+    rgb(255 255 255 / 0.04);
+  box-shadow:
+    inset 1.5px 2.5px 1px -2px rgb(255 255 255 / 0.25),
+    inset -1.5px -2px 1px -2px rgb(255 255 255 / 0.15),
+    inset 0 0 12px -4px rgb(255 255 255 / 0.12),
+    0 1px 3px rgb(0 0 0 / 0.25),
+    0 4px 12px -4px rgb(0 0 0 / 0.25);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  backdrop-filter: blur(20px) saturate(1.8);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass-panel,
+  .glass-well,
+  .glass-slab {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--popover);
+  }
+}
+
+/* =============================================================================
    PRINT — documents opened to be handed over or saved as a PDF: the
    transaction advice, and anything else that follows it.
 

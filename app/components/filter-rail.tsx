@@ -47,6 +47,7 @@ export function FilterRail({
   horizontal = false,
   header,
   footer,
+  glass = false,
 }: {
   /** The `aria-label` — "Loans", "Filter customers by status". */
   label: string;
@@ -64,6 +65,8 @@ export function FilterRail({
    */
   header?: ReactNode;
   footer?: ReactNode;
+  /** Draw the column as a frosted glass panel instead of a flat card. */
+  glass?: boolean;
 }) {
   if (horizontal) {
     return (
@@ -80,8 +83,11 @@ export function FilterRail({
     );
   }
 
-  return (
-    <nav aria-label={label} className="rounded-2xl bg-card p-2">
+  const panel = (
+    <nav
+      aria-label={label}
+      className={glass ? "glass-panel p-2.5" : "rounded-2xl bg-card p-2"}
+    >
       {header ? <div className="px-1 pt-1 pb-2">{header}</div> : null}
       {sections.map((section, i) => (
         <section
@@ -112,6 +118,17 @@ export function FilterRail({
         </div>
       ) : null}
     </nav>
+  );
+
+  if (!glass) return panel;
+
+  // Glass over a flat page is just a white card. A soft wash of colour under
+  // the panel, fading out into the page, gives the frost something to blur.
+  return (
+    <div className="relative">
+      <div aria-hidden className="glass-backdrop" />
+      {panel}
+    </div>
   );
 }
 
@@ -221,7 +238,7 @@ export function RailFrame({
 }) {
   return (
     <div className={cn("flex items-start", className)}>
-      <aside className="sticky top-0 hidden w-64 shrink-0 self-start py-6 pl-4 sm:pl-6 lg:block">
+      <aside className="sticky top-[var(--app-header-h,0px)] hidden w-64 shrink-0 self-start py-6 pl-4 sm:pl-6 lg:block">
         {rail({ horizontal: false })}
       </aside>
       <div className="min-w-0 flex-1">

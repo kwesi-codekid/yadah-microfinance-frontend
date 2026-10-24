@@ -28,8 +28,8 @@ export type LoanDuration = (typeof DURATIONS)[number];
 
 /**
  * How a repayment reached the counter. `susu` is money taken from the
- * customer's susu balance, `loan-savings` from their loan savings account;
- * `susu-closure` is history.
+ * customer's susu balance, `susu-loan` from their susu loan account;
+ * `susu-closure` and `loan-savings` (the account susu loan replaced) are history.
  */
 export type RepaymentSource =
   | "cash"
@@ -38,7 +38,8 @@ export type RepaymentSource =
   | "susu"
   | "susu-closure"
   | "transfer"
-  | "loan-savings";
+  | "loan-savings"
+  | "susu-loan";
 
 export type RepaymentChannel = "cash" | "paystack" | "momo";
 
@@ -60,6 +61,8 @@ export interface LoanGuarantor {
 
 export interface Loan {
   id: string;
+  /** The `LN…` number, given at application. Absent on loans older than it. */
+  accountNumber?: string;
   customerId: string;
   /** Present on list responses, for display. */
   customerName?: string;
@@ -181,8 +184,10 @@ export interface Repayment {
   channel?: string;
   /** Set when the repayment came from the customer's susu account. */
   susuAccountId?: string;
-  /** Set when the repayment came from the customer's loan savings account. */
+  /** Set when the repayment came from the customer's loan savings account (history). */
   savingsAccountId?: string;
+  /** Set when the repayment came from the customer's susu loan account. */
+  susuLoanAccountId?: string;
   recordedById?: string;
   createdAt?: string;
 }
@@ -353,6 +358,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   "susu-closure": "Susu closure",
   transfer: "Transfer",
   "loan-savings": "From loan savings",
+  "susu-loan": "From susu loan",
 };
 
 export const CHANNEL_OPTIONS: { value: RepaymentChannel; label: string }[] = [

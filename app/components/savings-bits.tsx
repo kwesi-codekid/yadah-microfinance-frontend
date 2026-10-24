@@ -69,7 +69,7 @@ export function AccountTypeTag({ type }: { type: SavingsAccountType }) {
         type === "fixed"
           ? "A child's account kept by a guardian. Normal charges until it matures, free after."
           : type === "loan"
-            ? "Used only to repay the customer's loan — taken at each month end. No withdrawals."
+            ? "Used only to repay the customer's loan — taken on the loan's monthly date. Leftover goes to savings when it's paid off. No withdrawals."
             : "The customer is the minor; the guardian's ID and next-of-kin details are on the customer record."
       }
     >

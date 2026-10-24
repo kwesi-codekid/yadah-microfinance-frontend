@@ -32,6 +32,9 @@ export interface PickedCustomer {
  * `warn` lets the surrounding form disqualify somebody in its own words — a
  * guarantor with no ID on file, say. It is drawn on the row as well as on the
  * choice, so the reason is visible before the choice is made rather than after.
+ *
+ * `glass` draws it frosted, with the matches floating over the form as a
+ * dropdown that closes on Escape or when focus leaves it.
  */
 export function CustomerPicker({
   name = "customerId",
@@ -40,6 +43,7 @@ export function CustomerPicker({
   autoFocus,
   placeholder = "Search name or phone",
   warn,
+  glass = false,
 }: {
   name?: string;
   value: PickedCustomer | null;
@@ -48,11 +52,13 @@ export function CustomerPicker({
   placeholder?: string;
   /** Why this person will not do, or null. */
   warn?: (customer: PickedCustomer) => string | null;
+  glass?: boolean;
 }) {
   const fetcher = useFetcher<{ items: PickedCustomer[] }>();
   const [query, setQuery] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -63,6 +69,7 @@ export function CustomerPicker({
 
   const onType = (next: string) => {
     setQuery(next);
+    setOpen(true);
     clearTimeout(timer.current);
     timer.current = setTimeout(() => run(next), 250);
   };
@@ -74,8 +81,12 @@ export function CustomerPicker({
     return (
       <div
         className={cn(
-          "flex items-center gap-3 rounded-lg border px-3 py-2.5",
-          fault ? "border-destructive/40 bg-destructive/5" : "border-border bg-muted/40",
+          "flex items-center gap-3 border px-3 py-2.5",
+          // The glass well paints its own fill, which would hide a fault's tint.
+          glass && !fault ? "glass-well" : "rounded-lg",
+          fault
+            ? "border-destructive/40 bg-destructive/5"
+            : !glass && "border-border bg-muted/40",
         )}
       >
         <input type="hidden" name={name} value={value.id} />
@@ -105,9 +116,15 @@ export function CustomerPicker({
   const hits = fetcher.data?.items ?? [];
   const searching = fetcher.state !== "idle";
   const short = query.trim().length < 2;
+  const shown = !short && (!glass || open);
 
   return (
-    <div className="space-y-2">
+    <div
+      className={glass ? "relative" : "space-y-2"}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false);
+      }}
+    >
       <div className="relative">
         <SearchIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -121,33 +138,59 @@ export function CustomerPicker({
               e.preventDefault();
               clearTimeout(timer.current);
               run(query);
+              setOpen(true);
+            }
+            if (e.key === "Escape" && glass && open) {
+              // Close the list, not the sheet around it.
+              e.stopPropagation();
+              setOpen(false);
             }
           }}
+          onFocus={() => setOpen(true)}
           autoFocus={autoFocus}
           autoComplete="off"
           placeholder={placeholder}
           aria-label="Search for a customer"
-          className="pr-9 pl-9"
+          aria-expanded={glass ? shown : undefined}
+          className={cn("pr-9 pl-9", glass && "glass-well h-11")}
         />
         {searching && (
           <Loader2Icon className="absolute top-1/2 right-3 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
         )}
       </div>
 
-      {short ? null : hits.length === 0 && !searching ? (
-        <p className="text-xs text-muted-foreground">No customer found.</p>
+      {!shown ? null : hits.length === 0 && !searching ? (
+        <p
+          className={cn(
+            "text-xs text-muted-foreground",
+            glass && "glass-slab absolute inset-x-0 top-full z-50 mt-2 px-4 py-3",
+          )}
+        >
+          No customer found.
+        </p>
       ) : (
-        <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+        <ul
+          className={
+            glass
+              ? "glass-slab absolute inset-x-0 top-full z-50 mt-2 max-h-80 space-y-0.5 overflow-y-auto p-1.5"
+              : "divide-y divide-border overflow-hidden rounded-lg border border-border"
+          }
+        >
           {hits.map((hit) => {
             const fault = warn?.(hit) ?? null;
             return (
             <li key={hit.id}>
               <button
                 type="button"
-                onClick={() => onChange(hit)}
+                onClick={() => {
+                  setOpen(false);
+                  onChange(hit);
+                }}
                 className={cn(
-                  "group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors",
-                  "hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+                  "group flex w-full items-center gap-3 px-3 py-2.5 text-left",
+                  glass
+                    ? "glass-item"
+                    : "transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
                 )}
               >
                 <Avatar name={hit.fullName} />

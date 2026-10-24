@@ -29,6 +29,14 @@ export type TxnType =
   | "susu-payout"
   | "susu-withdrawal"
   | "susu-commission"
+  /** Susu loan account (it replaced loan savings): paid in at the office — cash in. */
+  | "susu-loan-deposit"
+  /** Taken from the susu loan account onto the customer's loan. */
+  | "susu-loan-repayment"
+  /** Left over once a loan was paid off, moved to savings. */
+  | "susu-loan-leftover"
+  /** A repayment put back after its loan or the repayment was deleted. */
+  | "susu-loan-refund"
   | "savings-deposit"
   | "savings-withdrawal"
   | "savings-closure"
@@ -497,6 +505,10 @@ export const TXN_TYPE_LABELS: Record<TxnType, string> = {
   "susu-payout": "Susu payout",
   "susu-withdrawal": "Susu withdrawal",
   "susu-commission": "Susu commission",
+  "susu-loan-deposit": "Susu loan deposit",
+  "susu-loan-repayment": "Susu loan to loan",
+  "susu-loan-leftover": "Susu loan to savings",
+  "susu-loan-refund": "Susu loan refund",
   "savings-deposit": "Savings deposit",
   "savings-withdrawal": "Savings withdrawal",
   "savings-closure": "Savings closure",
@@ -589,6 +601,11 @@ export function receiptPathFor(
     case "savings-withdrawal":
     case "savings-closure":
       return `/savings/${t.ref.id}/txns/${t.id}/receipt`;
+    case "susu-loan-deposit":
+    case "susu-loan-repayment":
+    case "susu-loan-leftover":
+    case "susu-loan-refund":
+      return `/susu-loans/${t.ref.id}/txns/${t.id}/receipt`;
     // One per loan: the disbursement is the loan's own event, not a row of its own.
     // The fee and the collateral are printed on the disbursement receipt.
     case "loan-disbursement":

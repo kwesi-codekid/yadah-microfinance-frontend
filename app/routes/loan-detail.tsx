@@ -223,8 +223,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         locked:
           r.source === "susu" || r.source === "susu-closure"
             ? "This was paid from a susu account. It cannot be changed on its own."
-            : r.source === "loan-savings"
-              ? "This was paid from the loan savings account. It cannot be changed on its own."
+            : r.source === "loan-savings" || r.source === "susu-loan"
+              ? "This was paid from the susu loan account. It cannot be changed on its own."
               : r.source === "transfer"
               ? "This came from a transfer between accounts. Correct it on the transfer, not here."
               : r.channel === "paystack"
@@ -924,7 +924,7 @@ function Repayments({
             <AlertDialogTitle>Delete this payment?</AlertDialogTitle>
             <AlertDialogDescription>
               Its amount comes off the loan, and the schedule is rebuilt. If it
-              was paid from the customer’s susu, savings or loan savings, the
+              was paid from the customer’s susu, savings or susu loan, the
               money goes back into that account today; cash and Paystack are
               yours to hand back. A loan this payment had settled reopens. This
               cannot be undone.
@@ -1014,9 +1014,9 @@ function LoanMenu({
             </Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild disabled={!open}>
-            <Link to={`/loans/${loanId}/repay/loan-savings`} prefetch="intent">
+            <Link to={`/loans/${loanId}/repay/susu-loan`} prefetch="intent">
               <PiggyBankIcon />
-              Pay from loan savings
+              Pay from susu loan
             </Link>
           </DropdownMenuItem>
           {/* The third way money reaches a loan: a prompt on the customer's own

@@ -5,8 +5,8 @@ import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
-import { getLoan, repayFromLoanSavings } from "~/api/loans";
-import { listAccounts as listSavings } from "~/api/savings";
+import { getLoan, repayFromSusuLoan } from "~/api/loans";
+import { listAccounts as listSusuLoans } from "~/api/susu-loans";
 import { Figure } from "~/components/listing";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -18,18 +18,18 @@ import { isOpen } from "~/lib/loans";
 import { requireCounter, withAuth } from "~/lib/session.server";
 import { redirectWithToast } from "~/lib/toast.server";
 import { cn } from "~/lib/utils";
-import type { Route } from "./+types/loan-repay-loan-savings";
+import type { Route } from "./+types/loan-repay-susu-loan";
 
 export function meta(_: Route.MetaArgs) {
-  return [{ title: "Pay from loan savings · Yadah Dynamic Enterprise" }];
+  return [{ title: "Pay from susu loan · Yadah Dynamic Enterprise" }];
 }
 
 /**
- * The customer's loan savings account is for the loan and nothing else (client
- * decision, 6 Oct 2026). The month-end deduction empties it into the loan on
- * its own; this is the same move made by hand, whenever the office or the
- * counter wants it — no fee, no daily limit, at most what is in the account
- * and at most what the loan owes.
+ * The customer's susu loan account is for the loan and nothing else (client
+ * decision, 23 Oct 2026). The system pays the loan from it by itself on the
+ * loan's monthly dates; this is the same move made by hand, whenever the
+ * office wants it — at most what is in the account and at most what the loan
+ * owes.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
   await requireCounter(request);
@@ -37,9 +37,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const { loan } = await getLoan(token, params.id);
-      const accounts = await listSavings(token, {
+      const accounts = await listSusuLoans(token, {
         customerId: loan.customerId,
-        accountType: "loan",
         status: "active",
         limit: 1,
       });
@@ -75,14 +74,14 @@ export async function action({ request, params }: Route.ActionArgs) {
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
 
   if (amount == null || amount <= 0) {
-    return data({ error: "Enter how much to take from loan savings." }, { status: 400 });
+    return data({ error: "Enter how much to take from the susu loan account." }, { status: 400 });
   }
 
-  let result: Awaited<ReturnType<typeof repayFromLoanSavings>>;
+  let result: Awaited<ReturnType<typeof repayFromSusuLoan>>;
   let headers: { "Set-Cookie": string } | undefined;
   try {
     ({ data: result, headers } = await withAuth(request, (token) =>
-      repayFromLoanSavings(token, params.id, { amount, idempotencyKey }),
+      repayFromSusuLoan(token, params.id, { amount, idempotencyKey }),
     ));
   } catch (error) {
     if (error instanceof ApiError) {
@@ -97,7 +96,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       tone: "success",
       message: result.replayed
         ? "That repayment was already recorded."
-        : `GH₵ ${formatAmount(result.repayment.amount)} applied from loan savings.`,
+        : `GH₵ ${formatAmount(result.repayment.amount)} applied from the susu loan account.`,
       description:
         result.loan.remaining > 0
           ? `GH₵ ${formatAmount(result.loan.remaining)} still owing.`
@@ -107,7 +106,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   );
 }
 
-export default function LoanRepayLoanSavings({ loaderData }: Route.ComponentProps) {
+export default function LoanRepaySusuLoan({ loaderData }: Route.ComponentProps) {
   const { loan, account } = loaderData;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
@@ -124,7 +123,7 @@ export default function LoanRepayLoanSavings({ loaderData }: Route.ComponentProp
       : pesewas <= 0
         ? "Enter an amount."
         : account && pesewas > account.balance
-          ? "More than is in the loan savings account."
+          ? "More than is in the susu loan account."
           : pesewas > loan.remaining
             ? "More than the loan still owes."
             : null;
@@ -137,7 +136,7 @@ export default function LoanRepayLoanSavings({ loaderData }: Route.ComponentProp
   return (
     <RouteSheet
       backTo={`/loans/${loan.id}`}
-      title="Pay from loan savings"
+      title="Pay from susu loan"
       description={loan.customerName || undefined}
     >
       <Form method="post" className="flex min-h-0 flex-1 flex-col">
@@ -158,15 +157,14 @@ export default function LoanRepayLoanSavings({ loaderData }: Route.ComponentProp
             <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
               <PiggyBankIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               <span>
-                This customer has no loan savings account. Open one from Savings, as a
-                &ldquo;Loan savings&rdquo; account.
+                This customer has no susu loan account. Open one from Susu loan.
               </span>
             </div>
           ) : (
             <>
               <div className="rounded-xl border border-border bg-card p-4">
                 <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  Loan savings #{account.accountNumber}
+                  Susu loan #{account.accountNumber}
                 </p>
                 <p className="tabular mt-0.5 text-2xl font-bold">
                   GH₵ {formatAmount(account.balance)}
@@ -178,7 +176,7 @@ export default function LoanRepayLoanSavings({ loaderData }: Route.ComponentProp
                   htmlFor="amount"
                   className="text-xs font-medium tracking-wide text-muted-foreground uppercase"
                 >
-                  Taken from loan savings · GH₵<span className="ml-0.5 text-destructive">*</span>
+                  Taken from susu loan · GH₵<span className="ml-0.5 text-destructive">*</span>
                 </Label>
                 <Input
                   id="amount"
@@ -195,7 +193,7 @@ export default function LoanRepayLoanSavings({ loaderData }: Route.ComponentProp
                 <p className={cn("text-xs", issue ? "text-destructive" : "text-muted-foreground")}>
                   {issue ??
                     (cap <= 0
-                      ? "There is nothing in the loan savings account."
+                      ? "There is nothing in the susu loan account."
                       : `Up to GH₵ ${formatAmount(cap)} — what is in the account, capped at what the loan owes.`)}
                 </p>
               </div>
@@ -208,7 +206,7 @@ export default function LoanRepayLoanSavings({ loaderData }: Route.ComponentProp
                   hint={valid ? `Leaves ${formatPesewas(loan.remaining - pesewas)} owing` : undefined}
                 />
                 <Figure
-                  label="Left in loan savings"
+                  label="Left in susu loan"
                   value={valid ? formatPesewas(account.balance - pesewas) : "—"}
                   tone="muted"
                   hint="No fee"

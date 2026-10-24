@@ -2,6 +2,7 @@ import {
   BanknoteIcon,
   IdCardIcon,
   LandmarkIcon,
+  NotebookPenIcon,
   PiggyBankIcon,
   ReceiptTextIcon,
   WalletIcon,
@@ -69,6 +70,12 @@ export default function CustomerLayout() {
                 to: `/customers/${id}/savings`,
                 label: "Savings",
                 icon: BanknoteIcon,
+              },
+              {
+                key: "susu-loan",
+                to: `/customers/${id}/susu-loan`,
+                label: "Susu loan",
+                icon: NotebookPenIcon,
               },
               {
                 key: "loans",

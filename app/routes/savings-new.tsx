@@ -141,7 +141,8 @@ export default function SavingsNew() {
   const child = Boolean(customer?.isMinor);
   const fixed = type === "fixed";
   // Always listed, so the counter knows it exists; only usable for a child.
-  const types: SavingsAccountType[] = ["standard", "student", "fixed", "loan"];
+  // Loan savings is retired: a loan's money goes into a susu loan account.
+  const types: SavingsAccountType[] = ["standard", "student", "fixed"];
   useEffect(() => {
     if (!child && type === "fixed") setType("standard");
   }, [child, type]);
