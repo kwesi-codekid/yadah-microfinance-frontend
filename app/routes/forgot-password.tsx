@@ -6,7 +6,7 @@ import { describeAuthError } from "~/api/error";
 import { AuthField } from "~/components/auth-field";
 import { AuthShell, FormError } from "~/components/auth-shell";
 import { Button } from "~/components/ui/button";
-import { FieldGroup } from "~/components/ui/field";
+import { FieldGroup, FieldSeparator } from "~/components/ui/field";
 import { Spinner } from "~/components/ui/spinner";
 import { LOGIN_PATH } from "~/lib/paths";
 import { getOptionalUser, startPasswordReset } from "~/lib/session.server";
@@ -49,16 +49,18 @@ export default function ForgotPassword({ actionData }: Route.ComponentProps) {
   return (
     <AuthShell
       title="Reset your password"
-      description="Give us the phone number on your account and we will text you a code."
       footer={
-        <p className="text-center text-sm">
-          <Link
-            to={LOGIN_PATH}
-            className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-          >
-            Back to sign in
-          </Link>
-        </p>
+        <div className="flex flex-col gap-5 pt-2">
+          <FieldSeparator className="my-0">or</FieldSeparator>
+          <p className="text-center text-sm">
+            <Link
+              to={LOGIN_PATH}
+              className="text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Back to sign in
+            </Link>
+          </p>
+        </div>
       }
     >
       {idle && actionData?.formError && <FormError>{actionData.formError}</FormError>}

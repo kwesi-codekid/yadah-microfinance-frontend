@@ -17,7 +17,7 @@ export function login(input: {
 }
 
 /**
- * POST /auth/otp/request — a 6-digit code by SMS. 5-minute expiry, 5 verify
+ * POST /auth/otp/request — a 4-digit code by SMS. 5-minute expiry, 5 verify
  * attempts, 60s resend cooldown. The response is identical whether or not the
  * number is registered, so the UI must not imply the account exists.
  */

@@ -20,6 +20,7 @@ export function AuthField({
   icon: Icon,
   error,
   hint,
+  labelAction,
   type = "text",
   ...props
 }: Omit<React.ComponentProps<typeof InputGroupInput>, "id"> & {
@@ -28,6 +29,8 @@ export function AuthField({
   icon: LucideIcon;
   error?: string;
   hint?: string;
+  /** A small link at the right of the label, such as "Forgot your password?". */
+  labelAction?: React.ReactNode;
 }) {
   const [revealed, setRevealed] = useState(false);
   const isPassword = type === "password";
@@ -35,9 +38,17 @@ export function AuthField({
 
   return (
     <Field data-invalid={error ? true : undefined}>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      {labelAction ? (
+        <div className="flex items-center justify-between gap-2">
+          <FieldLabel htmlFor={id}>{label}</FieldLabel>
+          {labelAction}
+        </div>
+      ) : (
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      )}
 
-      <InputGroup className="h-10 border-ring ring-3 ring-ring/50">
+      {/* A faint ring at rest that deepens to the full focus ring while typing. */}
+      <InputGroup className="h-10 border-ring/40 ring-3 ring-ring/10">
         <InputGroupAddon>
           <Icon className="text-muted-foreground" />
         </InputGroupAddon>

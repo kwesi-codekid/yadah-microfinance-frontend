@@ -96,8 +96,8 @@ export default function ResetPassword({
             error={fieldErrors?.code}
             inputMode="numeric"
             autoComplete="one-time-code"
-            maxLength={6}
-            placeholder="123456"
+            maxLength={4}
+            placeholder="1234"
             className="tabular tracking-[0.3em]"
             autoFocus
             required

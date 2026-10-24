@@ -87,7 +87,7 @@ export default function PortalLogin({ actionData }: Route.ComponentProps) {
             type="tel"
             icon={PhoneIcon}
             error={fieldErrors?.phone}
-            hint="A 6-digit code arrives by SMS if this number is on our books. It lasts 5 minutes."
+            hint="A 4-digit code arrives by SMS if this number is on our books. It lasts 5 minutes."
             inputMode="numeric"
             autoComplete="tel"
             placeholder="0244123456"

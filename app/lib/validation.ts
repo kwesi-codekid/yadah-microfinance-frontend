@@ -26,7 +26,7 @@ export function validatePhone(value: string): string | null {
 }
 
 export function validateOtp(value: string): string | null {
-  if (!value) return "Enter the 6-digit code.";
-  if (!/^\d{6}$/.test(value)) return "The code is 6 digits.";
+  if (!value) return "Enter the 4-digit code.";
+  if (!/^\d{4}$/.test(value)) return "The code is 4 digits.";
   return null;
 }

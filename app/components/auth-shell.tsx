@@ -17,26 +17,27 @@ export function AuthShell({
   footer,
 }: {
   title: string;
-  description: string;
+  /** A line under the title; leave it out when the title says enough. */
+  description?: string;
   children: ReactNode;
   /** Secondary links under the form — switching method, going back. */
   footer?: ReactNode;
 }) {
   return (
-    <main className="relative min-h-dvh w-full overflow-hidden lg:grid lg:grid-cols-[1.1fr_1fr]">
+    <main className="relative min-h-dvh w-full overflow-hidden lg:grid lg:grid-cols-[1fr_2fr]">
       {/* Phone and tablet: the photo is the page. */}
       <Photo className="absolute inset-0 lg:hidden" />
 
       {/* Desktop: the photo is the left column, and carries the brand. */}
       <Photo className="relative hidden lg:block">
-        <div className="relative flex h-full flex-col items-center justify-between p-12 text-left">
+        <div className="relative flex h-full flex-col items-start justify-between p-10 text-left xl:p-12">
           <BrandLockup tone="light" />
 
-          <div className="max-w-sm">
-            <p className="font-heading text-3xl leading-tight font-bold text-white">
+          <div className="mt-auto mb-6 max-w-sm">
+            <p className="font-heading text-lg leading-snug font-medium tracking-tight text-white xl:text-xl">
               Every cedi collected,
               <br />
-              accounted for the same day.
+              <span className="text-white/70">accounted for the same day.</span>
             </p>
           </div>
 
@@ -46,7 +47,17 @@ export function AuthShell({
         </div>
       </Photo>
 
-      <ThemeToggle className="absolute top-4 right-4 z-20 text-white hover:bg-white/10 hover:text-white lg:text-foreground lg:hover:bg-muted lg:hover:text-foreground" />
+      {/* A bead of glass: frosted over the photo on phones, a lit pill on the plain desktop column. */}
+      <ThemeToggle
+        className={cn(
+          "absolute top-4 right-4 z-20 size-9 rounded-full border-2 backdrop-blur-md",
+          "border-white/70 bg-white/15 text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.4),0_4px_14px_-4px_rgb(0_0_0/0.35)]",
+          "hover:bg-white/25 hover:text-white",
+          "lg:border-white lg:bg-white/55 lg:text-foreground lg:shadow-[inset_0_1px_0_rgb(255_255_255/0.9),0_1px_3px_rgb(0_0_0/0.08),0_6px_16px_-6px_rgb(0_0_0/0.18)]",
+          "lg:hover:bg-white/80 lg:hover:text-foreground",
+          "dark:lg:border-white/35 dark:lg:bg-white/5 dark:lg:shadow-[inset_0_1px_0_rgb(255_255_255/0.15),0_6px_16px_-6px_rgb(0_0_0/0.6)] dark:lg:hover:bg-white/10",
+        )}
+      />
 
       <div className="relative z-10 flex min-h-dvh flex-col justify-end lg:min-h-0 lg:items-center lg:justify-center lg:bg-background">
         {/* The brand has no column of its own on small screens, so it sits here. */}
@@ -67,7 +78,9 @@ export function AuthShell({
               <h1 className="font-heading text-3xl font-bold tracking-tight">
                 {title}
               </h1>
-              <p className="text-sm text-muted-foreground">{description}</p>
+              {description ? (
+                <p className="text-sm text-muted-foreground">{description}</p>
+              ) : null}
             </header>
 
             {children}

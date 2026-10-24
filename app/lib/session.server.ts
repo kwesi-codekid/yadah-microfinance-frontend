@@ -92,9 +92,15 @@ type SessionData = {
   pendingOtpRedirectTo: string;
   /** The number awaiting a password-reset code. */
   pendingResetPhone: string;
+  /** Whether a code sign-in in progress asked to stay signed in. */
+  pendingOtpRemember: boolean;
+  /** When the latest login code was sent, so the page can count down its life. */
+  pendingOtpSentAt: number;
   lastActiveAt: number;
   /** When the stored role was last confirmed against the API. */
   roleCheckedAt: number;
+  /** "Keep me signed in": idle out after the long window, not the short one. */
+  rememberMe: boolean;
 };
 
 const storage = createCookieSessionStorage<SessionData>({
@@ -114,10 +120,23 @@ function getSession(request: Request) {
   return storage.getSession(request.headers.get("Cookie"));
 }
 
+/**
+ * A remembered session lives as long as the API's refresh token would, so the
+ * cookie never outlasts what it holds; anyone else gets the short leash.
+ */
+function idleTimeoutSeconds(session: Session<SessionData>): number {
+  return session.get("rememberMe") ? env.sessionMaxAgeSeconds : IDLE_TIMEOUT_SECONDS;
+}
+
+/** Every save renews the cookie for the window this session is entitled to. */
+function commit(session: Session<SessionData>) {
+  return storage.commitSession(session, { maxAge: idleTimeoutSeconds(session) });
+}
+
 function isIdle(session: Session<SessionData>): boolean {
   const lastActiveAt = session.get("lastActiveAt");
   if (typeof lastActiveAt !== "number") return false;
-  return Date.now() - lastActiveAt > IDLE_TIMEOUT_SECONDS * 1000;
+  return Date.now() - lastActiveAt > idleTimeoutSeconds(session) * 1000;
 }
 
 /** Mark the session used. Returns whether that changed anything worth saving. */
@@ -139,12 +158,15 @@ export async function createUserSession({
   user,
   tokens,
   redirectTo,
+  remember = false,
 }: {
   user: AuthUser;
   tokens: AuthTokens;
   redirectTo: string;
+  remember?: boolean;
 }) {
   const session = await storage.getSession();
+  session.set("rememberMe", remember);
   session.set("user", user);
   session.set("accessToken", tokens.accessToken);
   session.set("refreshToken", tokens.refreshToken);
@@ -152,32 +174,48 @@ export async function createUserSession({
   // Straight from the API, so the role is confirmed as of now.
   session.set("roleCheckedAt", Date.now());
   return redirect(safeRedirect(redirectTo), {
-    headers: { "Set-Cookie": await storage.commitSession(session) },
+    headers: { "Set-Cookie": await commit(session) },
   });
 }
 
 export async function startOtpVerification(
   request: Request,
-  { phone, redirectTo }: { phone: string; redirectTo: string },
+  {
+    phone,
+    redirectTo,
+    remember = false,
+  }: { phone: string; redirectTo: string; remember?: boolean },
 ) {
   const session = await getSession(request);
   session.set("pendingOtpPhone", phone);
   session.set("pendingOtpRedirectTo", safeRedirect(redirectTo));
+  session.set("pendingOtpRemember", remember);
+  session.set("pendingOtpSentAt", Date.now());
   return redirect(VERIFY_OTP_PATH, {
-    headers: { "Set-Cookie": await storage.commitSession(session) },
+    headers: { "Set-Cookie": await commit(session) },
   });
+}
+
+/** A new code replaces the old one, so its clock starts again. Returns the Set-Cookie value. */
+export async function restartOtpClock(request: Request) {
+  const session = await getSession(request);
+  session.set("pendingOtpSentAt", Date.now());
+  return commit(session);
 }
 
 /** The number awaiting a login code, or null when none was requested. */
 export async function getPendingOtp(
   request: Request,
-): Promise<{ phone: string; redirectTo: string } | null> {
+): Promise<{ phone: string; redirectTo: string; remember: boolean; sentAt: number } | null> {
   const session = await getSession(request);
   const phone = session.get("pendingOtpPhone");
   if (!phone) return null;
   return {
     phone,
     redirectTo: session.get("pendingOtpRedirectTo") ?? DEFAULT_LANDING,
+    remember: session.get("pendingOtpRemember") === true,
+    // Sessions started before this field existed: count from now rather than show expired.
+    sentAt: session.get("pendingOtpSentAt") ?? Date.now(),
   };
 }
 
@@ -185,8 +223,10 @@ export async function cancelOtpVerification(request: Request) {
   const session = await getSession(request);
   session.unset("pendingOtpPhone");
   session.unset("pendingOtpRedirectTo");
+  session.unset("pendingOtpRemember");
+  session.unset("pendingOtpSentAt");
   return redirect(LOGIN_PATH, {
-    headers: { "Set-Cookie": await storage.commitSession(session) },
+    headers: { "Set-Cookie": await commit(session) },
   });
 }
 
@@ -194,7 +234,7 @@ export async function startPasswordReset(request: Request, phone: string) {
   const session = await getSession(request);
   session.set("pendingResetPhone", phone);
   return redirect(RESET_PASSWORD_PATH, {
-    headers: { "Set-Cookie": await storage.commitSession(session) },
+    headers: { "Set-Cookie": await commit(session) },
   });
 }
 
@@ -209,7 +249,7 @@ export async function endPasswordReset(request: Request, to: string) {
   const session = await getSession(request);
   session.unset("pendingResetPhone");
   return redirect(to, {
-    headers: { "Set-Cookie": await storage.commitSession(session) },
+    headers: { "Set-Cookie": await commit(session) },
   });
 }
 
@@ -379,7 +419,7 @@ export async function withAuth<T>(
     return userChanged || touched
       ? {
           data: result,
-          headers: { "Set-Cookie": await storage.commitSession(session) },
+          headers: { "Set-Cookie": await commit(session) },
         }
       : { data: result };
   } catch (error) {
@@ -409,14 +449,14 @@ export async function withAuth<T>(
         throw await loginRedirect(request, session);
       // A redirect thrown inside the call still has to carry the new tokens.
       if (retryError instanceof Response) {
-        throw withCookie(retryError, await storage.commitSession(session));
+        throw withCookie(retryError, await commit(session));
       }
       throw retryError;
     }
 
     return {
       data: result,
-      headers: { "Set-Cookie": await storage.commitSession(session) },
+      headers: { "Set-Cookie": await commit(session) },
     };
   }
 }

@@ -76,7 +76,7 @@ export default function PortalLoginVerify({ loaderData, actionData }: Route.Comp
   return (
     <AuthShell
       title="Enter your code"
-      description={`If ${phone} is on our books, a 6-digit code is on its way. It expires in 5 minutes.`}
+      description={`If ${phone} is on our books, a 4-digit code is on its way. It expires in 5 minutes.`}
       footer={
         <Form method="post" replace className="text-center">
           <button
@@ -93,11 +93,11 @@ export default function PortalLoginVerify({ loaderData, actionData }: Route.Comp
       {idle && actionData?.formError && <FormError>{actionData.formError}</FormError>}
       {idle && actionData?.resent && <FormNotice tone="success">A new code is on its way.</FormNotice>}
 
-      <Form method="post" replace ref={formRef} className="space-y-5">
+      <Form method="post" replace ref={formRef} className="mx-auto w-fit space-y-5">
         <div className="space-y-2">
           <InputOTP
             name="code"
-            maxLength={6}
+            maxLength={4}
             value={code}
             onChange={setCode}
             autoFocus
@@ -105,13 +105,13 @@ export default function PortalLoginVerify({ loaderData, actionData }: Route.Comp
             onComplete={() => formRef.current?.requestSubmit()}
             disabled={verifying}
           >
-            <InputOTPGroup className="gap-2">
-              {[0, 1, 2, 3, 4, 5].map((index) => (
+            <InputOTPGroup className="gap-3">
+              {[0, 1, 2, 3].map((index) => (
                 <InputOTPSlot
                   key={index}
                   index={index}
                   aria-invalid={idle && actionData?.codeError ? true : undefined}
-                  className="size-12 rounded-md border-l text-base tabular"
+                  className="size-16 rounded-lg border-l border-ring/40 text-2xl tabular ring-3 ring-ring/10"
                 />
               ))}
             </InputOTPGroup>
