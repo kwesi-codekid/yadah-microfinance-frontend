@@ -164,6 +164,15 @@ export function formatCedisCompact(pesewas: number): string {
   return `${sign}${Math.round(abs)}`;
 }
 
+/**
+ * Whole cedis, grouped and never abbreviated — `1250000` → `12,500`. For chart
+ * axes where the office wants the full figure but pesewas are only noise.
+ */
+export function formatCedisWhole(pesewas: number): string {
+  const cedis = Math.round(pesewas / 100);
+  return `${cedis < 0 ? "−" : ""}${formatCount(Math.abs(cedis))}`;
+}
+
 /** `1.0` reads as noise on an axis; `1` does not. */
 function trimZero(value: number): string {
   return value.toFixed(1).replace(/\.0$/, "");

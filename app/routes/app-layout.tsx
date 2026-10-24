@@ -1,24 +1,25 @@
-import { BellIcon, SearchIcon } from "lucide-react";
-import { Fragment, useEffect, useRef } from "react";
-import { data, Form, Link, Outlet, useLocation, useMatches } from "react-router";
+import { BellIcon } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { data, Link, Outlet, useLocation, useMatches } from "react-router";
 import { toast as sonner } from "sonner";
 
 import * as authApi from "~/api/auth";
 import { ApiError } from "~/api/error";
 import { listNotifications } from "~/api/notifications";
 import { AppSidebar } from "~/components/app-sidebar";
+import { GlobalSearch } from "~/components/global-search";
+import { GlassScrollArea } from "~/components/ui/glass-scroll-area";
 import { MobileNav } from "~/components/mobile-nav";
 import { navItemFor } from "~/components/nav-items";
 import { ProfileMenu } from "~/components/profile-menu";
 import { ThemeToggle } from "~/components/theme-toggle";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "~/components/ui/breadcrumb";
+  GlassBreadcrumb,
+  GlassBreadcrumbEllipsis,
+  GlassBreadcrumbItem,
+  GlassBreadcrumbLink,
+  GlassBreadcrumbPage,
+} from "~/components/ui/glass-breadcrumb";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -38,6 +39,7 @@ import { formatCount } from "~/lib/format";
 import { badgeCount, isUnread, linkFor } from "~/lib/notifications";
 import { requireUser, signOutForRoleChange, withAuth } from "~/lib/session.server";
 import { clearToastCookie, readToast, type Toast } from "~/lib/toast.server";
+import { GLASS_BEAD } from "~/lib/glass";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/app-layout";
 
@@ -182,17 +184,26 @@ function NotificationBell({
 
   return (
     <DropdownMenu>
+      {/* Today's date keeps its place in the header, beside the bell. */}
+      <span className="hidden text-xs font-medium text-muted-foreground md:inline">
+        {dateLabel}
+      </span>
       <DropdownMenuTrigger
-        className="flex items-center gap-2 rounded-full bg-secondary px-3.5 py-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className={cn(GLASS_BEAD, "flex items-center justify-center")}
         aria-label={
           bell.unread > 0
             ? `Notifications, ${formatCount(bell.unread)} unread`
             : "Notifications, none unread"
         }
       >
-        <BellIcon className="size-3.5" />
-        <span className="hidden sm:inline">{dateLabel}</span>
-        {badge && <span className="text-brand-coral">({badge})</span>}
+        <BellIcon className="size-4" />
+        {/* Always drawn, always red — zero included. */}
+        <span
+          aria-hidden
+          className="absolute -top-1.5 -right-1.5 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] leading-none font-bold text-white tabular-nums ring-2 ring-background"
+        >
+          {badge ?? "0"}
+        </span>
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="w-80">
@@ -309,6 +320,66 @@ function useHeaderTitle(pathname: string): { title?: string; crumbs?: Crumb[] } 
 }
 
 /**
+ * The whole trail for the header, on every page: Dashboard first, then the
+ * page's own steps — a detail page's crumbs, or just its title.
+ */
+function trailFor(pathname: string, title?: string, crumbs?: Crumb[]): Crumb[] {
+  const home: Crumb = { label: "Dashboard", to: "/dashboard" };
+  if (pathname === "/dashboard" || pathname === "/") return [{ label: "Dashboard" }];
+  const steps = crumbs ?? (title ? [{ label: title }] : []);
+  return steps[0]?.to === home.to ? steps : [home, ...steps];
+}
+
+/** Trails longer than this fold their middle steps into a "…" menu. */
+const MAX_CRUMBS = 4;
+
+/**
+ * The header's breadcrumb. The last step is the page's heading. On a long
+ * trail the first step and the last two stay, and the rest fold into a menu.
+ */
+function HeaderTrail({ trail }: { trail: Crumb[] }) {
+  const folded = trail.length > MAX_CRUMBS ? trail.slice(1, -2) : [];
+  const shown = folded.length > 0 ? [trail[0], null, ...trail.slice(-2)] : trail;
+
+  return (
+    <GlassBreadcrumb className="min-w-0 flex-1 basis-48">
+      {shown.map((crumb, i) => {
+        const last = i === shown.length - 1;
+        return (
+          <GlassBreadcrumbItem key={crumb ? `${crumb.label}-${i}` : "folded"}>
+            {crumb === null ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <GlassBreadcrumbEllipsis />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {folded.map((step) => (
+                    <DropdownMenuItem key={step.label} asChild={Boolean(step.to)}>
+                      {step.to ? <Link to={step.to}>{step.label}</Link> : step.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : last || !crumb.to ? (
+              // The page's own name is its heading, as the title was before.
+              <h1 className="min-w-0">
+                <GlassBreadcrumbPage className="font-heading tracking-tight">
+                  {crumb.label}
+                </GlassBreadcrumbPage>
+              </h1>
+            ) : (
+              <GlassBreadcrumbLink asChild>
+                <Link to={crumb.to}>{crumb.label}</Link>
+              </GlassBreadcrumbLink>
+            )}
+          </GlassBreadcrumbItem>
+        );
+      })}
+    </GlassBreadcrumb>
+  );
+}
+
+/**
  * The rail writes its open state to a cookie. Reading it here means the server
  * renders the rail the way this person left it, instead of flashing wide.
  */
@@ -342,60 +413,26 @@ export default function AppLayout({ loaderData }: Route.ComponentProps) {
               title on the left, then the search, date and account pills. */}
           <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
             <SidebarTrigger className="shrink-0 text-muted-foreground" />
-            <h1 className="min-w-0 truncate font-heading text-lg font-bold tracking-tight">
-              {crumbs ? (
-                <Breadcrumb>
-                  <BreadcrumbList className="flex-nowrap gap-1.5 text-lg sm:gap-1.5">
-                    {crumbs.map((crumb, i) => (
-                      <Fragment key={`${crumb.label}-${i}`}>
-                        {i > 0 && <BreadcrumbSeparator />}
-                        <BreadcrumbItem>
-                          {crumb.to ? (
-                            <BreadcrumbLink asChild>
-                              <Link to={crumb.to} className="font-medium text-muted-foreground">
-                                {crumb.label}
-                              </Link>
-                            </BreadcrumbLink>
-                          ) : (
-                            <BreadcrumbPage className="font-bold">{crumb.label}</BreadcrumbPage>
-                          )}
-                        </BreadcrumbItem>
-                      </Fragment>
-                    ))}
-                  </BreadcrumbList>
-                </Breadcrumb>
-              ) : (
-                title
-              )}
-            </h1>
+            <HeaderTrail trail={trailFor(pathname, title, crumbs)} />
 
             <div className="ml-auto flex flex-wrap items-center gap-2.5">
-              {/* One global search: it looks a customer up, which is what the
-                  counter reaches for most. Enter submits. */}
-              <Form
-                method="get"
-                action="/customers"
-                className="flex w-40 items-center gap-2 rounded-full bg-secondary px-3.5 py-2 focus-within:ring-2 focus-within:ring-ring/40 sm:w-56"
-              >
-                <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                <input
-                  type="search"
-                  name="search"
-                  placeholder="Search customers..."
-                  className="w-full bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                />
-              </Form>
+              {/* One global search: a button that opens the palette, where
+                  customers and pages are both a few keys away. */}
+              <GlobalSearch user={user} />
 
 <NotificationBell bell={bell} dateLabel={dateLabel} />
 
-              <ThemeToggle className="size-9 rounded-full bg-secondary text-foreground hover:bg-secondary/70" />
-              <ProfileMenu user={user} compact />
+              {/* The same bead of lit glass as the sign-in page's switch. */}
+              <ThemeToggle className={GLASS_BEAD} />
+              <ProfileMenu user={user} compact triggerClassName={GLASS_BEAD} />
             </div>
           </header>
 
-          <div ref={mainRef} className="flex-1 overflow-y-auto pb-24 md:pb-0">
-            <Outlet />
-          </div>
+          <GlassScrollArea className="min-h-0 flex-1" viewportProps={{ ref: mainRef }}>
+            <div className="pb-24 md:pb-0">
+              <Outlet />
+            </div>
+          </GlassScrollArea>
         </SidebarInset>
 
         <MobileNav user={user} />

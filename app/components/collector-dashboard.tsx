@@ -29,12 +29,13 @@ import {
 import {
   formatAccraDate,
   formatAccraDateTime,
-  formatCedisCompact,
+  formatCedisWhole,
   formatCount,
   formatPesewas,
 } from "~/lib/format";
 import { varianceKind, type Reconciliation } from "~/lib/reconciliation";
 import { cn } from "~/lib/utils";
+import { TileFigure } from "~/components/tile-figure";
 
 /**
  * The dashboard a collector gets: the same page as the office's — a KPI row,
@@ -67,7 +68,7 @@ const FG = "var(--color-foreground)";
 const MUTED = "var(--color-muted-foreground)";
 const BORDER = "var(--color-border)";
 
-const gh = (pesewas: number) => `GH₵${formatCedisCompact(pesewas)}`;
+const gh = (pesewas: number) => formatPesewas(pesewas);
 
 /* --------------------------------------------------------------------- page --- */
 
@@ -546,7 +547,7 @@ function HistoryChart({
           <g key={t}>
             <line x1={CX0} x2={CX1} y1={sy(max * t)} y2={sy(max * t)} strokeWidth="1" style={{ stroke: BORDER }} />
             <text x={CX0 - 6} y={sy(max * t) + 3} textAnchor="end" fontSize="9" style={{ fill: MUTED }}>
-              {formatCedisCompact(max * t)}
+              {formatCedisWhole(max * t)}
             </text>
           </g>
         ))}
@@ -695,7 +696,7 @@ function Card({
   children: ReactNode;
 }) {
   return (
-    <section className="flex min-h-56 flex-1 flex-col rounded-2xl bg-card p-4 text-card-foreground sm:p-5">
+    <section className="flex min-h-56 flex-1 flex-col rounded-lg bg-card p-4 text-card-foreground sm:p-5">
       <header className={cn("mb-4 flex flex-wrap items-center gap-2", centered ? "justify-center" : "justify-between")}>
         <h3 className="text-[15px] font-bold tracking-tight">{title}</h3>
         {!plain && detailTo && (
@@ -747,15 +748,22 @@ function Stat({
   hint?: string;
 }) {
   return (
-    <div className="relative flex min-h-28 flex-col rounded-2xl bg-card p-4">
+    <div className="relative flex min-h-28 flex-col rounded-lg bg-card p-4">
       <span className="absolute top-3.5 right-3.5 rounded-lg p-2" style={{ background: `var(--tint-${tint}-bg)` }}>
         <Icon className="size-4" style={{ color: `var(--tint-${tint}-fg)` }} />
       </span>
       <p
         key={value}
-        className="animate-in fade-in slide-in-from-bottom-1 text-[22px] font-bold tracking-tight duration-300 motion-reduce:animate-none"
+        className={cn(
+          "animate-in fade-in slide-in-from-bottom-1 pr-10 font-bold leading-tight tracking-tight tabular-nums duration-300 motion-reduce:animate-none",
+          // Full amounts, never abbreviated — a long one steps down a size,
+          // and on a phone drops below the icon to get the tile's full width.
+          value.length > 14
+            ? "text-base max-sm:pt-9 max-sm:pr-0 sm:text-lg"
+            : "text-lg sm:text-[22px]",
+        )}
       >
-        {value}
+        <TileFigure value={value} />
       </p>
       <p className="mt-1 pr-10 text-xs text-muted-foreground">{label}</p>
       <p className="mt-auto pt-1 text-[10px] text-muted-foreground">{hint ?? " "}</p>

@@ -242,6 +242,82 @@ export interface DashboardSummary {
   generatedAt: string;
 }
 
+/** One line of the loan book — loans or hire purchase. */
+export interface LoanBookLine {
+  open: number;
+  outstanding: number;
+  arrearsCount: number;
+  /** Still owed on the agreements in arrears, pesewas. */
+  arrearsAmount: number;
+}
+
+/** A profit and loss reduced to what the dashboard draws. */
+export interface ProfitSummary {
+  from: string;
+  to: string;
+  income: {
+    susuCommission: number;
+    savingsFees: number;
+    outrightSalesProfit: number;
+    loanInterest: number;
+    loanProcessingFees: number;
+    hirePurchaseInterest: number;
+    total: number;
+  };
+  /** Recorded expenses plus depreciation. */
+  expenses: number;
+  netProfit: number;
+}
+
+/**
+ * `GET /dashboard/financials` — admin and manager only. Built from the same
+ * services as the balance sheet and the profit and loss, so the dashboard and
+ * the printed statements always agree.
+ */
+export interface DashboardFinancials {
+  asOf: string;
+  cash: {
+    /** Every active cash account plus the commission account. */
+    total: number;
+    commission: number;
+    accounts: { id: string; name: string; kind: string; balance: number }[];
+  };
+  /** Customer money held — a liability, repayable on demand. */
+  deposits: {
+    susu: number;
+    savings: number;
+    susuLoan: number;
+    collateral: number;
+    total: number;
+  };
+  /** Cash ÷ deposits, one decimal. Null when no deposits are held. */
+  liquidityPercent: number | null;
+  loanBook: {
+    outstanding: number;
+    loans: LoanBookLine;
+    hirePurchase: LoanBookLine;
+    /** Portfolio at risk: arrears ÷ outstanding. Null on an empty book. */
+    parPercent: number | null;
+    disbursedThisMonth: Tally;
+    repaidThisMonth: Tally;
+  };
+  /** Susu commission + savings fees + loan processing fees, all time. */
+  commissionAllTime: number;
+  profit: {
+    thisMonth: ProfitSummary;
+    /** The same span of days last month, so a part month compares fairly. */
+    lastMonth: ProfitSummary;
+  };
+  /** Shaped by the period switch, like `/dashboard/series`. */
+  trend: {
+    from: string;
+    to: string;
+    bucket: SeriesBucket;
+    points: { key: string; revenue: number; expenses: number; netProfit: number }[];
+  };
+  generatedAt: string;
+}
+
 /** How `GET /dashboard/series` groups its buckets. */
 export type SeriesBucket = "day" | "week" | "month";
 
@@ -282,6 +358,28 @@ export interface CashSeries {
     expected: number;
     received: number;
   };
+}
+
+/**
+ * `GET /dashboard/staff-performance` — cash each member of staff took in from
+ * customers, bucketed like the cash series. Payouts and internal moves are
+ * left out, and so are system rows and portal payments with nobody behind
+ * them. Office only.
+ */
+export interface StaffPerformance {
+  from: string;
+  to: string;
+  bucket: SeriesBucket;
+  keys: string[];
+  /** The busiest five, most cash first. Values align with `keys`. */
+  staff: {
+    id: string;
+    name: string;
+    role: string;
+    total: number;
+    count: number;
+    values: number[];
+  }[];
 }
 
 /**

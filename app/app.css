@@ -367,6 +367,12 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    /* Anything that scrolls natively — tables, the sidebar, dialogs — gets
+       the same thin translucent bar as GlassScrollArea, so the app has one
+       scrollbar look. */
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--color-foreground) 24%, transparent)
+      transparent;
   }
   body {
     @apply bg-background text-foreground;

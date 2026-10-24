@@ -5,8 +5,12 @@ import {
   CircleAlertIcon,
   ClipboardListIcon,
   EllipsisIcon,
+  HandCoinsIcon,
   IdCardIcon,
+  LandmarkIcon,
+  PiggyBankIcon,
   SearchIcon,
+  TrendingUpIcon,
   UploadIcon,
   UsersIcon,
 } from "lucide-react";
@@ -24,7 +28,7 @@ import {
   accraDay,
   accraDaysAgo,
   formatAccraDateTime,
-  formatCedisCompact,
+  formatCedisWhole,
   formatCount,
   formatPesewas,
 } from "~/lib/format";
@@ -37,11 +41,19 @@ import {
   type CashSeriesPoint,
   type CollectionEfficiency,
   type DashboardAlert,
+  type DashboardFinancials,
   type SeriesBucket,
+  type StaffPerformance,
   type UnifiedTransaction,
 } from "~/lib/reports";
 import { getCollectorDashboardPage } from "~/api/collectors";
 import { CollectorDashboard } from "~/components/collector-dashboard";
+import {
+  GlassPopover,
+  GlassPopoverAnchor,
+  GlassPopoverContent,
+} from "~/components/glassyui/glass-popover";
+import { TileFigure } from "~/components/tile-figure";
 import { isOffice } from "~/lib/auth";
 import { useCurrentUser } from "~/lib/use-current-user";
 import { requireUser, withAuth } from "~/lib/session.server";
@@ -89,7 +101,7 @@ export function meta(_: Route.MetaArgs) {
 const PERIODS = {
   day: { label: "Last 30 days", bucket: "day", span: 29 },
   week: { label: "Last 12 weeks", bucket: "week", span: 83 },
-  month: { label: "Last 12 months", bucket: "month", span: 364 },
+  month: { label: "This year", bucket: "month", span: 364 },
 } satisfies Record<string, { label: string; bucket: SeriesBucket; span: number }>;
 
 type PeriodKey = keyof typeof PERIODS;
@@ -120,11 +132,21 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { bucket, span } = PERIODS[period];
   // Computed on the server and passed down, so render and hydration can never
   // disagree about which Accra day it is.
-  const to = accraDay();
-  const from = accraDaysAgo(span);
+  // The month view is the calendar year, January to December; months still to
+  // come draw as empty buckets. Days and weeks look back from today.
+  const today = accraDay();
+  const year = today.slice(0, 4);
+  const from = bucket === "month" ? `${year}-01-01` : accraDaysAgo(span);
+  const to = bucket === "month" ? `${year}-12-31` : today;
 
   const { data: page, headers } = await withAuth(request, (token) =>
-    getDashboardPage(token, { from, to, bucket, recentLimit: RECENT_LIMIT }),
+    getDashboardPage(token, {
+      from,
+      to,
+      bucket,
+      recentLimit: RECENT_LIMIT,
+      office: isOffice(user),
+    }),
   );
 
   return data({ user, period, ...page }, { headers });
@@ -169,7 +191,7 @@ const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /* ------------------------------------------------------------------ figures --- */
 
 /** Cedis for a chart or a tile — `GH₵9.6k`. Never for a figure anyone keys in. */
-const gh = (pesewas: number) => `GH₵${formatCedisCompact(pesewas)}`;
+const gh = (pesewas: number) => formatPesewas(pesewas);
 
 /**
  * A bucket key as an axis tick. Day keys are `2026-08-27`, week keys
@@ -178,7 +200,9 @@ const gh = (pesewas: number) => `GH₵${formatCedisCompact(pesewas)}`;
  */
 function tickLabel(key: string, bucket: SeriesBucket): string {
   if (bucket === "week") return `w${key.split("-W")[1] ?? ""}`;
-  if (bucket === "month") return MONTH_ABBR[Number(key.slice(5, 7)) - 1] ?? key;
+  if (bucket === "month") {
+    return (MONTH_ABBR[Number(key.slice(5, 7)) - 1] ?? key).toUpperCase();
+  }
   return key.slice(8);
 }
 
@@ -238,46 +262,55 @@ function useAnimatedNumber(target: number): number {
 
 /* --------------------------------------------------------------------- page --- */
 
+type OfficeData = Exclude<Route.ComponentProps["loaderData"], { collector: unknown }>;
+
 export default function Dashboard({ loaderData }: Route.ComponentProps) {
   if ("collector" in loaderData) {
     return <CollectorDashboard data={loaderData.collector} />;
   }
+  // Admin and manager get the money-first page; the counter, who is not sent
+  // the financials, keeps the collections view.
+  if (loaderData.financials) {
+    return (
+      <FinancialDashboard
+        loaderData={loaderData}
+        financials={loaderData.financials}
+      />
+    );
+  }
   return <OfficeDashboard loaderData={loaderData} />;
 }
 
-function OfficeDashboard({
-  loaderData,
-}: {
-  loaderData: Exclude<Route.ComponentProps["loaderData"], { collector: unknown }>;
-}) {
-  const { period, summary, series, efficiency, alerts, recent } = loaderData;
-  const [searchParams, setSearchParams] = useSearchParams();
+/**
+ * A period change is a navigation, so the charts dim while the API answers
+ * rather than sitting on figures that belong to the previous range.
+ */
+function useSwitching(): boolean {
   const navigation = useNavigation();
-  const [query, setQuery] = useState("");
-
-  // A period change is a navigation, so the charts dim while the API answers
-  // rather than sitting on figures that belong to the previous range.
-  const switching =
+  return (
     navigation.state === "loading" &&
-    navigation.location?.pathname === "/dashboard";
+    navigation.location?.pathname === "/dashboard"
+  );
+}
 
+/** The recent rows and the filter typed over them, shared by table and export. */
+function useRecentRows(recent: OfficeData["recent"]) {
+  const [query, setQuery] = useState("");
   // Sliced as well as asked for: `limit` is the API's to honour, and the panel
   // is sized for five rows whatever it sends back.
   const rows = (recent?.items ?? []).slice(0, RECENT_LIMIT);
   const q = query.trim().toLowerCase();
-  const visibleTx = q
-    ? rows.filter((tx) => searchText(tx).includes(q))
-    : rows;
+  const visible = q ? rows.filter((tx) => searchText(tx).includes(q)) : rows;
+  return { query, setQuery, rows, visible };
+}
+
+function OfficeDashboard({ loaderData }: { loaderData: OfficeData }) {
+  const { period, summary, series, efficiency, alerts, recent } = loaderData;
+  const switching = useSwitching();
+  const recentRows = useRecentRows(recent);
 
   const k = summary.kpis;
   const p = summary.portfolio;
-
-  const pickPeriod = (key: PeriodKey) => {
-    const next = new URLSearchParams(searchParams);
-    if (key === DEFAULT_PERIOD) next.delete("period");
-    else next.set("period", key);
-    setSearchParams(next, { preventScrollReset: true });
-  };
 
   return (
     <div className="min-h-full bg-background px-5 pt-1 pb-5 text-foreground sm:px-8">
@@ -367,31 +400,7 @@ function OfficeDashboard({
 
         {/* right column */}
         <div className="space-y-4">
-          <div className="flex justify-end gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-1.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
-                {PERIODS[period].label}
-                <ChevronDownIcon className="size-3" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {(Object.keys(PERIODS) as PeriodKey[]).map((key) => (
-                  <DropdownMenuItem key={key} onSelect={() => pickPeriod(key)}>
-                    {PERIODS[key].label}
-                    {key === period && <CheckIcon className="ml-auto size-3.5" />}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <button
-              onClick={() => exportCsv(visibleTx)}
-              disabled={visibleTx.length === 0}
-              className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-1.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
-            >
-              Export
-              <UploadIcon className="size-3" />
-            </button>
-          </div>
+          <PeriodControls period={period} exportRows={recentRows.visible} />
 
           <Card
             title="Collection Efficiency"
@@ -410,26 +419,7 @@ function OfficeDashboard({
             )}
           </Card>
 
-          {/* Not the notifications bell: a notification is one past event sent
-              to one person, an alert is a condition that stays true until the
-              work is done and reads the same for everyone in the office. The
-              card carries no "see all" for that reason — this *is* all of them. */}
-          <Card title="Alerts needing action" plain>
-            {!alerts ? (
-              <Unavailable what="alerts" />
-            ) : alerts.alerts.length === 0 ? (
-              <p className="py-4 text-center text-xs text-muted-foreground">
-                Nothing is waiting on anyone. Alerts appear here the moment a
-                payout, an arrears case or an unconfirmed handover needs work.
-              </p>
-            ) : (
-              <div className="space-y-5">
-                {alerts.alerts.map((alert) => (
-                  <Notice key={alert.key} alert={alert} />
-                ))}
-              </div>
-            )}
-          </Card>
+          <AlertsCard alerts={alerts} />
 
           <Card
             title="Collections Reconciliation"
@@ -446,36 +436,370 @@ function OfficeDashboard({
 
       {/* ------------------------------------------------- transactions table --- */}
       <div className="mt-4">
-        <Card
-          title="Recent Transactions"
-          detailTo="/transactions"
-          aside={
-            <label className="flex w-40 items-center gap-2 rounded-full bg-secondary px-3 py-1.5 focus-within:ring-2 focus-within:ring-ring/40 sm:w-52">
-              <SearchIcon className="size-3 shrink-0 text-muted-foreground" />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Filter these rows..."
-                className="w-full bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
-              />
-            </label>
-          }
-        >
-          {recent ? (
-            <TransactionsTable rows={visibleTx} query={query} total={rows.length} />
-          ) : (
-            <Unavailable what="recent transactions" />
-          )}
-        </Card>
+        <RecentCard recent={recent} {...recentRows} />
       </div>
 
-      <p className="mt-4 text-[11px] text-muted-foreground">
-        Live figures from the reporting API, read at{" "}
-        {formatAccraDateTime(summary.generatedAt)}. Money is shown in cedis;
-        every amount is held as pesewas.
-      </p>
+      <ReadAt at={summary.generatedAt} />
     </div>
+  );
+}
+
+/* ------------------------------------------------- the financial dashboard --- */
+
+/**
+ * The admin and manager page: money first. What the business holds, what it
+ * owes customers, what is out on loan, and what it has earned — then how the
+ * money moved. Counts and the field-cash check drop to the strip at the foot.
+ *
+ *   KPI row            GET /dashboard/financials → cash, deposits, loanBook, profit
+ *   Cash Flow          GET /dashboard/series → cashIn vs cashOut
+ *   Loan Book          GET /dashboard/financials → loanBook
+ *   Deposits Mix       GET /dashboard/financials → deposits
+ *   Liquidity          GET /dashboard/financials → liquidityPercent
+ *   Net Profit Trend   GET /dashboard/financials → trend
+ *   Staff Performance  GET /dashboard/staff-performance
+ */
+function FinancialDashboard({
+  loaderData,
+  financials: f,
+}: {
+  loaderData: OfficeData;
+  financials: DashboardFinancials;
+}) {
+  const { period, summary, series, recent, staffPerformance } = loaderData;
+  const switching = useSwitching();
+  const recentRows = useRecentRows(recent);
+
+  const k = summary.kpis;
+  const book = f.loanBook;
+  const { thisMonth } = f.profit;
+
+  return (
+    <div className="min-h-full bg-background px-5 pt-1 pb-5 text-foreground sm:px-8">
+      {/* ------------------------------------------------ financial position --- */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
+        <Stat
+          value={formatCount(k.totalCustomers)}
+          label="Total Customers"
+          icon={UsersIcon}
+          tint={1}
+        />
+        <Stat
+          value={gh(f.deposits.total)}
+          label="Customer Deposits"
+          icon={PiggyBankIcon}
+          tint={3}
+        />
+        <Stat
+          value={gh(book.outstanding)}
+          label="Loans Outstanding"
+          icon={HandCoinsIcon}
+          tint={2}
+        />
+        <Stat
+          value={gh(f.commissionAllTime)}
+          label="Total Commission"
+          icon={TrendingUpIcon}
+          tint={1}
+        />
+        <Stat
+          value={ghSigned(thisMonth.netProfit)}
+          label="Net Profit This Month"
+          icon={LandmarkIcon}
+          tint={4}
+        />
+      </div>
+
+      {/* ----------------------------------------------------- two columns --- */}
+      <div
+        className={cn(
+          "mt-4 grid gap-4 transition-opacity duration-200 xl:grid-cols-[minmax(0,1.66fr)_minmax(0,1fr)]",
+          switching && "opacity-60",
+        )}
+      >
+        {/* left column — stretched like the right one, its bottom row taking the
+            slack, so both columns end level whichever is taller */}
+        <div className="flex flex-col gap-4">
+          <Card
+            title="Cash Flow"
+            detailTo="/transactions"
+            note="Money received from and paid out to customers. Moves between the business's own accounts are left out."
+          >
+            {series ? (
+              <CashFlowChart key={period} series={series} />
+            ) : (
+              <Unavailable what="the cash series" />
+            )}
+          </Card>
+
+          <div className="grid flex-1 gap-4 md:grid-cols-2">
+            <Card title="Loan Book" detailTo="/loans">
+              <LoanBook book={book} />
+            </Card>
+            <Card title="Deposits Mix" detailTo="/accounting/balance-sheet">
+              <PortfolioDonut
+                ariaLabel="Customer deposits"
+                caption="held for customers"
+                empty="No customer money is held yet — no susu, savings or loan-linked balances."
+                slices={[
+                  { label: "Susu", color: CORAL, amount: f.deposits.susu },
+                  { label: "Savings", color: NAVY, amount: f.deposits.savings },
+                  {
+                    label: "Loan-linked",
+                    color: SKY,
+                    amount: f.deposits.susuLoan + f.deposits.collateral,
+                  },
+                ]}
+              />
+            </Card>
+          </div>
+        </div>
+
+        {/* right column — stretched to the left one's height, with the staff
+            card taking up the slack so both columns end level */}
+        <div className="flex flex-col gap-4">
+          <Card title="Liquidity" centered plain note={liquidityNote(f)}>
+            <Gauge
+              percent={f.liquidityPercent}
+              label="Liquidity"
+              emptyText="no customer deposits are held"
+            />
+          </Card>
+
+          <Card title="Net Profit Trend" detailTo="/accounting/profit-loss">
+            <ProfitTrend key={period} trend={f.trend} />
+          </Card>
+
+          <div className="flex-1 [&>section]:h-full">
+            <Card
+              title="Staff Performance"
+              detailTo="/transactions"
+            >
+              {staffPerformance ? (
+                <StaffChart key={period} performance={staffPerformance} />
+              ) : (
+                <Unavailable what="staff performance" />
+              )}
+            </Card>
+          </div>
+        </div>
+      </div>
+
+      {/* ------------------------------------------------- transactions table --- */}
+      <div className="mt-4">
+        <RecentCard recent={recent} {...recentRows} />
+      </div>
+    </div>
+  );
+}
+
+/** A minus sign before the currency, where a figure can go negative. */
+function ghSigned(pesewas: number): string {
+  return pesewas < 0 ? `−${gh(-pesewas)}` : gh(pesewas);
+}
+
+function liquidityNote(f: DashboardFinancials): string {
+  if (f.liquidityPercent === null) {
+    return `${formatPesewas(f.cash.total)} on hand and no customer deposits held.`;
+  }
+  return `${formatPesewas(f.cash.total)} on hand against ${formatPesewas(f.deposits.total)} owed to customers, across ${formatCount(f.cash.accounts.length)} cash ${f.cash.accounts.length === 1 ? "account" : "accounts"} and the commission account.`;
+}
+
+/** One labelled money line inside a card. */
+function MoneyRow({
+  label,
+  amount,
+  sub,
+  strong = false,
+  color,
+}: {
+  label: string;
+  amount: string;
+  sub?: string;
+  strong?: boolean;
+  color?: string;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-xs">
+      <span className={cn("flex items-center gap-1.5", strong ? "font-semibold" : "text-muted-foreground")}>
+        {color && <span className="size-2 rounded-full" style={{ background: color }} />}
+        {label}
+        {sub && <span className="text-[10px] text-muted-foreground">{sub}</span>}
+      </span>
+      <span className={cn("tabular-nums", strong ? "font-bold" : "font-medium")}>{amount}</span>
+    </div>
+  );
+}
+
+function LoanBook({ book }: { book: DashboardFinancials["loanBook"] }) {
+  const arrears = book.loans.arrearsAmount + book.hirePurchase.arrearsAmount;
+  const arrearsCases = book.loans.arrearsCount + book.hirePurchase.arrearsCount;
+  const par = book.parPercent ?? 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <MoneyRow label="Outstanding" amount={formatPesewas(book.outstanding)} strong />
+        <MoneyRow
+          label="Loans"
+          amount={formatPesewas(book.loans.outstanding)}
+          sub={`${formatCount(book.loans.open)} open`}
+        />
+        <MoneyRow
+          label="Hire purchase"
+          amount={formatPesewas(book.hirePurchase.outstanding)}
+          sub={`${formatCount(book.hirePurchase.open)} open`}
+        />
+      </div>
+
+      <div className="space-y-1.5">
+        <MoneyRow
+          label="In arrears"
+          amount={formatPesewas(arrears)}
+          sub={`${formatCount(arrearsCases)} ${arrearsCases === 1 ? "case" : "cases"}`}
+          strong
+          color="var(--danger)"
+        />
+        <div className="h-2 rounded-full" style={{ background: BORDER }}>
+          <div
+            className="h-full rounded-full transition-[width] duration-500 ease-out motion-reduce:transition-none"
+            style={{ width: `${Math.min(100, par)}%`, background: "var(--danger)" }}
+          />
+        </div>
+        <p className="text-[10px] text-muted-foreground">
+          {book.parPercent === null
+            ? "Nothing is out on loan."
+            : `${book.parPercent.toFixed(1)}% of the book is at risk (PAR).`}
+        </p>
+      </div>
+
+      <div className="space-y-1.5 border-t border-border pt-2.5">
+        <MoneyRow
+          label="Paid out this month"
+          amount={formatPesewas(book.disbursedThisMonth.amount)}
+          sub={`×${book.disbursedThisMonth.count}`}
+        />
+        <MoneyRow
+          label="Repaid this month"
+          amount={formatPesewas(book.repaidThisMonth.amount)}
+          sub={`×${book.repaidThisMonth.count}`}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- shared page parts --- */
+
+function PeriodControls({
+  period,
+  exportRows,
+}: {
+  period: PeriodKey;
+  exportRows: UnifiedTransaction[];
+}) {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const pickPeriod = (key: PeriodKey) => {
+    const next = new URLSearchParams(searchParams);
+    if (key === DEFAULT_PERIOD) next.delete("period");
+    else next.set("period", key);
+    setSearchParams(next, { preventScrollReset: true });
+  };
+
+  return (
+    <div className="flex justify-end gap-2">
+      <DropdownMenu>
+        <DropdownMenuTrigger className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-1.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
+          {PERIODS[period].label}
+          <ChevronDownIcon className="size-3" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {(Object.keys(PERIODS) as PeriodKey[]).map((key) => (
+            <DropdownMenuItem key={key} onSelect={() => pickPeriod(key)}>
+              {PERIODS[key].label}
+              {key === period && <CheckIcon className="ml-auto size-3.5" />}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <button
+        onClick={() => exportCsv(exportRows)}
+        disabled={exportRows.length === 0}
+        className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-1.5 text-[11px] font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50"
+      >
+        Export
+        <UploadIcon className="size-3" />
+      </button>
+    </div>
+  );
+}
+
+/* Not the notifications bell: a notification is one past event sent to one
+   person, an alert is a condition that stays true until the work is done and
+   reads the same for everyone in the office. The card carries no "see all"
+   for that reason — this *is* all of them. */
+function AlertsCard({ alerts }: { alerts: OfficeData["alerts"] }) {
+  return (
+    <Card title="Alerts needing action" plain>
+      {!alerts ? (
+        <Unavailable what="alerts" />
+      ) : alerts.alerts.length === 0 ? (
+        <p className="py-4 text-center text-xs text-muted-foreground">
+          Nothing is waiting on anyone. Alerts appear here the moment a payout,
+          an arrears case or an unconfirmed handover needs work.
+        </p>
+      ) : (
+        <div className="space-y-5">
+          {alerts.alerts.map((alert) => (
+            <Notice key={alert.key} alert={alert} />
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function RecentCard({
+  recent,
+  query,
+  setQuery,
+  rows,
+  visible,
+}: { recent: OfficeData["recent"] } & ReturnType<typeof useRecentRows>) {
+  return (
+    <Card
+      title="Recent Transactions"
+      detailTo="/transactions"
+      aside={
+        <label className="flex w-40 items-center gap-2 rounded-full bg-secondary px-3 py-1.5 focus-within:ring-2 focus-within:ring-ring/40 sm:w-52">
+          <SearchIcon className="size-3 shrink-0 text-muted-foreground" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Filter these rows..."
+            className="w-full bg-transparent text-[11px] outline-none placeholder:text-muted-foreground"
+          />
+        </label>
+      }
+    >
+      {recent ? (
+        <TransactionsTable rows={visible} query={query} total={rows.length} />
+      ) : (
+        <Unavailable what="recent transactions" />
+      )}
+    </Card>
+  );
+}
+
+function ReadAt({ at }: { at: string }) {
+  return (
+    <p className="mt-4 text-[11px] text-muted-foreground">
+      Live figures from the reporting API, read at {formatAccraDateTime(at)}.
+      Money is shown in cedis; every amount is held as pesewas.
+    </p>
   );
 }
 
@@ -593,7 +917,7 @@ function Card({
   const door = isOffice(useCurrentUser()) ? detailTo : undefined;
 
   return (
-    <section className="rounded-2xl bg-card p-4 text-card-foreground sm:p-5">
+    <section className="flex flex-col rounded-lg bg-card p-4 text-card-foreground sm:p-5">
       <header
         className={cn(
           "mb-4 flex flex-wrap items-center gap-2",
@@ -605,27 +929,12 @@ function Card({
           <div className="flex flex-wrap items-center gap-1.5">
             {aside}
             {door && (
-              <>
-                <Link
-                  to={door}
-                  className="rounded-full border border-border bg-card px-3 py-1 text-[10.5px] font-medium"
-                >
-                  See Detail
-                </Link>
-                <DropdownMenu>
-                  <DropdownMenuTrigger
-                    aria-label={`More options for ${title}`}
-                    className="flex size-6 items-center justify-center rounded-full border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-                  >
-                    <EllipsisIcon className="size-3.5" />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem asChild>
-                      <Link to={door}>Open full report</Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </>
+              <Link
+                to={door}
+                className="rounded-full border border-border bg-card px-3 py-1 text-[10.5px] font-medium"
+              >
+                See Detail
+              </Link>
             )}
           </div>
         )}
@@ -673,7 +982,7 @@ function Stat({
   hint?: string;
 }) {
   return (
-    <div className="relative rounded-2xl bg-card p-4">
+    <div className="relative rounded-lg bg-card p-4">
       <span
         className="absolute top-3.5 right-3.5 rounded-lg p-2"
         style={{ background: `var(--tint-${tint}-bg)` }}
@@ -683,9 +992,16 @@ function Stat({
       {/* keyed so a refresh re-enters the number instead of snapping */}
       <p
         key={value}
-        className="animate-in fade-in slide-in-from-bottom-1 text-[22px] font-bold tracking-tight duration-300 motion-reduce:animate-none"
+        className={cn(
+          "animate-in fade-in slide-in-from-bottom-1 pr-10 font-bold leading-tight tracking-tight tabular-nums duration-300 motion-reduce:animate-none",
+          // Full amounts, never abbreviated — a long one steps down a size,
+          // and on a phone drops below the icon to get the tile's full width.
+          value.length > 14
+            ? "text-base max-sm:pt-9 max-sm:pr-0 sm:text-lg"
+            : "text-lg sm:text-[22px]",
+        )}
       >
-        {value}
+        <TileFigure value={value} />
       </p>
       <p className="mt-1 pr-10 text-xs text-muted-foreground">{label}</p>
       {delta && (
@@ -738,8 +1054,8 @@ function Notice({ alert }: { alert: DashboardAlert }) {
 
 /* ------------------------------------------------------- collections chart --- */
 
-const FX0 = 42;
-const FX1 = 632;
+const FX0 = 62; // room for full-cedi axis figures
+const FX1 = 622; // room for the last month's label
 const FY0 = 12;
 const FY1 = 188;
 
@@ -751,21 +1067,75 @@ const FY1 = 188;
  * so underneath; drawing it any other way would read as collections stopping.
  */
 function CollectionsChart({ series }: { series: CashSeries }) {
-  const points = series.points;
+  return (
+    <LineChart
+      keys={series.points.map((p) => p.key)}
+      bucket={series.bucket}
+      primary={{ label: "Confirmed", values: series.points.map((p) => p.received) }}
+      secondary={{ label: "Recorded", values: series.points.map((p) => p.expected) }}
+      ariaLabel="Field cash recorded against cash confirmed at the office, by bucket"
+      empty="Not enough reconciled buckets in this range to draw a trend yet."
+    />
+  );
+}
+
+/**
+ * The bucket a chart opens on — the one someone came to the page to see.
+ * The month view runs the whole calendar year, so that is this month rather
+ * than December; day and week views end today, so it is the last bucket.
+ */
+function openingIndex(keys: string[], bucket: SeriesBucket): number {
+  const last = Math.max(0, keys.length - 1);
+  if (bucket !== "month") return last;
+  const at = keys.indexOf(accraDay().slice(0, 7));
+  return at === -1 ? last : at;
+}
+
+/** Cash in against cash out, bucket by bucket — transfers excluded. */
+function CashFlowChart({ series }: { series: CashSeries }) {
+  return (
+    <LineChart
+      keys={series.points.map((p) => p.key)}
+      bucket={series.bucket}
+      primary={{ label: "Cash in", values: series.points.map((p) => p.cashIn.amount) }}
+      secondary={{ label: "Cash out", values: series.points.map((p) => p.cashOut.amount) }}
+      ariaLabel="Cash received against cash paid out, by bucket"
+      empty="Not enough buckets in this range to draw a trend yet."
+    />
+  );
+}
+
+/**
+ * Two money series over the buckets: the coral `primary` glows under the
+ * pinned point, the navy `secondary` runs alongside it.
+ */
+function LineChart({
+  keys,
+  bucket,
+  primary,
+  secondary,
+  ariaLabel,
+  empty,
+}: {
+  keys: string[];
+  bucket: SeriesBucket;
+  primary: { label: string; values: number[] };
+  secondary: { label: string; values: number[] };
+  ariaLabel: string;
+  empty: string;
+}) {
+  const points = keys.map((key) => ({ key }));
   const n = points.length;
-  // Opens on the last bucket — the one someone came to the page to see.
-  const [focus, setFocus] = useState(Math.max(0, n - 1));
+  const [focus, setFocus] = useState(() => openingIndex(keys, bucket));
 
   if (n < 2) {
     return (
-      <p className="py-12 text-center text-xs text-muted-foreground">
-        Not enough reconciled buckets in this range to draw a trend yet.
-      </p>
+      <p className="py-12 text-center text-xs text-muted-foreground">{empty}</p>
     );
   }
 
-  const received = points.map((p) => p.received);
-  const expected = points.map((p) => p.expected);
+  const received = primary.values;
+  const expected = secondary.values;
   const scale = niceCeil(Math.max(...received, ...expected, 1));
 
   const fx = (i: number) => FX0 + (i * (FX1 - FX0)) / (n - 1);
@@ -791,7 +1161,7 @@ function CollectionsChart({ series }: { series: CashSeries }) {
       viewBox="0 0 640 252"
       className="h-auto w-full"
       role="img"
-      aria-label="Field cash recorded against cash confirmed at the office, by bucket"
+      aria-label={ariaLabel}
     >
       <defs>
         <radialGradient id="collect-glow" gradientUnits="userSpaceOnUse" cx={px} cy={py} r={130}>
@@ -815,7 +1185,7 @@ function CollectionsChart({ series }: { series: CashSeries }) {
           fontSize="9"
           style={{ fill: MUTED }}
         >
-          {f === 0 ? "0" : formatCedisCompact(scale * f)}
+          {f === 0 ? "0" : formatCedisWhole(scale * f)}
         </text>
       ))}
 
@@ -844,17 +1214,17 @@ function CollectionsChart({ series }: { series: CashSeries }) {
       </g>
 
       <g pointerEvents="none" className={SLIDE} style={{ transform: `translate(${px}px, 0)` }}>
-        <rect x={flip ? -166 : 14} y={FY0 + 6} width="152" height="60" rx="11" fill={TIP} />
-        <text x={(flip ? -166 : 14) + 12} y={FY0 + 22} fontSize="9" fontWeight="700" fill="#fff">
-          {bucketLabel(points[at].key, series.bucket)}
+        <rect x={flip ? -196 : 14} y={FY0 + 6} width="182" height="60" rx="11" fill={TIP} />
+        <text x={(flip ? -196 : 14) + 12} y={FY0 + 22} fontSize="9" fontWeight="700" fill="#fff">
+          {bucketLabel(points[at].key, bucket)}
         </text>
-        <circle cx={(flip ? -166 : 14) + 15} cy={FY0 + 35} r="3" style={{ fill: CORAL }} />
-        <text x={(flip ? -166 : 14) + 23} y={FY0 + 38} fontSize="9" fill="#B9BDC4">
-          Confirmed <tspan fill="#fff" fontWeight="700">{gh(received[at])}</tspan>
+        <circle cx={(flip ? -196 : 14) + 15} cy={FY0 + 35} r="3" style={{ fill: CORAL }} />
+        <text x={(flip ? -196 : 14) + 23} y={FY0 + 38} fontSize="9" fill="#B9BDC4">
+          {primary.label} <tspan fill="#fff" fontWeight="700">{gh(received[at])}</tspan>
         </text>
-        <circle cx={(flip ? -166 : 14) + 15} cy={FY0 + 51} r="3" style={{ fill: NAVY }} />
-        <text x={(flip ? -166 : 14) + 23} y={FY0 + 54} fontSize="9" fill="#B9BDC4">
-          Recorded <tspan fill="#fff" fontWeight="700">{gh(expected[at])}</tspan>
+        <circle cx={(flip ? -196 : 14) + 15} cy={FY0 + 51} r="3" style={{ fill: NAVY }} />
+        <text x={(flip ? -196 : 14) + 23} y={FY0 + 54} fontSize="9" fill="#B9BDC4">
+          {secondary.label} <tspan fill="#fff" fontWeight="700">{gh(expected[at])}</tspan>
         </text>
       </g>
 
@@ -887,7 +1257,7 @@ function CollectionsChart({ series }: { series: CashSeries }) {
               fontSize="9.5"
               style={{ fill: i === at ? FG : MUTED, transition: "fill 200ms" }}
             >
-              {tickLabel(p.key, series.bucket)}
+              {tickLabel(p.key, bucket)}
             </text>
           )}
         </g>
@@ -1048,7 +1418,18 @@ interface Slice {
   amount: number;
 }
 
-function PortfolioDonut({ slices }: { slices: Slice[] }) {
+function PortfolioDonut({
+  slices,
+  ariaLabel = "Portfolio mix",
+  caption = "total book",
+  empty = "The branch is holding nothing yet — no susu, savings or credit balances.",
+}: {
+  slices: Slice[];
+  ariaLabel?: string;
+  /** Under the total in the middle of the ring. */
+  caption?: string;
+  empty?: string;
+}) {
   const [hovered, setHovered] = useState<number | null>(null);
   const cx = 100;
   const cy = 96;
@@ -1057,9 +1438,7 @@ function PortfolioDonut({ slices }: { slices: Slice[] }) {
   const book = slices.reduce((sum, s) => sum + s.amount, 0);
   if (book <= 0) {
     return (
-      <p className="py-12 text-center text-xs text-muted-foreground">
-        The branch is holding nothing yet — no susu, savings or credit balances.
-      </p>
+      <p className="py-12 text-center text-xs text-muted-foreground">{empty}</p>
     );
   }
 
@@ -1093,7 +1472,7 @@ function PortfolioDonut({ slices }: { slices: Slice[] }) {
         viewBox="0 0 200 196"
         className="mx-auto h-auto w-full max-w-56"
         role="img"
-        aria-label={`Portfolio mix — ${gh(book)} across susu, savings and credit`}
+        aria-label={`${ariaLabel} — ${gh(book)} across ${slices.map((s) => s.label.toLowerCase()).join(", ")}`}
       >
         {ticks.map(([x1, y1, x2, y2], i) => (
           <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth="1.2" style={{ stroke: BORDER }} />
@@ -1115,11 +1494,11 @@ function PortfolioDonut({ slices }: { slices: Slice[] }) {
         )}
         {hovered === null ? (
           <>
-            <text x={cx} y={cy + 2} textAnchor="middle" fontSize="17" fontWeight="700" style={{ fill: FG }} pointerEvents="none">
+            <text x={cx} y={cy + 2} textAnchor="middle" fontSize={gh(book).length > 12 ? 10.5 : 14} fontWeight="700" style={{ fill: FG }} pointerEvents="none">
               {gh(book)}
             </text>
             <text x={cx} y={cy + 16} textAnchor="middle" fontSize="8.5" style={{ fill: MUTED }} pointerEvents="none">
-              total book
+              {caption}
             </text>
           </>
         ) : (
@@ -1169,7 +1548,16 @@ function lerpColor(a: string, b: string, t: number): string {
   return `rgb(${pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(",")})`;
 }
 
-function Gauge({ percent }: { percent: number | null }) {
+function Gauge({
+  percent,
+  label = "Collection efficiency",
+  emptyText = "nothing was due in this range",
+}: {
+  percent: number | null;
+  /** What the dial measures, for the screen reader. */
+  label?: string;
+  emptyText?: string;
+}) {
   // Null means nothing was due in the range. The dial still draws — an empty
   // card reads as a broken widget — but the figure is a dash, because there is
   // no percentage of zero.
@@ -1202,8 +1590,8 @@ function Gauge({ percent }: { percent: number | null }) {
       role="img"
       aria-label={
         percent === null
-          ? "Collection efficiency: nothing was due in this range"
-          : `Collection efficiency: ${Math.round(percent)}%`
+          ? `${label}: ${emptyText}`
+          : `${label}: ${Math.round(percent)}%`
       }
     >
       {ticks.map((tick, i) => (
@@ -1361,6 +1749,285 @@ function ReconTrend({ series }: { series: CashSeries }) {
       <p className="mt-2 text-center text-[10.5px] text-muted-foreground">
         {bucketLabel(rated[at].key, series.bucket)}
       </p>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------- profit wave --- */
+
+/**
+ * Net profit (revenue less expenses) bucket by bucket, drawn like the
+ * reconciliation wave. Profit can go below zero, so the zero line floats: it
+ * sits on the floor until a loss appears, then rises to make room for it.
+ */
+function ProfitTrend({ trend }: { trend: DashboardFinancials["trend"] }) {
+  const points = trend.points;
+  const n = points.length;
+  const [focus, setFocus] = useState(() =>
+    openingIndex(points.map((p) => p.key), trend.bucket),
+  );
+
+  if (n < 2) {
+    return (
+      <p className="py-10 text-center text-xs text-muted-foreground">
+        Fewer than two periods in this range, so there is no trend to draw yet.
+      </p>
+    );
+  }
+
+  const values = points.map((p) => p.netProfit);
+  const lo = Math.min(0, ...values);
+  const hi = Math.max(0, ...values);
+  const span = hi - lo || 1;
+
+  const rx = (i: number) => RX0 + (i * (RX1 - RX0)) / (n - 1);
+  const ry = (v: number) => RY_BASE - ((v - lo) / span) * RY_SPAN;
+  const zeroY = ry(0);
+
+  const pts = values.map((v, i) => [rx(i), ry(v)] as [number, number]);
+  const line = smoothPath(pts);
+  const area = `${line} L ${RX1} ${zeroY} L ${RX0} ${zeroY} Z`;
+
+  const at = Math.min(focus, n - 1);
+  const markX = pts[at][0];
+  const step = (RX1 - RX0) / (n - 1);
+  const dotEvery = Math.max(1, Math.floor((n - 1) / 4));
+  const shown = points[at];
+
+  return (
+    <div>
+      <svg
+        viewBox="0 0 320 126"
+        className="h-auto w-full overflow-visible"
+        role="img"
+        aria-label={`Net profit trend, ${ghSigned(shown.netProfit)} in ${bucketLabel(shown.key, trend.bucket)}`}
+      >
+        <defs>
+          <linearGradient id="profit-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#74A5D7" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#74A5D7" stopOpacity="0.04" />
+          </linearGradient>
+        </defs>
+
+        <path d={area} fill="url(#profit-fill)" />
+        {lo < 0 && (
+          <line x1={RX0} y1={zeroY} x2={RX1} y2={zeroY} strokeWidth="1" strokeDasharray="2 3" style={{ stroke: MUTED }} />
+        )}
+        <path d={line} fill="none" strokeWidth="1.5" style={{ stroke: SKY }} />
+
+        {pts.map(([x, y], i) =>
+          i % dotEvery === 0 ? (
+            <circle
+              key={points[i].key}
+              cx={x}
+              cy={y}
+              r="4"
+              strokeWidth="2"
+              style={{
+                fill: values[i] < 0 ? "var(--danger)" : SKY,
+                stroke: "var(--color-card)",
+              }}
+            />
+          ) : null,
+        )}
+
+        <g className={SLIDE} style={{ transform: `translate(${markX}px, 0)` }} pointerEvents="none">
+          <line x1="0" y1="28" x2="0" y2={RY_BASE} strokeWidth="1" strokeDasharray="3 3" style={{ stroke: FG }} />
+          {/* anchored inward at the ends, so a long figure stays in the card */}
+          <text
+            x="0"
+            y="18"
+            textAnchor={at === 0 ? "start" : at === n - 1 ? "end" : "middle"}
+            fontSize="15"
+            fontWeight="700"
+            style={{ fill: shown.netProfit < 0 ? "var(--danger)" : FG }}
+          >
+            {ghSigned(shown.netProfit)}
+          </text>
+          <polygon points={`-4,${RY_BASE} 4,${RY_BASE} 0,${RY_BASE + 7}`} style={{ fill: FG }} />
+        </g>
+
+        {pts.map(([x], i) => (
+          <rect
+            key={`hit${points[i].key}`}
+            x={x - step / 2}
+            y={0}
+            width={step}
+            height={126}
+            fill="transparent"
+            onMouseEnter={() => setFocus(i)}
+          />
+        ))}
+      </svg>
+
+      <div className="mt-3 flex justify-center gap-4 text-[10.5px] text-muted-foreground">
+        <span>{bucketLabel(shown.key, trend.bucket)}</span>
+        <span>
+          Revenue <b className="text-foreground">{gh(shown.revenue)}</b>
+        </span>
+        <span>
+          Expenses <b className="text-foreground">{gh(shown.expenses)}</b>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------------------------------------- staff performance --- */
+
+/** One colour per line, busiest member of staff first. */
+const STAFF_COLORS = [CORAL, NAVY, SKY, "var(--chart-4)", "var(--chart-5)"];
+const SY0 = 8;
+const SY1 = 126;
+
+/**
+ * Cash each of the busiest staff took in, one line apiece. The figures sit in
+ * a popover over the hovered bucket, with each person's total for the range
+ * beside their figure for that bucket.
+ */
+function StaffChart({ performance }: { performance: StaffPerformance }) {
+  const { keys, bucket, staff } = performance;
+  const n = keys.length;
+  const [focus, setFocus] = useState(() => openingIndex(keys, bucket));
+  const [open, setOpen] = useState(false);
+
+  if (staff.length === 0) {
+    return (
+      <p className="py-10 text-center text-xs text-muted-foreground">
+        No member of staff took in cash in this range.
+      </p>
+    );
+  }
+  if (n < 2) {
+    return (
+      <p className="py-10 text-center text-xs text-muted-foreground">
+        Fewer than two periods in this range, so there is no trend to draw yet.
+      </p>
+    );
+  }
+
+  const scale = niceCeil(Math.max(1, ...staff.flatMap((s) => s.values)));
+  const sx = (i: number) => RX0 + (i * (RX1 - RX0)) / (n - 1);
+  const sy = (v: number) => SY1 - (v / scale) * (SY1 - SY0);
+  const step = (RX1 - RX0) / (n - 1);
+  const labelEvery = Math.max(1, Math.ceil(n / 7));
+  const at = Math.min(focus, n - 1);
+  const markPct = (sx(at) / 320) * 100;
+  const flip = markPct > 50;
+
+  return (
+    <div className="relative" onMouseLeave={() => setOpen(false)}>
+      <svg
+        viewBox="0 0 320 150"
+        className="h-auto w-full overflow-visible"
+        role="img"
+        aria-label={`Cash taken in by staff, ${bucketLabel(keys[at], bucket)}`}
+      >
+        <line x1={RX0} y1={SY1} x2={RX1} y2={SY1} strokeWidth="1" style={{ stroke: BORDER }} />
+
+        {staff.map((s, k) => (
+          <polyline
+            key={s.id}
+            points={s.values.map((v, i) => `${sx(i)},${sy(v)}`).join(" ")}
+            fill="none"
+            strokeWidth="1.75"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            style={{ stroke: STAFF_COLORS[k % STAFF_COLORS.length] }}
+          />
+        ))}
+
+        <g className={SLIDE} style={{ transform: `translate(${sx(at)}px, 0)` }} pointerEvents="none">
+          <line x1="0" y1={SY0} x2="0" y2={SY1} strokeWidth="1" strokeDasharray="3 3" style={{ stroke: FG }} />
+        </g>
+        {staff.map((s, k) => (
+          <circle
+            key={`dot${s.id}`}
+            cx={sx(at)}
+            cy={sy(s.values[at] ?? 0)}
+            r="3.5"
+            strokeWidth="1.5"
+            pointerEvents="none"
+            style={{
+              fill: STAFF_COLORS[k % STAFF_COLORS.length],
+              stroke: "var(--color-card)",
+              transition: "cx 300ms ease-out, cy 300ms ease-out",
+            }}
+          />
+        ))}
+
+        {keys.map((key, i) =>
+          i % labelEvery === 0 || i === at ? (
+            <text
+              key={`tick${key}`}
+              x={sx(i)}
+              y={144}
+              textAnchor={i === 0 ? "start" : i === n - 1 ? "end" : "middle"}
+              fontSize="9"
+              style={{ fill: i === at ? FG : MUTED }}
+            >
+              {tickLabel(key, bucket)}
+            </text>
+          ) : null,
+        )}
+
+        {keys.map((key, i) => (
+          <rect
+            key={`hit${key}`}
+            x={sx(i) - step / 2}
+            y={0}
+            width={step}
+            height={150}
+            fill="transparent"
+            onMouseEnter={() => {
+              setFocus(i);
+              setOpen(true);
+            }}
+          />
+        ))}
+      </svg>
+
+      {/* the popover, anchored to the marker and opened on the side with room
+          for it. Hover drives it, so it never takes focus or the pointer — a
+          popover under the cursor would close the moment it opened. */}
+      <GlassPopover open={open} onOpenChange={setOpen}>
+        <GlassPopoverAnchor asChild>
+          <span
+            aria-hidden
+            className="pointer-events-none absolute top-1/3 h-px w-px"
+            style={{ left: `${markPct}%` }}
+          />
+        </GlassPopoverAnchor>
+        <GlassPopoverContent
+          side={flip ? "left" : "right"}
+          elevation="base"
+          align="center"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          className="pointer-events-none w-60 px-3.5 py-3 text-[11px] text-foreground"
+        >
+          <p className="mb-2 font-bold">{bucketLabel(keys[at], bucket)}</p>
+          <div className="space-y-2">
+            {staff.map((s, k) => (
+              <div key={s.id} className="flex items-baseline justify-between gap-3">
+                <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ background: STAFF_COLORS[k % STAFF_COLORS.length] }}
+                  />
+                  <span className="truncate">{s.name}</span>
+                </span>
+                <span className="shrink-0 text-right">
+                  <b className="block tabular-nums">{gh(s.values[at] ?? 0)}</b>
+                  <span className="block text-[9.5px] tabular-nums text-muted-foreground">
+                    {gh(s.total)} in range
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </GlassPopoverContent>
+      </GlassPopover>
     </div>
   );
 }

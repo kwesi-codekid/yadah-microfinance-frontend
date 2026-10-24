@@ -4,9 +4,11 @@ import type {
   CashSeries,
   CollectionEfficiency,
   DashboardAlerts,
+  DashboardFinancials,
   DashboardSummary,
   RecentTransactions,
   SeriesBucket,
+  StaffPerformance,
 } from "~/lib/reports";
 
 /**
@@ -88,6 +90,32 @@ export function getDashboardAlerts(
   return apiFetch("/dashboard/alerts", { accessToken });
 }
 
+/**
+ * GET /dashboard/financials — cash, deposits, loan book and profit. Admin and
+ * manager only; the counter gets a 403. The range shapes `trend` only.
+ */
+export function getDashboardFinancials(
+  accessToken: string,
+  params: SeriesParams = {},
+): Promise<DashboardFinancials> {
+  return apiFetch(`/dashboard/financials${queryOf({ ...params })}`, {
+    accessToken,
+  });
+}
+
+/**
+ * GET /dashboard/staff-performance — cash each member of staff took in,
+ * bucketed like the series. Admin and manager only; the counter gets a 403.
+ */
+export function getStaffPerformance(
+  accessToken: string,
+  params: SeriesParams = {},
+): Promise<StaffPerformance> {
+  return apiFetch(`/dashboard/staff-performance${queryOf({ ...params })}`, {
+    accessToken,
+  });
+}
+
 export interface RecentParams {
   limit?: number;
   /**
@@ -116,6 +144,13 @@ export interface DashboardPage {
   efficiency: CollectionEfficiency | null;
   alerts: DashboardAlerts | null;
   recent: RecentTransactions | null;
+  /**
+   * The money-first block. Null for the counter, who is not asked for it, and
+   * when the read failed — either way the page falls back to the counter view.
+   */
+  financials: DashboardFinancials | null;
+  /** Cash each member of staff took in. Office only, like `financials`. */
+  staffPerformance: StaffPerformance | null;
 }
 
 /**
@@ -133,9 +168,9 @@ export interface DashboardPage {
  */
 export async function getDashboardPage(
   accessToken: string,
-  params: SeriesParams & { recentLimit?: number } = {},
+  params: SeriesParams & { recentLimit?: number; office?: boolean } = {},
 ): Promise<DashboardPage> {
-  const { from, to, bucket, recentLimit = 8 } = params;
+  const { from, to, bucket, recentLimit = 8, office = false } = params;
 
   const soft = <T>(promise: Promise<T>): Promise<T | null> =>
     promise.catch((error: unknown) => {
@@ -143,13 +178,20 @@ export async function getDashboardPage(
       return null;
     });
 
-  const [summary, series, efficiency, alerts, recent] = await Promise.all([
-    getDashboardSummary(accessToken),
-    soft(getCashSeries(accessToken, { from, to, bucket })),
-    soft(getCollectionEfficiency(accessToken, { from, to })),
-    soft(getDashboardAlerts(accessToken)),
-    soft(getRecentTransactions(accessToken, { limit: recentLimit })),
-  ]);
+  const [summary, series, efficiency, alerts, recent, financials, staffPerformance] =
+    await Promise.all([
+      getDashboardSummary(accessToken),
+      soft(getCashSeries(accessToken, { from, to, bucket })),
+      soft(getCollectionEfficiency(accessToken, { from, to })),
+      soft(getDashboardAlerts(accessToken)),
+      soft(getRecentTransactions(accessToken, { limit: recentLimit })),
+      office
+        ? soft(getDashboardFinancials(accessToken, { from, to, bucket }))
+        : Promise.resolve(null),
+      office
+        ? soft(getStaffPerformance(accessToken, { from, to, bucket }))
+        : Promise.resolve(null),
+    ]);
 
-  return { summary, series, efficiency, alerts, recent };
+  return { summary, series, efficiency, alerts, recent, financials, staffPerformance };
 }
