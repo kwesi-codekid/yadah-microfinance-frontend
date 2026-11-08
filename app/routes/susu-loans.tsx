@@ -1,4 +1,4 @@
-import { BanknoteArrowDownIcon, EyeIcon, MoreHorizontalIcon, NotebookPenIcon, PlusIcon, UserIcon } from "lucide-react";
+import { BanknoteArrowDownIcon, EyeIcon, MoreHorizontalIcon, NotebookPenIcon, PencilIcon, PlusIcon, UserIcon } from "lucide-react";
 
 import { data, Link, Outlet, useLocation, useNavigation, useSubmit } from "react-router";
 
@@ -306,6 +306,13 @@ function AccountRow({ row }: { row: Row }) {
                   </Link>
                 </DropdownMenuItem>
               )}
+              {/* Moving the account, and changing a deposit from its row inside. */}
+              <DropdownMenuItem asChild>
+                <Link to={`/susu-loans/${row.id}`}>
+                  <PencilIcon />
+                  Edit
+                </Link>
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

@@ -58,7 +58,7 @@ export interface CollectorRound {
   };
 }
 
-export type DayProduct = "susu" | "savings";
+export type DayProduct = "susu" | "savings" | "loan" | "susu-loan";
 
 export interface DayEntry {
   id: string;
@@ -89,6 +89,8 @@ export interface CollectorDay {
 export const PRODUCT_LABELS: Record<DayProduct, string> = {
   susu: "Susu",
   savings: "Savings",
+  loan: "Loan repayment",
+  "susu-loan": "Susu loan",
 };
 
 export const CHANNEL_LABELS: Record<string, string> = {
@@ -112,9 +114,16 @@ export function roundProgress(totals: CollectorRound["totals"]): number {
 
 /** Where the account behind a day entry lives in this app. */
 export function entryPath(entry: Pick<DayEntry, "product" | "accountId">): string {
-  return entry.product === "susu"
-    ? `/susu/${entry.accountId}`
-    : `/savings/${entry.accountId}`;
+  switch (entry.product) {
+    case "susu":
+      return `/susu/${entry.accountId}`;
+    case "savings":
+      return `/savings/${entry.accountId}`;
+    case "loan":
+      return `/loans/${entry.accountId}`;
+    case "susu-loan":
+      return `/susu-loans/${entry.accountId}`;
+  }
 }
 
 /**

@@ -106,6 +106,8 @@ export default [
     route("susu-loans/:id/txns/:txnId/receipt", "routes/susu-loan-txn-receipt.tsx"),
     route("susu-loans/:id", "routes/susu-loan-detail.tsx", [
       route("deposit", "routes/susu-loan-deposit.tsx"),
+      route("edit", "routes/susu-loan-edit.tsx"),
+      route("txns/:txnId/edit", "routes/susu-loan-txn-edit.tsx"),
     ]),
     /* Savings. Same shape as susu: the book is a page, opening an account is an
        errand and renders as a drawer over the rows. The account itself is a
@@ -238,6 +240,7 @@ export default [
       // The repayment drawer, opened over the book so the counter stays on the
       // list. The same drawer also opens over a loan's own page.
       route("repay/:id", "routes/loan-repay.tsx", { id: "routes/loans-repay" }),
+      route("edit/:id", "routes/loan-edit.tsx", { id: "routes/loans-edit" }),
     ]),
     // The paper loan book from a spreadsheet: a page, since it reviews many
     // loans at once. The template is a sibling so a download runs no page work.
@@ -252,6 +255,7 @@ export default [
     ),
     route("loans/:id", "routes/loan-detail.tsx", [
       route("repay", "routes/loan-repay.tsx"),
+      route("edit", "routes/loan-edit.tsx"),
       route("repay/susu", "routes/loan-repay-susu.tsx"),
       route("repay/susu-loan", "routes/loan-repay-susu-loan.tsx"),
       route("collateral/return", "routes/loan-collateral-return.tsx"),

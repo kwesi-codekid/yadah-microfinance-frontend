@@ -38,6 +38,10 @@ export interface SusuLoanTxn {
   savingsAccountId?: string;
   accraDay: string;
   recordedById: string;
+  /** Who typed it in, when that was not the person it is filed under. */
+  enteredById?: string;
+  recordedByName?: string;
+  enteredByName?: string;
   createdAt: string;
 }
 

@@ -73,10 +73,50 @@ export function listTxns(
 export function recordDeposit(
   accessToken: string,
   id: string,
-  input: { amount: number; idempotencyKey: string; channel?: SavingsChannel },
+  input: {
+    amount: number;
+    idempotencyKey: string;
+    channel?: SavingsChannel;
+    /** `YYYY-MM-DD`, when not today. */
+    occurredOn?: string;
+    /** The collector who took it, when the office is entering it for them. */
+    collectorId?: string;
+  },
 ): Promise<{ txn: SusuLoanTxn; account: SusuLoanAccount; replayed: boolean }> {
   return apiFetch(`/susu-loans/accounts/${id}/deposits`, {
     method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+/** PATCH /susu-loans/accounts/{id} — move it to the right customer. Office only. */
+export function editAccount(
+  accessToken: string,
+  id: string,
+  input: { customerId: string; reason: string },
+): Promise<{ account: SusuLoanAccount }> {
+  return apiFetch(`/susu-loans/accounts/${id}`, { method: "PATCH", json: input, accessToken });
+}
+
+/**
+ * PATCH /susu-loans/accounts/{id}/txns/{txnId} — any part of a deposit. Office
+ * only; a `null` collector files it back under whoever typed it.
+ */
+export function editDeposit(
+  accessToken: string,
+  id: string,
+  txnId: string,
+  input: {
+    amount?: number;
+    channel?: "cash" | "momo";
+    occurredOn?: string;
+    collectorId?: string | null;
+    reason: string;
+  },
+): Promise<{ txn: SusuLoanTxn; account: SusuLoanAccount }> {
+  return apiFetch(`/susu-loans/accounts/${id}/txns/${txnId}`, {
+    method: "PATCH",
     json: input,
     accessToken,
   });

@@ -10,6 +10,7 @@ import {
   LandmarkIcon,
   PlusIcon,
   SettingsIcon,
+  PencilIcon,
   Trash2Icon,
   TrendingUpIcon,
   UploadIcon,
@@ -792,6 +793,14 @@ function LoanRow({ row }: { row: Row }) {
               >
                 <BanknoteArrowDownIcon />
                 Record repayment
+              </Link>
+            </DropdownMenuItem>
+            {/* Changing a loan's terms is the office's. Nothing about a rejected
+                application can change. */}
+            <DropdownMenuItem asChild disabled={!office || row.status === "rejected"}>
+              <Link to={`/loans/edit/${row.id}${search}`} prefetch="intent" preventScrollReset>
+                <PencilIcon />
+                Edit loan
               </Link>
             </DropdownMenuItem>
             <DropdownMenuSeparator />

@@ -11,7 +11,12 @@ import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
 import { getCustomer } from "~/api/customers";
 import { getAccount, recordDeposit } from "~/api/susu";
+import { listCollectors } from "~/api/collectors";
+import { CollectorField } from "~/components/collector-field";
 import { OccurredOnField } from "~/components/occurred-on-field";
+import { isCounter, isOffice } from "~/lib/auth";
+import { defaultCollector, readCollectorId, ROUND_ENTRY_DAYS } from "~/lib/collector-entry";
+import { NO_COLLECTOR } from "~/lib/customer-form";
 import { PlanPicker } from "~/components/plan-picker";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -54,7 +59,7 @@ export function meta(_: Route.MetaArgs) {
  * round sheet without the account page underneath it.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireUser(request);
+  const user = await requireUser(request);
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const { account } = await getAccount(token, params.id);
@@ -62,12 +67,30 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       const customer = await getCustomer(token, account.customerId)
         .then((r) => r.customer)
         .catch(() => null);
-      return { account: { ...account, customerName: customer?.fullName ?? account.customerName } };
+      const collectors = isCounter(user)
+        ? await listCollectors(token)
+            .then((r) => r.collectors)
+            .catch(() => null)
+        : null;
+      return {
+        account: { ...account, customerName: customer?.fullName ?? account.customerName },
+        collectors,
+        defaultCollectorId: defaultCollector(collectors, customer?.assignedCollectorId),
+      };
     } catch (error) {
       throwAsRouteError(error);
     }
   });
-  return data({ account: result.account, backdating: backdatingEnabled() }, { headers });
+  return data(
+    {
+      account: result.account,
+      collectors: result.collectors,
+      defaultCollectorId: result.defaultCollectorId,
+      office: isOffice(user),
+      backdating: backdatingEnabled(),
+    },
+    { headers },
+  );
 }
 
 /** The split travels as `payments:<planId>=<n>` fields, one, since the form takes one plan at a time. */
@@ -90,6 +113,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
   const channel = String(form.get("channel") ?? "cash") as DepositChannel;
   const occurredOn = occurredOnFromForm(form);
+  const collectorId = readCollectorId(form);
   const split = splitFromForm(form);
 
   if (amount == null || amount <= 0) {
@@ -107,6 +131,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         idempotencyKey,
         channel,
         ...(occurredOn ? { occurredOn } : {}),
+        ...(collectorId ? { collectorId } : {}),
       }),
     );
     if (result.replayed) {
@@ -147,7 +172,9 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
-  const { account, backdating } = loaderData;
+  const { account, backdating, collectors, defaultCollectorId, office } = loaderData;
+  const [collectorId, setCollectorId] = useState(defaultCollectorId);
+  const forCollector = collectors !== null && collectorId !== NO_COLLECTOR;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -297,7 +324,19 @@ export default function SusuDeposit({ loaderData }: Route.ComponentProps) {
             </Select>
           </div>
 
-          <OccurredOnField enabled={backdating} noun="deposit" />
+          {collectors && (
+            <CollectorField
+              collectors={collectors}
+              value={collectorId}
+              onChange={setCollectorId}
+            />
+          )}
+
+          <OccurredOnField
+            enabled={backdating || forCollector}
+            noun="deposit"
+            {...(forCollector && !office ? { maxDaysBack: ROUND_ENTRY_DAYS } : {})}
+          />
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">

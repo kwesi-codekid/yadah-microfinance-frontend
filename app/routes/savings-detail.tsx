@@ -45,7 +45,9 @@ import {
   trashAccount,
   trashTxn,
 } from "~/api/savings";
+import { listCollectors } from "~/api/collectors";
 import { listUsers } from "~/api/users";
+import { defaultCollector } from "~/lib/collector-entry";
 import { BackLink, Page } from "~/components/page";
 import {
   TxnRowMenu,
@@ -158,7 +160,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const { account } = await getAccount(token, params.id);
-      const [customer, txns, recent, trashed, staff, corrections] = await Promise.all([
+      const [customer, txns, recent, trashed, staff, corrections, collectors] = await Promise.all([
         getCustomer(token, account.customerId)
           .then((r) => r.customer)
           .catch(() => null),
@@ -191,8 +193,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
               limit: 100,
             }).catch(() => null)
           : Promise.resolve(null),
+        // Who the office may be entering this for, and how the counter reads
+        // a collector's name, since it cannot list the staff directory.
+        counter
+          ? listCollectors(token)
+              .then((r) => r.collectors)
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
-      return { account, customer, txns, recent, trashed, staff, corrections };
+      return { account, customer, txns, recent, trashed, staff, corrections, collectors };
     } catch (error) {
       throwAsRouteError(error);
     }
@@ -201,8 +210,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const names = new Map<string, string>(
     result.staff?.items.map((u) => [u.id, u.name]) ?? [],
   );
+  for (const c of result.collectors ?? []) names.set(c.id, c.name);
   names.set(user.id, user.name);
   const nameOf = (id: string) => names.get(id) ?? `Staff #${shortId(id)}`;
+  const byLine = (t: { recordedById: string; enteredById?: string }) =>
+    nameOf(t.recordedById) + (t.enteredById ? ` · entered by ${nameOf(t.enteredById)}` : "");
 
   // One open request per transaction is the API's rule, so a map by
   // transaction holds everything a row needs to say about it.
@@ -226,6 +238,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
        * loader at all, deliberately, so that it opens on the click.
        */
       backdating: backdatingEnabled(),
+      collectors: result.collectors,
+      defaultCollectorId: defaultCollector(
+        result.collectors,
+        result.customer?.assignedCollectorId,
+      ),
+      office,
       /** Closing, paying out and withdrawing — counter work. */
       canServe: counter,
       account: {
@@ -246,7 +264,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         total: result.txns.total,
         items: result.txns.items.map((t) => ({
           ...toRow(t),
-          recordedBy: nameOf(t.recordedById),
+          recordedBy: byLine(t),
           pending: pending.get(t.id) ?? null,
         })),
       },

@@ -217,6 +217,29 @@ export function apply(
  * the monthly schedule with the remainder folded into the last instalment, and
  * sends the approval SMS.
  */
+/**
+ * PATCH /loans/{id} — change any term. Office only. On a disbursed loan the
+ * totals, schedule, fee and status are reworked; only what is sent changes.
+ */
+export function editLoan(
+  accessToken: string,
+  id: string,
+  input: {
+    customerId?: string;
+    principal?: number;
+    durationMonths?: number;
+    ratePercent?: number;
+    disbursedOn?: string;
+    processingFee?: number;
+    collateralAmount?: number;
+    guarantors?: { fullName: string; phone: string; idNumber?: string }[];
+    paperRef?: string;
+    reason: string;
+  },
+): Promise<{ loan: Loan }> {
+  return apiFetch(`/loans/${id}`, { method: "PATCH", json: input, accessToken });
+}
+
 export function approve(accessToken: string, id: string): Promise<{ loan: Loan }> {
   return apiFetch(`/loans/${id}/approve`, { method: "POST", accessToken });
 }
@@ -307,10 +330,12 @@ export function recordRepayment(
     idempotencyKey: string;
     channel?: RepaymentChannel;
     /**
-     * `YYYY-MM-DD`, the day the customer paid. Omit for today. Office only —
-     * a teller is refused with `FORBIDDEN`.
+     * `YYYY-MM-DD`, the day the customer paid. Omit for today. Office only,
+     * unless entering for a collector — a teller may then go back a week.
      */
     paidOn?: string;
+    /** The collector who took it, when the office is entering it for them. */
+    collectorId?: string;
   },
 ): Promise<RepaymentResult> {
   return apiFetch(`/loans/${id}/repayments`, {

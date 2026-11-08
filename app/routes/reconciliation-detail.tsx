@@ -180,7 +180,16 @@ export default function ReconciliationDetail({ loaderData }: Route.ComponentProp
           label="Expected"
           value={formatPesewas(row.expectedAmount)}
           tone="muted"
-          hint={`Susu ${formatPesewas(row.expectedBreakdown.susu)} · Savings ${formatPesewas(row.expectedBreakdown.savings)}`}
+          hint={[
+            `Susu ${formatPesewas(row.expectedBreakdown.susu)}`,
+            `Savings ${formatPesewas(row.expectedBreakdown.savings)}`,
+            ...(row.expectedBreakdown.loans
+              ? [`Loans ${formatPesewas(row.expectedBreakdown.loans)}`]
+              : []),
+            ...(row.expectedBreakdown.susuLoans
+              ? [`Susu loans ${formatPesewas(row.expectedBreakdown.susuLoans)}`]
+              : []),
+          ].join(" · ")}
         />
         <Figure
           label="Declared"

@@ -61,6 +61,8 @@ export async function loader({
   const user = await requireCounter(request);
   const kind = params.kind as CorrectionKind;
   if (!CORRECTION_KINDS.includes(kind)) return nothing("Not a kind of entry that can be corrected.");
+  // Never offered from the ledger: it has its own drawer on the account page.
+  if (kind === "susu-loan-deposit") return nothing("Correct this on the susu loan account.");
   const { targetId, txnId } = params;
 
   try {

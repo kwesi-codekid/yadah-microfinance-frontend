@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
 import { getCustomer } from "~/api/customers";
+import { listCollectors } from "~/api/collectors";
 import { listUsers } from "~/api/users";
 import {
   approveCorrection,
@@ -135,7 +136,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
       const { account } = await getAccount(token, params.id);
-      const [customer, deposits, payouts, cycles, staff, corrections, trashedDeposits] =
+      const [customer, deposits, payouts, cycles, staff, corrections, trashedDeposits, collectors] =
         await Promise.all([
         getCustomer(token, account.customerId)
           .then((r) => r.customer)
@@ -156,14 +157,31 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         office
           ? listTrashedDeposits(token, params.id, { limit: ALL_ROWS }).catch(() => null)
           : Promise.resolve(null),
+        counter
+          ? listCollectors(token)
+              .then((r) => r.collectors)
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
-      return { account, customer, deposits, payouts, cycles, staff, corrections, trashedDeposits };
+      return {
+        account,
+        customer,
+        deposits,
+        payouts,
+        cycles,
+        staff,
+        corrections,
+        trashedDeposits,
+        collectors,
+      };
     } catch (error) {
       throwAsRouteError(error);
     }
   });
 
   const names = new Map<string, string>(result.staff?.items.map((u) => [u.id, u.name]) ?? []);
+  // The counter cannot list the staff directory, but it can read this roster.
+  for (const c of result.collectors ?? []) names.set(c.id, c.name);
   names.set(user.id, user.name);
   const nameOf = (id: string) => names.get(id) ?? `Staff #${shortId(id)}`;
 
@@ -187,7 +205,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         total: result.deposits.total,
         items: result.deposits.items.map((d) => ({
           ...toRow(d),
-          recordedBy: nameOf(d.collectorId),
+          recordedBy:
+            nameOf(d.collectorId) +
+            (d.enteredById ? ` · entered by ${nameOf(d.enteredById)}` : ""),
           pending: pending.get(d.id) ?? null,
         })),
       },

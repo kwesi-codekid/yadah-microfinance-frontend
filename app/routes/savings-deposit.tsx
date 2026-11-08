@@ -11,7 +11,10 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { recordDeposit } from "~/api/savings";
+import { CollectorField } from "~/components/collector-field";
 import { OccurredOnField } from "~/components/occurred-on-field";
+import { readCollectorId, ROUND_ENTRY_DAYS } from "~/lib/collector-entry";
+import { NO_COLLECTOR } from "~/lib/customer-form";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
 import { Figure } from "~/components/savings-bits";
 import { Button } from "~/components/ui/button";
@@ -68,6 +71,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
   const channel = String(form.get("channel") ?? "cash") as SavingsChannel;
   const occurredOn = occurredOnFromForm(form);
+  const collectorId = readCollectorId(form);
 
   const issue = checkDepositAmount(amount);
   if (issue) return data({ error: issue }, { status: 400 });
@@ -82,6 +86,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         idempotencyKey,
         channel,
         ...(occurredOn ? { occurredOn } : {}),
+        ...(collectorId ? { collectorId } : {}),
       }),
     );
     // A replay is not a failure, but it is not a second deposit either — the
@@ -114,6 +119,8 @@ export async function action({ request, params }: Route.ActionArgs) {
 
 export default function SavingsDeposit() {
   const detail = useRouteLoaderData<typeof detailLoader>("routes/savings-detail");
+  const [collectorId, setCollectorId] = useState(detail?.defaultCollectorId ?? NO_COLLECTOR);
+  const forCollector = Boolean(detail?.collectors) && collectorId !== NO_COLLECTOR;
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -240,7 +247,19 @@ export default function SavingsDeposit() {
             </Select>
           </div>
 
-          <OccurredOnField enabled={detail.backdating} noun="deposit" />
+          {detail.collectors && (
+            <CollectorField
+              collectors={detail.collectors}
+              value={collectorId}
+              onChange={setCollectorId}
+            />
+          )}
+
+          <OccurredOnField
+            enabled={detail.backdating || forCollector}
+            noun="deposit"
+            {...(forCollector && !detail.office ? { maxDaysBack: ROUND_ENTRY_DAYS } : {})}
+          />
 
           {/* Below the minimum the balance is real but untouchable, which is
               worth saying before the customer asks for it back tomorrow. */}

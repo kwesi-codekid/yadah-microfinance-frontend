@@ -120,6 +120,8 @@ export interface UnifiedTransaction {
   recordedById: string | null;
   /** `System` for automated moves; null when the record named nobody. */
   recordedByName: string | null;
+  /** Who typed it in, when that was not the person it is filed under. */
+  enteredByName?: string | null;
   /**
    * Which directory `recordedById` belongs to, and so how to read the name:
    * a member of staff, the customer themselves paying through the portal, an

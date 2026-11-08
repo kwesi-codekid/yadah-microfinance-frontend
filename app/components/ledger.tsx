@@ -63,6 +63,7 @@ export interface LedgerRow {
   wherePath: string | null;
   recordedBy: string;
   recordedByKind: RecordedByKind;
+  enteredBy: string | null;
   date: string;
   time: string;
   /** The Accra day this landed on — what the advice link searches. */
@@ -125,6 +126,7 @@ export function toLedgerRow(t: UnifiedTransaction): LedgerRow {
         ? (t.recordedByName ?? "Staff")
         : RECORDED_BY_LABELS[t.recordedByKind],
     recordedByKind: t.recordedByKind,
+    enteredBy: t.enteredByName ?? null,
     date: formatAccraDate(t.createdAt),
     // The full stamp reads `25 Aug 2026, 1:32 pm`; the date already has its
     // own line above, so only the clock time is kept here.
@@ -217,6 +219,7 @@ export const LEDGER_COLUMNS: Column<LedgerRow>[] = [
         )}
       >
         {row.recordedBy}
+        {row.enteredBy && <span className="block text-xs">entered by {row.enteredBy}</span>}
       </span>
     ),
   },

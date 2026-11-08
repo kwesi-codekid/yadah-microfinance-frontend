@@ -189,6 +189,10 @@ export interface Repayment {
   /** Set when the repayment came from the customer's susu loan account. */
   susuLoanAccountId?: string;
   recordedById?: string;
+  /** Who typed it in, when that was not the person it is filed under. */
+  enteredById?: string;
+  recordedByName?: string;
+  enteredByName?: string;
   createdAt?: string;
 }
 

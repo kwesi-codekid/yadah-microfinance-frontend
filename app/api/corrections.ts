@@ -28,6 +28,8 @@ function txnPath(kind: CorrectionKind, targetId: string, txnId: string): string 
       return `/loans/${targetId}/repayments/${txnId}`;
     case "hp-payment":
       return `/hire-purchase/agreements/${targetId}/payments/${txnId}`;
+    case "susu-loan-deposit":
+      return `/susu-loans/accounts/${targetId}/txns/${txnId}`;
   }
 }
 

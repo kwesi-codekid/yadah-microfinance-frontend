@@ -9,6 +9,7 @@ import {
   PiggyBankIcon,
   PrinterIcon,
   SmartphoneIcon,
+  PencilIcon,
   Trash2Icon,
   UserIcon,
   WalletIcon,
@@ -215,9 +216,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         balance: balanceAfter.get(r.id) ?? 0,
         source: SOURCE_LABELS[r.source] ?? r.source,
         at: r.createdAt ? formatAccraDateTime(r.createdAt) : "—",
-        recordedBy: r.recordedById
-          ? (names.get(r.recordedById) ?? "Staff")
-          : "System",
+        recordedBy:
+          (r.recordedByName ??
+            (r.recordedById ? (names.get(r.recordedById) ?? "Staff") : "System")) +
+          (r.enteredByName ? ` · entered by ${r.enteredByName}` : ""),
         // Why this one can never be corrected, or null. Only cash typed at
         // the counter has a data-entry mistake in it to correct.
         locked:
@@ -413,6 +415,8 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
             /* Taking a loan out of the book is the office's, whatever state
                it is in — so the counter is shown the entry greyed, not live. */
             trashable={canDecide}
+            /* Changing a loan's terms is the office's too. */
+            editable={canDecide && loan.status !== "rejected"}
           />
         </div>
       </header>
@@ -973,6 +977,7 @@ function LoanMenu({
   disbursed,
   collateralReturnable,
   trashable,
+  editable,
 }: {
   loanId: string;
   customerId: string;
@@ -982,6 +987,7 @@ function LoanMenu({
   /** Cash collateral is held and the loan is repaid — it may go back. */
   collateralReturnable: boolean;
   trashable: boolean;
+  editable: boolean;
 }) {
   const fetcher = useFetcher<ActionResult>();
   const [confirmTrash, setConfirmTrash] = useState(false);
@@ -1028,6 +1034,12 @@ function LoanMenu({
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
+          <DropdownMenuItem asChild disabled={!editable}>
+            <Link to={`/loans/${loanId}/edit`} prefetch="intent" preventScrollReset>
+              <PencilIcon />
+              Edit loan
+            </Link>
+          </DropdownMenuItem>
           {/* Proof the customer received the money. A resource route answering
               with bytes — a plain anchor, so the router does not try to
               navigate to it. Disabled rather than absent before the payout:

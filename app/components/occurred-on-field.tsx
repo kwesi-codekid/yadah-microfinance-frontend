@@ -17,10 +17,13 @@ import { accraDay } from "~/lib/format";
 export function OccurredOnField({
   enabled,
   noun,
+  maxDaysBack,
 }: {
   enabled: boolean;
   /** What is being recorded, for the line under the field: "deposit", "collection". */
   noun: string;
+  /** How far back the calendar goes, when not the usual two years. */
+  maxDaysBack?: number;
 }) {
   if (!enabled) return null;
   const today = new Date();
@@ -37,8 +40,16 @@ export function OccurredOnField({
         id="occurredOn"
         name="occurredOn"
         defaultValue={accraDay(today)}
-        matcher={{ after: today }}
-        startMonth={new Date(today.getFullYear() - 2, today.getMonth())}
+        matcher={
+          maxDaysBack === undefined
+            ? { after: today }
+            : [{ after: today }, { before: new Date(today.getTime() - maxDaysBack * 86_400_000) }]
+        }
+        startMonth={
+          maxDaysBack === undefined
+            ? new Date(today.getFullYear() - 2, today.getMonth())
+            : new Date(today.getTime() - maxDaysBack * 86_400_000)
+        }
         endMonth={today}
       />
       <p className="text-xs text-muted-foreground">

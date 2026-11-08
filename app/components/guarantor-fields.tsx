@@ -18,15 +18,20 @@ export function GuarantorFields({
   legendClassName,
   required = false,
   onFirstChange,
+  defaults,
 }: {
   legendClassName?: string;
   /** Marks the first guarantor's name and phone as required. */
   required?: boolean;
   /** Told what the first block holds, for forms that gate on it. */
   onFirstChange?: (first: { fullName: string; phone: string }) => void;
+  /** Who is already standing behind it, on an edit. */
+  defaults?: { fullName: string; phone: string; idNumber?: string }[];
 }) {
-  const nextKey = useRef(1);
-  const [blocks, setBlocks] = useState<number[]>([0]);
+  const nextKey = useRef(Math.max(1, defaults?.length ?? 0));
+  const [blocks, setBlocks] = useState<number[]>(() =>
+    defaults && defaults.length > 0 ? defaults.map((_, i) => i) : [0],
+  );
   const first = useRef({ fullName: "", phone: "" });
 
   const star = required ? <span className="ml-0.5 text-destructive">*</span> : null;
@@ -51,6 +56,7 @@ export function GuarantorFields({
               <Input
                 id={`guarantorName-${key}`}
                 name="guarantorName"
+                defaultValue={defaults?.[key]?.fullName}
                 autoComplete="off"
                 maxLength={120}
                 onChange={i === 0 ? (e) => firstChanged({ fullName: e.target.value }) : undefined}
@@ -76,6 +82,7 @@ export function GuarantorFields({
               <Input
                 id={`guarantorPhone-${key}`}
                 name="guarantorPhone"
+                defaultValue={defaults?.[key]?.phone}
                 type="tel"
                 inputMode="tel"
                 autoComplete="off"
@@ -90,6 +97,7 @@ export function GuarantorFields({
               <Input
                 id={`guarantorIdNumber-${key}`}
                 name="guarantorIdNumber"
+                defaultValue={defaults?.[key]?.idNumber}
                 autoComplete="off"
                 maxLength={40}
               />

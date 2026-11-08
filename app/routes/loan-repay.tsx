@@ -5,7 +5,12 @@ import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
+import { listCollectors } from "~/api/collectors";
+import { getCustomer } from "~/api/customers";
 import { getLoan, recordRepayment } from "~/api/loans";
+import { CollectorField } from "~/components/collector-field";
+import { defaultCollector, readCollectorId, ROUND_ENTRY_DAYS } from "~/lib/collector-entry";
+import { NO_COLLECTOR } from "~/lib/customer-form";
 import { RouteSheet, SheetActions, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { DateField } from "~/components/ui/date-field";
@@ -40,7 +45,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   const { data: result, headers } = await withAuth(request, async (token) => {
     try {
-      return await getLoan(token, params.id);
+      const detail = await getLoan(token, params.id);
+      const [customer, collectors] = await Promise.all([
+        getCustomer(token, detail.loan.customerId)
+          .then((r) => r.customer)
+          .catch(() => null),
+        listCollectors(token)
+          .then((r) => r.collectors)
+          .catch(() => []),
+      ]);
+      return { ...detail, customer, collectors };
     } catch (error) {
       throwAsRouteError(error);
     }
@@ -65,6 +79,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
        */
       canDate: user.role === "admin" || user.role === "manager",
       disbursedOn: result.loan.disbursedAt?.slice(0, 10) ?? null,
+      collectors: result.collectors,
+      defaultCollectorId: defaultCollector(
+        result.collectors,
+        result.customer?.assignedCollectorId,
+      ),
     },
     { headers },
   );
@@ -83,6 +102,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const amount = parseCedis(String(form.get("amount") ?? "").trim());
   const channel = String(form.get("channel") ?? "cash") as RepaymentChannel;
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
+  const collectorId = readCollectorId(form);
   // Left empty — or on today — nothing is sent and the API dates it now.
   const paidOnRaw = String(form.get("paidOn") ?? "").trim();
   const paidOn =
@@ -101,6 +121,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         idempotencyKey,
         channel,
         ...(paidOn ? { paidOn } : {}),
+        ...(collectorId ? { collectorId } : {}),
       }),
     ));
   } catch (error) {
@@ -161,8 +182,16 @@ function remainingFrom(error: ApiError): number | undefined {
 }
 
 export default function LoanRepay({ loaderData }: Route.ComponentProps) {
-  const { loan, canDate, disbursedOn } = loaderData;
+  const { loan, canDate, disbursedOn, collectors, defaultCollectorId } = loaderData;
   const today = new Date();
+  const [collectorId, setCollectorId] = useState(defaultCollectorId);
+  // The office dates any repayment. The counter only one it enters for a
+  // collector, who may have brought it back a day or two later.
+  const forCollector = collectorId !== NO_COLLECTOR;
+  const showDate = canDate || forCollector;
+  const earliest = canDate
+    ? new Date(today.getFullYear() - 2, today.getMonth())
+    : new Date(today.getTime() - ROUND_ENTRY_DAYS * 86_400_000);
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const { pathname } = useLocation();
@@ -279,7 +308,13 @@ export default function LoanRepay({ loaderData }: Route.ComponentProps) {
             </Select>
           </div>
 
-          {canDate && (
+          <CollectorField
+            collectors={collectors}
+            value={collectorId}
+            onChange={setCollectorId}
+          />
+
+          {showDate && (
             <div className="space-y-1.5">
               <Label
                 htmlFor="paidOn"
@@ -293,9 +328,10 @@ export default function LoanRepay({ loaderData }: Route.ComponentProps) {
                 placeholder="Today"
                 matcher={[
                   { after: today },
+                  ...(canDate ? [] : [{ before: earliest }]),
                   ...(disbursedOn ? [{ before: new Date(`${disbursedOn}T00:00:00`) }] : []),
                 ]}
-                startMonth={new Date(today.getFullYear() - 2, today.getMonth())}
+                startMonth={earliest}
                 endMonth={today}
               />
               <p className="text-xs text-muted-foreground">

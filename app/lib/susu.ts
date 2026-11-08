@@ -152,6 +152,8 @@ export interface SusuDeposit {
   customerId: string;
   /** Whoever recorded it — a collector in the field or office staff. */
   collectorId: string;
+  /** Who typed it in, when that was not the collector. */
+  enteredById?: string;
   /** The cash handed over. */
   amount: number;
   /** Σ lines.payments. */

@@ -5,7 +5,12 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { recordDeposit } from "~/api/susu-loans";
+import { CollectorField } from "~/components/collector-field";
+import { OccurredOnField } from "~/components/occurred-on-field";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
+import { occurredOnFromForm } from "~/lib/backdating.server";
+import { readCollectorId, ROUND_ENTRY_DAYS } from "~/lib/collector-entry";
+import { NO_COLLECTOR } from "~/lib/customer-form";
 import { Figure } from "~/components/savings-bits";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -46,6 +51,8 @@ export async function action({ request, params }: Route.ActionArgs) {
   const before = Number(form.get("balanceBefore") ?? 0);
   const idempotencyKey = String(form.get("idempotencyKey") ?? "");
   const channel = String(form.get("channel") ?? "cash") as SavingsChannel;
+  const occurredOn = occurredOnFromForm(form);
+  const collectorId = readCollectorId(form);
 
   if (amount == null || amount <= 0) {
     return data({ error: "Enter the amount received." }, { status: 400 });
@@ -56,7 +63,13 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   try {
     const { data: result, headers } = await withAuth(request, (token) =>
-      recordDeposit(token, params.id, { amount, idempotencyKey, channel }),
+      recordDeposit(token, params.id, {
+        amount,
+        idempotencyKey,
+        channel,
+        ...(occurredOn ? { occurredOn } : {}),
+        ...(collectorId ? { collectorId } : {}),
+      }),
     );
     if (result.replayed) {
       return data(
@@ -93,6 +106,8 @@ export default function SusuLoanDeposit() {
 
   const [amount, setAmount] = useState("");
   const [channel, setChannel] = useState<SavingsChannel>("cash");
+  const [collectorId, setCollectorId] = useState(detail?.defaultCollectorId ?? NO_COLLECTOR);
+  const forCollector = collectorId !== NO_COLLECTOR;
   const idempotencyKey = useMemo(() => newIdempotencyKey(), []);
 
   useEffect(() => {
@@ -205,6 +220,20 @@ export default function SusuLoanDeposit() {
               </SelectContent>
             </Select>
           </div>
+
+          {detail.collectors && (
+            <CollectorField
+              collectors={detail.collectors}
+              value={collectorId}
+              onChange={setCollectorId}
+            />
+          )}
+
+          <OccurredOnField
+            enabled={detail.office || forCollector}
+            noun="deposit"
+            {...(!detail.office ? { maxDaysBack: ROUND_ENTRY_DAYS } : {})}
+          />
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">

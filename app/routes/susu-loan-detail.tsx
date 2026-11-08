@@ -4,7 +4,13 @@ import {
   ChevronRightIcon,
   DoorClosedIcon,
   FileTextIcon,
+  PencilIcon,
 } from "lucide-react";
+import { listCollectors } from "~/api/collectors";
+import { listCorrections } from "~/api/corrections";
+import { getCustomer } from "~/api/customers";
+import { isOffice } from "~/lib/auth";
+import { defaultCollector } from "~/lib/collector-entry";
 import { useEffect } from "react";
 import { data, Form, Link, Outlet, useActionData } from "react-router";
 import { toast } from "sonner";
@@ -42,7 +48,7 @@ const TYPES: SusuLoanTxnType[] = ["deposit", "repayment", "leftover", "refund"];
  * like the rest of the product. No withdraw button — there is no withdrawal.
  */
 export async function loader({ request, params }: Route.LoaderArgs) {
-  await requireCounter(request);
+  const user = await requireCounter(request);
   const url = new URL(request.url);
   const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
   const typeParam = url.searchParams.get("type") as SusuLoanTxnType | null;
@@ -54,13 +60,41 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         getAccount(token, params.id),
         listTxns(token, params.id, { page, limit: PAGE_SIZE, ...(type ? { type } : {}) }),
       ]);
-      return { account, txns };
+      const [customer, collectors, corrections] = await Promise.all([
+        getCustomer(token, account.customerId)
+          .then((r) => r.customer)
+          .catch(() => null),
+        listCollectors(token)
+          .then((r) => r.collectors)
+          .catch(() => null),
+        // So a row can say the office has not answered yet. Soft: the statement
+        // must not go down with it.
+        listCorrections(token, { targetId: params.id, status: "pending", limit: 100 }).catch(
+          () => null,
+        ),
+      ]);
+      return {
+        account,
+        txns,
+        collectors,
+        assignedCollectorId: customer?.assignedCollectorId,
+        pendingTxnIds: corrections?.items.map((c) => c.txnId) ?? [],
+      };
     } catch (error) {
       throwAsRouteError(error);
     }
   });
 
-  return data({ ...result, page, type: type ?? "all" }, { headers });
+  return data(
+    {
+      ...result,
+      page,
+      type: type ?? "all",
+      office: isOffice(user),
+      defaultCollectorId: defaultCollector(result.collectors, result.assignedCollectorId),
+    },
+    { headers },
+  );
 }
 
 /** The deposit drawer opening does not re-read the statement. */
@@ -85,7 +119,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
-  const { account, txns, page, type } = loaderData;
+  const { account, txns, page, type, office, pendingTxnIds } = loaderData;
   const actionData = useActionData<typeof action>();
   const open = account.status === "active";
 
@@ -167,6 +201,18 @@ export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
               Statement
             </h3>
             <div className="flex flex-wrap items-center gap-2">
+              {office && (
+                <Button asChild variant="outline" size="sm">
+                  <Link
+                    to={`/susu-loans/${account.id}/edit`}
+                    prefetch="intent"
+                    preventScrollReset
+                  >
+                    <PencilIcon />
+                    Edit account
+                  </Link>
+                </Button>
+              )}
               {open && account.balance === 0 && (
                 <Form method="post">
                   <Button type="submit" variant="outline" size="sm">
@@ -217,6 +263,16 @@ export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
                     </TableCell>
                     <TableCell className="px-4 py-3">
                       <p className="font-medium">{TXN_LABELS[t.type]}</p>
+                      {t.type === "deposit" && t.recordedByName && (
+                        <p className="text-xs text-muted-foreground">
+                          {t.enteredByName
+                            ? `Collected by ${t.recordedByName} · entered by ${t.enteredByName}`
+                            : `Recorded by ${t.recordedByName}`}
+                        </p>
+                      )}
+                      {pendingTxnIds.includes(t.id) && (
+                        <p className="text-xs text-warning">Correction waiting on the office</p>
+                      )}
                       {t.loanId && (
                         <Link
                           to={`/loans/${t.loanId}`}
@@ -238,7 +294,27 @@ export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
                     <TableCell className="tabular hidden px-4 py-3 text-right whitespace-nowrap text-muted-foreground sm:table-cell">
                       {formatPesewas(t.balanceAfter)}
                     </TableCell>
-                    <TableCell className="px-4 py-3 text-right">
+                    <TableCell className="px-4 py-3 text-right whitespace-nowrap">
+                      {open &&
+                        t.type === "deposit" &&
+                        (t.channel === "cash" || t.channel === "momo") &&
+                        !pendingTxnIds.includes(t.id) && (
+                          <Button
+                            asChild
+                            variant="ghost"
+                            size="icon"
+                            className="size-8 text-muted-foreground"
+                          >
+                            <Link
+                              to={`/susu-loans/${account.id}/txns/${t.id}/edit`}
+                              prefetch="intent"
+                              preventScrollReset
+                              aria-label={office ? "Edit deposit" : "Ask to correct this deposit"}
+                            >
+                              <PencilIcon />
+                            </Link>
+                          </Button>
+                        )}
                       <Button
                         asChild
                         variant="ghost"

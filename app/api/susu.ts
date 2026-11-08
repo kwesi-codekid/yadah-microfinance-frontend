@@ -267,6 +267,8 @@ export function recordDeposit(
      * unless backdating is switched on for the data-population stage.
      */
     occurredOn?: string;
+    /** The collector who took it, when the office is entering it for them. */
+    collectorId?: string;
   },
 ): Promise<DepositResult> {
   return apiFetch(`/susu/accounts/${id}/deposits`, {

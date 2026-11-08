@@ -109,6 +109,8 @@ export interface SavingsTxn {
   /** Someone the holder sent to collect a withdrawal; absent when they came themselves. */
   collectedBy?: CollectedBy;
   recordedById: string;
+  /** Who typed it in, when that was not the person it is filed under. */
+  enteredById?: string;
   createdAt: string;
 }
 
