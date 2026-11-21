@@ -18,7 +18,7 @@ import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
-import { getLoan, listLoans, repayFromSusuLoan } from "~/api/loans";
+import { listLoans, repayFromSusuLoan } from "~/api/loans";
 import { closeAccount, getAccount, listTxns } from "~/api/susu-loans";
 import { FilterRail, RailFrame, type RailSection } from "~/components/filter-rail";
 import { Figure, PagerButton, Th } from "~/components/listing";
@@ -45,7 +45,6 @@ import {
   formatPesewas,
 } from "~/lib/format";
 import { newIdempotencyKey } from "~/lib/idempotency";
-import { isOpen } from "~/lib/loans";
 import { requireCounter, withAuth } from "~/lib/session.server";
 import { isCredit, TXN_LABELS, type SusuLoanTxnType } from "~/lib/susu-loans";
 import { redirectWithToast } from "~/lib/toast.server";
@@ -62,6 +61,21 @@ export const handle = { title: "Susu loan" };
 
 const PAGE_SIZE = 25;
 const TYPES: SusuLoanTxnType[] = ["deposit", "repayment", "leftover", "refund"];
+
+/** The loan "Repay loan" pays: the customer's open one, the oldest if there are ever two. */
+async function findOpenLoan(token: string, customerId: string) {
+  const lists = await Promise.all(
+    (["active", "arrears"] as const).map((status) =>
+      listLoans(token, { customerId, status, limit: 5 }),
+    ),
+  );
+  return (
+    lists
+      .flatMap((l) => l.items)
+      .filter((l) => l.remaining > 0)
+      .sort((a, b) => (a.disbursedAt ?? "").localeCompare(b.disbursedAt ?? ""))[0] ?? null
+  );
+}
 
 /**
  * One susu loan account: its balance and every movement on it. Office only,
@@ -92,22 +106,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         listCorrections(token, { targetId: params.id, status: "pending", limit: 100 }).catch(
           () => null,
         ),
-        // The loan the Settle button pays: the customer's open one, the oldest
-        // if there are ever two. Soft as well — without it there is no button.
-        Promise.all(
-          (["active", "arrears"] as const).map((status) =>
-            listLoans(token, { customerId: account.customerId, status, limit: 5 }),
-          ),
-        )
-          .then(
-            (lists) =>
-              lists
-                .flatMap((l) => l.items)
-                .filter((l) => l.remaining > 0)
-                .sort((a, b) => (a.disbursedAt ?? "").localeCompare(b.disbursedAt ?? ""))[0] ??
-              null,
-          )
-          .catch(() => null),
+        // Soft as well — without it there is no Repay loan button.
+        findOpenLoan(token, account.customerId).catch(() => null),
       ]);
       return {
         account,
@@ -147,31 +147,27 @@ export async function action({ request, params }: Route.ActionArgs) {
   const form = await request.formData();
   try {
     if (form.get("intent") === "settle") {
-      const loanId = String(form.get("loanId") ?? "");
       const idempotencyKey = String(form.get("idempotencyKey") ?? "");
-      const { data: result, headers } = await withAuth(request, async (token) => {
-        // Read both again: the amount is worked out here, never taken from the form.
-        const [{ account }, { loan }] = await Promise.all([
-          getAccount(token, params.id),
-          getLoan(token, loanId),
-        ]);
-        if (loan.customerId !== account.customerId || !isOpen(loan)) return null;
+      // The accounts list sends its own address, to come back to.
+      const returnTo = String(form.get("returnTo") ?? "");
+      const { data: outcome, headers } = await withAuth(request, async (token) => {
+        // Read afresh: the loan and the amount are worked out here, never
+        // taken from the form.
+        const { account } = await getAccount(token, params.id);
+        const loan = await findOpenLoan(token, account.customerId);
+        if (!loan) return { error: "This customer has no open loan to repay." };
         const amount = Math.min(account.balance, loan.remaining);
-        if (amount <= 0) return null;
-        return repayFromSusuLoan(token, loanId, { amount, idempotencyKey });
+        if (amount <= 0) return { error: "There is nothing in the susu loan account." };
+        return { result: await repayFromSusuLoan(token, loan.id, { amount, idempotencyKey }) };
       });
-      if (!result) {
-        return data(
-          { error: "There is nothing to settle — check the balance and the loan." },
-          { status: 422, headers },
-        );
-      }
+      if ("error" in outcome) return data({ error: outcome.error }, { status: 422, headers });
+      const { result } = outcome;
       return redirectWithToast(
-        `/susu-loans/${params.id}`,
+        returnTo.startsWith("/susu-loans") ? returnTo : `/susu-loans/${params.id}`,
         {
           tone: "success",
           message: result.replayed
-            ? "That settlement was already recorded."
+            ? "That repayment was already recorded."
             : `GH₵ ${formatAmount(result.repayment.amount)} paid onto the loan.`,
           description:
             result.loan.remaining > 0
@@ -314,7 +310,7 @@ export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
                   onClick={() => setSettleKey(newIdempotencyKey())}
                 >
                   <HandCoinsIcon />
-                  Settle loan
+                  Repay loan
                 </Button>
               )}
               {open && (
@@ -469,7 +465,7 @@ export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
           >
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Settle the loan from this account?</AlertDialogTitle>
+                <AlertDialogTitle>Repay the loan from this account?</AlertDialogTitle>
                 <AlertDialogDescription>
                   {formatPesewas(settleAmount)} is taken from this account and paid onto{" "}
                   {account.customerName ?? "the customer"}&rsquo;s loan now.{" "}
@@ -494,12 +490,12 @@ export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
                   onClick={() => {
                     if (!settleKey) return;
                     void submit(
-                      { intent: "settle", loanId: openLoan.id, idempotencyKey: settleKey },
+                      { intent: "settle", idempotencyKey: settleKey },
                       { method: "post" },
                     );
                   }}
                 >
-                  Settle {formatPesewas(settleAmount)}
+                  Repay {formatPesewas(settleAmount)}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

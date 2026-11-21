@@ -1,9 +1,20 @@
-import { BanknoteArrowDownIcon, EyeIcon, MoreHorizontalIcon, NotebookPenIcon, PencilIcon, PlusIcon, UserIcon } from "lucide-react";
-
-import { data, Link, Outlet, useLocation, useNavigation, useSubmit } from "react-router";
+import { BanknoteArrowDownIcon, EyeIcon, HandCoinsIcon, MoreHorizontalIcon, NotebookPenIcon, PencilIcon, PlusIcon, UserIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import { data, Link, Outlet, useFetcher, useLocation, useNavigation, useSubmit } from "react-router";
+import { toast } from "sonner";
 
 import { listAccounts } from "~/api/susu-loans";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import {
   DropdownMenu,
@@ -17,6 +28,7 @@ import { FilterBar, FilterChip, ListingFooter, SearchBox } from "~/components/li
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "~/components/ui/table";
 import { SusuStatusPill, Th } from "~/components/susu-bits";
 import { formatPesewas, relativeDayLabel } from "~/lib/format";
+import { newIdempotencyKey } from "~/lib/idempotency";
 import { requireCounter, withAuth } from "~/lib/session.server";
 import type { SusuLoanAccount, SusuLoanStatus } from "~/lib/susu-loans";
 import { cn } from "~/lib/utils";
@@ -250,6 +262,17 @@ export default function SusuLoans({ loaderData }: Route.ComponentProps) {
 
 function AccountRow({ row }: { row: Row }) {
   const open = row.status === "active";
+  const { pathname, search } = useLocation();
+  // Repay loan: the account's own page does the work, and sends us back here.
+  const repay = useFetcher<{ error?: string }>();
+  // A fresh key each time the dialog opens, so a later repayment is not
+  // mistaken for a retry of this one.
+  const [repayKey, setRepayKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (repay.data?.error) toast.error(repay.data.error);
+  }, [repay.data]);
+
   return (
     <TableRow className="group">
       <TableCell className="px-4 py-3">
@@ -306,6 +329,15 @@ function AccountRow({ row }: { row: Row }) {
                   </Link>
                 </DropdownMenuItem>
               )}
+              {open && row.balance > 0 && (
+                <DropdownMenuItem
+                  disabled={repay.state !== "idle"}
+                  onSelect={() => setRepayKey(newIdempotencyKey())}
+                >
+                  <HandCoinsIcon />
+                  Repay loan
+                </DropdownMenuItem>
+              )}
               {/* Moving the account, and changing a deposit from its row inside. */}
               <DropdownMenuItem asChild>
                 <Link to={`/susu-loans/${row.id}`}>
@@ -315,6 +347,43 @@ function AccountRow({ row }: { row: Row }) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          <AlertDialog
+            open={repayKey !== null}
+            onOpenChange={(next) => {
+              if (!next) setRepayKey(null);
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Repay the loan from this account?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  The {formatPesewas(row.balance)} in account #{row.accountNumber} is paid onto{" "}
+                  {row.customerName}&rsquo;s loan now, up to what the loan still owes. If that
+                  pays the loan off, anything left over moves to their savings account, or stays
+                  here if they have none.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    if (!repayKey) return;
+                    void repay.submit(
+                      {
+                        intent: "settle",
+                        idempotencyKey: repayKey,
+                        returnTo: `${pathname}${search}`,
+                      },
+                      { method: "post", action: `/susu-loans/${row.id}` },
+                    );
+                  }}
+                >
+                  Repay loan
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
       </TableCell>
     </TableRow>
