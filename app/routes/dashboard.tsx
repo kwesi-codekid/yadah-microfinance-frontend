@@ -540,15 +540,11 @@ function FinancialDashboard({
               <PortfolioDonut
                 ariaLabel="Customer deposits"
                 caption="held for customers"
-                empty="No customer money is held yet — no susu, savings or loan-linked balances."
+                empty="No customer money is held yet — no susu or savings balances, and no loan collateral."
                 slices={[
                   { label: "Susu", color: CORAL, amount: f.deposits.susu },
                   { label: "Savings", color: NAVY, amount: f.deposits.savings },
-                  {
-                    label: "Loan-linked",
-                    color: SKY,
-                    amount: f.deposits.susuLoan + f.deposits.collateral,
-                  },
+                  { label: "Loan collateral", color: SKY, amount: f.deposits.collateral },
                 ]}
               />
             </Card>

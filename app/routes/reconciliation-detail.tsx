@@ -186,9 +186,6 @@ export default function ReconciliationDetail({ loaderData }: Route.ComponentProp
             ...(row.expectedBreakdown.loans
               ? [`Loans ${formatPesewas(row.expectedBreakdown.loans)}`]
               : []),
-            ...(row.expectedBreakdown.susuLoans
-              ? [`Susu loans ${formatPesewas(row.expectedBreakdown.susuLoans)}`]
-              : []),
           ].join(" · ")}
         />
         <Figure

@@ -53,7 +53,7 @@ export interface Reconciliation {
   accraDay: string;
   /** Recomputed at confirmation, not reused from declaration. */
   expectedAmount: number;
-  expectedBreakdown: { susu: number; savings: number; loans?: number; susuLoans?: number };
+  expectedBreakdown: { susu: number; savings: number; loans?: number };
   declaredAmount: number;
   declaredAt: string;
   declaredNote?: string;

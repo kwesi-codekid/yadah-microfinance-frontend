@@ -58,7 +58,7 @@ export interface CollectorRound {
   };
 }
 
-export type DayProduct = "susu" | "savings" | "loan" | "susu-loan";
+export type DayProduct = "susu" | "savings" | "loan";
 
 export interface DayEntry {
   id: string;
@@ -90,7 +90,6 @@ export const PRODUCT_LABELS: Record<DayProduct, string> = {
   susu: "Susu",
   savings: "Savings",
   loan: "Loan repayment",
-  "susu-loan": "Susu loan",
 };
 
 export const CHANNEL_LABELS: Record<string, string> = {
@@ -121,8 +120,6 @@ export function entryPath(entry: Pick<DayEntry, "product" | "accountId">): strin
       return `/savings/${entry.accountId}`;
     case "loan":
       return `/loans/${entry.accountId}`;
-    case "susu-loan":
-      return `/susu-loans/${entry.accountId}`;
   }
 }
 

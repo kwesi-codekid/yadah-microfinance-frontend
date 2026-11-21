@@ -306,8 +306,6 @@ export interface RepaymentResult {
   replayed: boolean;
   /** Present only on the susu-closure route — what happened on the susu side. */
   susuWithdrawal?: SusuWithdrawalResult;
-  /** Present only on the loan savings route — what is left in the account. */
-  susuLoanWithdrawal?: SusuWithdrawalResult;
 }
 
 /**
@@ -357,24 +355,6 @@ export function repayFromSusu(
   input: { susuAccountId: string; amount: number; idempotencyKey: string },
 ): Promise<RepaymentResult> {
   return apiFetch(`/loans/${id}/repayments/susu`, {
-    method: "POST",
-    json: input,
-    accessToken,
-  });
-}
-
-/**
- * POST /loans/{id}/repayments/susu-loan — pay the loan from the customer's
- * susu loan account, the only way money leaves it. Office only; at most the
- * account balance and at most what the loan still owes. Refused with
- * `NO_SUSU_LOAN` when the customer has none.
- */
-export function repayFromSusuLoan(
-  accessToken: string,
-  id: string,
-  input: { amount: number; idempotencyKey: string },
-): Promise<RepaymentResult> {
-  return apiFetch(`/loans/${id}/repayments/susu-loan`, {
     method: "POST",
     json: input,
     accessToken,

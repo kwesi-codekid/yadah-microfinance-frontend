@@ -22,15 +22,13 @@ export type CorrectionKind =
   | "susu-deposit"
   | "savings-txn"
   | "loan-repayment"
-  | "hp-payment"
-  | "susu-loan-deposit";
+  | "hp-payment";
 
 export const CORRECTION_KINDS: CorrectionKind[] = [
   "susu-deposit",
   "savings-txn",
   "loan-repayment",
   "hp-payment",
-  "susu-loan-deposit",
 ];
 
 export const KIND_LABELS: Record<CorrectionKind, string> = {
@@ -38,7 +36,6 @@ export const KIND_LABELS: Record<CorrectionKind, string> = {
   "savings-txn": "Savings",
   "loan-repayment": "Loan repayment",
   "hp-payment": "Hire-purchase instalment",
-  "susu-loan-deposit": "Susu loan deposit",
 };
 
 /** What one entry of each kind is called in a sentence. */
@@ -47,7 +44,6 @@ export const KIND_NOUNS: Record<CorrectionKind, string> = {
   "savings-txn": "transaction",
   "loan-repayment": "repayment",
   "hp-payment": "payment",
-  "susu-loan-deposit": "deposit",
 };
 
 export type CorrectionStatus = "pending" | "approved" | "rejected" | "cancelled";
@@ -134,8 +130,6 @@ export function targetPath(c: Pick<TxnCorrection, "kind" | "targetId">): string 
       return `/loans/${c.targetId}`;
     case "hp-payment":
       return `/hire-purchase/${c.targetId}`;
-    case "susu-loan-deposit":
-      return `/susu-loans/${c.targetId}`;
   }
 }
 
@@ -173,10 +167,6 @@ export type CorrectionContext =
       kind: "hp-payment";
       /** What the agreement owed before this payment landed. */
       remainingBefore: number;
-    }
-  | {
-      /** Any amount; the API refuses one that takes back money the loan has used. */
-      kind: "susu-loan-deposit";
     };
 
 /** The fault in a corrected amount, or null when the API would take it. */
@@ -216,8 +206,6 @@ export function checkCorrectedAmount(
       return pesewas > context.remainingBefore
         ? "More than was owed at the time."
         : null;
-    case "susu-loan-deposit":
-      return null;
   }
 }
 
@@ -251,7 +239,5 @@ export function describeCorrectedAmount(
         ? "Settles it exactly."
         : `Leaves GH₵ ${formatAmount(left)} owing.`;
     }
-    case "susu-loan-deposit":
-      return "It cannot go below what has already gone to the loan.";
   }
 }

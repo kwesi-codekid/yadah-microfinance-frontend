@@ -28,8 +28,8 @@ export type LoanDuration = (typeof DURATIONS)[number];
 
 /**
  * How a repayment reached the counter. `susu` is money taken from the
- * customer's susu balance, `susu-loan` from their susu loan account;
- * `susu-closure` and `loan-savings` (the account susu loan replaced) are history.
+ * customer's susu balance. `susu-closure`, `loan-savings` and `susu-loan`
+ * (the susu loan account, taken down 21 Nov 2026) are history: old rows only.
  */
 export type RepaymentSource =
   | "cash"
@@ -186,7 +186,7 @@ export interface Repayment {
   susuAccountId?: string;
   /** Set when the repayment came from the customer's loan savings account (history). */
   savingsAccountId?: string;
-  /** Set when the repayment came from the customer's susu loan account. */
+  /** Set when the repayment came from the retired susu loan account (history). */
   susuLoanAccountId?: string;
   recordedById?: string;
   /** Who typed it in, when that was not the person it is filed under. */
