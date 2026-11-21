@@ -4,6 +4,7 @@ import {
   ChevronRightIcon,
   DoorClosedIcon,
   FileTextIcon,
+  HandCoinsIcon,
   PencilIcon,
 } from "lucide-react";
 import { listCollectors } from "~/api/collectors";
@@ -11,21 +12,40 @@ import { listCorrections } from "~/api/corrections";
 import { getCustomer } from "~/api/customers";
 import { isOffice } from "~/lib/auth";
 import { defaultCollector } from "~/lib/collector-entry";
-import { useEffect } from "react";
-import { data, Form, Link, Outlet, useActionData } from "react-router";
+import { useEffect, useState } from "react";
+import { data, Form, Link, Outlet, useActionData, useNavigation, useSubmit } from "react-router";
 import { toast } from "sonner";
 
 import { throwAsRouteError } from "~/api/client";
 import { ApiError } from "~/api/error";
+import { getLoan, listLoans, repayFromSusuLoan } from "~/api/loans";
 import { closeAccount, getAccount, listTxns } from "~/api/susu-loans";
 import { FilterRail, RailFrame, type RailSection } from "~/components/filter-rail";
 import { Figure, PagerButton, Th } from "~/components/listing";
 import { BackLink, Page } from "~/components/page";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { SusuStatusPill } from "~/components/susu-bits";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "~/components/ui/table";
-import { formatAccraDate, formatAccraDateTime, formatCount, formatPesewas } from "~/lib/format";
+import {
+  formatAccraDate,
+  formatAccraDateTime,
+  formatAmount,
+  formatCount,
+  formatPesewas,
+} from "~/lib/format";
+import { newIdempotencyKey } from "~/lib/idempotency";
+import { isOpen } from "~/lib/loans";
 import { requireCounter, withAuth } from "~/lib/session.server";
 import { isCredit, TXN_LABELS, type SusuLoanTxnType } from "~/lib/susu-loans";
 import { redirectWithToast } from "~/lib/toast.server";
@@ -60,7 +80,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         getAccount(token, params.id),
         listTxns(token, params.id, { page, limit: PAGE_SIZE, ...(type ? { type } : {}) }),
       ]);
-      const [customer, collectors, corrections] = await Promise.all([
+      const [customer, collectors, corrections, openLoan] = await Promise.all([
         getCustomer(token, account.customerId)
           .then((r) => r.customer)
           .catch(() => null),
@@ -72,9 +92,26 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         listCorrections(token, { targetId: params.id, status: "pending", limit: 100 }).catch(
           () => null,
         ),
+        // The loan the Settle button pays: the customer's open one, the oldest
+        // if there are ever two. Soft as well — without it there is no button.
+        Promise.all(
+          (["active", "arrears"] as const).map((status) =>
+            listLoans(token, { customerId: account.customerId, status, limit: 5 }),
+          ),
+        )
+          .then(
+            (lists) =>
+              lists
+                .flatMap((l) => l.items)
+                .filter((l) => l.remaining > 0)
+                .sort((a, b) => (a.disbursedAt ?? "").localeCompare(b.disbursedAt ?? ""))[0] ??
+              null,
+          )
+          .catch(() => null),
       ]);
       return {
         account,
+        openLoan: openLoan ? { id: openLoan.id, remaining: openLoan.remaining } : null,
         txns,
         collectors,
         assignedCollectorId: customer?.assignedCollectorId,
@@ -100,10 +137,50 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 /** The deposit drawer opening does not re-read the statement. */
 export const shouldRevalidate = drawerParentShouldRevalidate;
 
-/** Closing an empty account — the only thing done on the page itself. */
+/**
+ * Done on the page itself: closing an empty account, and settling — paying
+ * the customer's loan from the account now, as far as the balance goes,
+ * rather than waiting for the loan's monthly dates.
+ */
 export async function action({ request, params }: Route.ActionArgs) {
   await requireCounter(request);
+  const form = await request.formData();
   try {
+    if (form.get("intent") === "settle") {
+      const loanId = String(form.get("loanId") ?? "");
+      const idempotencyKey = String(form.get("idempotencyKey") ?? "");
+      const { data: result, headers } = await withAuth(request, async (token) => {
+        // Read both again: the amount is worked out here, never taken from the form.
+        const [{ account }, { loan }] = await Promise.all([
+          getAccount(token, params.id),
+          getLoan(token, loanId),
+        ]);
+        if (loan.customerId !== account.customerId || !isOpen(loan)) return null;
+        const amount = Math.min(account.balance, loan.remaining);
+        if (amount <= 0) return null;
+        return repayFromSusuLoan(token, loanId, { amount, idempotencyKey });
+      });
+      if (!result) {
+        return data(
+          { error: "There is nothing to settle — check the balance and the loan." },
+          { status: 422, headers },
+        );
+      }
+      return redirectWithToast(
+        `/susu-loans/${params.id}`,
+        {
+          tone: "success",
+          message: result.replayed
+            ? "That settlement was already recorded."
+            : `GH₵ ${formatAmount(result.repayment.amount)} paid onto the loan.`,
+          description:
+            result.loan.remaining > 0
+              ? `GH₵ ${formatAmount(result.loan.remaining)} still owing.`
+              : "The loan is fully repaid.",
+        },
+        headers,
+      );
+    }
     const { headers } = await withAuth(request, (token) => closeAccount(token, params.id));
     return redirectWithToast(
       `/susu-loans/${params.id}`,
@@ -119,9 +196,17 @@ export async function action({ request, params }: Route.ActionArgs) {
 }
 
 export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
-  const { account, txns, page, type, office, pendingTxnIds } = loaderData;
+  const { account, txns, page, type, office, pendingTxnIds, openLoan } = loaderData;
   const actionData = useActionData<typeof action>();
+  const submit = useSubmit();
+  const busy = useNavigation().state !== "idle";
   const open = account.status === "active";
+
+  // A fresh key each time the dialog opens, so a second settlement later on
+  // the same page is not mistaken for a retry of the first.
+  const [settleKey, setSettleKey] = useState<string | null>(null);
+  const settleAmount = openLoan ? Math.min(account.balance, openLoan.remaining) : 0;
+  const canSettle = open && openLoan !== null && settleAmount > 0;
 
   useEffect(() => {
     if (actionData?.error) toast.error(actionData.error);
@@ -220,6 +305,17 @@ export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
                     Close account
                   </Button>
                 </Form>
+              )}
+              {canSettle && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => setSettleKey(newIdempotencyKey())}
+                >
+                  <HandCoinsIcon />
+                  Settle loan
+                </Button>
               )}
               {open && (
                 <Button asChild size="sm">
@@ -363,6 +459,52 @@ export default function SusuLoanDetail({ loaderData }: Route.ComponentProps) {
             </div>
           )}
         </section>
+
+        {openLoan && (
+          <AlertDialog
+            open={settleKey !== null}
+            onOpenChange={(next) => {
+              if (!next) setSettleKey(null);
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Settle the loan from this account?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {formatPesewas(settleAmount)} is taken from this account and paid onto{" "}
+                  {account.customerName ?? "the customer"}&rsquo;s loan now.{" "}
+                  {openLoan.remaining > settleAmount ? (
+                    <>
+                      The account is left empty and{" "}
+                      {formatPesewas(openLoan.remaining - settleAmount)} is still owing.
+                    </>
+                  ) : account.balance > settleAmount ? (
+                    <>
+                      That pays the loan off. The {formatPesewas(account.balance - settleAmount)}{" "}
+                      left over moves to their savings account, or stays here if they have none.
+                    </>
+                  ) : (
+                    <>That pays the loan off and leaves the account empty.</>
+                  )}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    if (!settleKey) return;
+                    void submit(
+                      { intent: "settle", loanId: openLoan.id, idempotencyKey: settleKey },
+                      { method: "post" },
+                    );
+                  }}
+                >
+                  Settle {formatPesewas(settleAmount)}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
 
         {/* The deposit drawer opens over all of it. */}
         <Outlet />
