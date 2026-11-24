@@ -44,11 +44,18 @@ export function CollectorField({
           ))}
         </SelectContent>
       </Select>
-      <p className="text-xs text-muted-foreground">
-        {value === NO_COLLECTOR
-          ? "Paid in at the office. It stays under your name."
-          : "It counts in this collector's day and cash. You stay on record as who entered it."}
-      </p>
+      {value === NO_COLLECTOR ? (
+        // The usual way money ended up under the attendant: the picker left
+        // on the office for a customer with no collector of their own.
+        <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+          Filed under your name, not a collector&rsquo;s. If a collector brought this in, pick
+          them above.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          It counts in this collector&rsquo;s day and cash. You stay on record as who entered it.
+        </p>
+      )}
     </div>
   );
 }

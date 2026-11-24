@@ -38,6 +38,10 @@ export interface LoanListParams {
   /** Inclusive Accra day, `YYYY-MM-DD`, on when the loan was applied for. */
   from?: string;
   to?: string;
+  /** `"true"`: only loans the office should raise the rate on today. */
+  rateDue?: "true";
+  /** `"true"`: only loans whose cash collateral is still held. */
+  collateralHeld?: "true";
 }
 
 /* ------------------------------------------------------------------ config --- */
@@ -107,6 +111,11 @@ export interface LoanTotals {
   /** Owed on arrears loans alone. */
   arrears: number;
   arrearsCount: number;
+  /** Cash collateral still held on these loans, and on how many. */
+  collateralHeld?: number;
+  collateralHeldCount?: number;
+  /** Open loans the office should raise the rate on today. */
+  rateIncreaseDueCount?: number;
 }
 
 /** GET /loans — the loan book, newest application first. */
@@ -359,6 +368,32 @@ export function repayFromSusu(
     json: input,
     accessToken,
   });
+}
+
+/**
+ * POST /loans/{id}/repayments/collateral — pay the loan out of its own cash
+ * collateral. Any amount up to what is still held and up to what the loan
+ * owes; the rest stays held. No cash moves. Office only.
+ */
+export function repayFromCollateral(
+  accessToken: string,
+  id: string,
+  input: { amount: number; idempotencyKey: string },
+): Promise<RepaymentResult> {
+  return apiFetch(`/loans/${id}/repayments/collateral`, {
+    method: "POST",
+    json: input,
+    accessToken,
+  });
+}
+
+/**
+ * POST /loans/{id}/raise-rate — raise a loan flagged `rateIncreaseDue` to the
+ * rate it is due for, on the original principal. Office only; refused with
+ * `NO_RATE_INCREASE_DUE` when nothing is due.
+ */
+export function raiseRate(accessToken: string, id: string): Promise<{ loan: Loan }> {
+  return apiFetch(`/loans/${id}/raise-rate`, { method: "POST", accessToken });
 }
 
 /**

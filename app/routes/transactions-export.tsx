@@ -47,6 +47,9 @@ export async function loader({ request }: Route.LoaderArgs) {
           // Same switch as the listing's "Include pending" toggle.
           includePending:
             url.searchParams.get("pending") === "1" ? "true" : undefined,
+          // And the "Include entered for collectors" one.
+          includeEntered:
+            url.searchParams.get("entered") === "1" ? "true" : undefined,
         },
         format,
       ),

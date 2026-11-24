@@ -91,6 +91,11 @@ interface Filters {
   to: string;
   /** Also show Paystack charges still in flight — never counted in the totals. */
   pending: boolean;
+  /**
+   * With a person: also show what they typed in for a collector. Off by
+   * default — that money is the collector's, not the typist's.
+   */
+  entered: boolean;
 }
 
 function readFilters(url: URL, office: boolean): Filters {
@@ -107,6 +112,7 @@ function readFilters(url: URL, office: boolean): Filters {
     from: day("from"),
     to: day("to"),
     pending: url.searchParams.get("pending") === "1",
+    entered: url.searchParams.get("entered") === "1",
   };
 }
 
@@ -118,6 +124,7 @@ function queryFor(f: Filters, page = 1): URLSearchParams {
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
   if (f.pending) p.set("pending", "1");
+  if (f.entered) p.set("entered", "1");
   if (page > 1) p.set("page", String(page));
   return p;
 }
@@ -164,6 +171,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         to: range.to,
         // Off by default on the API's side, so it is only ever sent as "true".
         includePending: filters.pending ? "true" : undefined,
+        includeEntered: filters.entered ? "true" : undefined,
       }),
       // Only to name the chip. A filter that reads `customerId=8f3c…` tells
       // nobody whose ledger they are looking at.
@@ -421,6 +429,24 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
     </Button>
   );
 
+  // Money an attendant typed in for a collector is filed under the collector.
+  // Narrowed to one person, it is left out unless asked for, so it never
+  // swells that person's own totals. Only meaningful when narrowed.
+  const narrowedToPerson = !office || Boolean(filters.recordedById);
+  const enteredToggle = narrowedToPerson ? (
+    <Button
+      variant="outline"
+      size="sm"
+      aria-pressed={filters.entered}
+      onClick={() => apply({ entered: !filters.entered })}
+      className={cn(filters.entered && "border-primary/50 text-primary")}
+      title="Also show what was typed in for a collector. It stays filed under the collector."
+    >
+      <UserIcon />
+      Include entered for collectors
+    </Button>
+  ) : null;
+
   const railHeading = (text: string) => (
     <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
       {text}
@@ -470,8 +496,9 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
                       {period("start")}
                     </div>
                   </div>
-                  <div className="[&>button]:w-full [&>button]:justify-start">
+                  <div className="space-y-2 [&>button]:w-full [&>button]:justify-start">
                     {pendingToggle}
+                    {enteredToggle}
                   </div>
                 </div>
               }
@@ -528,6 +555,7 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
             <>
               {/* Under `lg` the rail is a strip with no room for this. */}
               <span className="lg:hidden">{pendingToggle}</span>
+              {enteredToggle && <span className="lg:hidden">{enteredToggle}</span>}
               {/* The export carries the resolved range, so the file covers the
                   days on screen rather than re-defaulting on the API's side. */}
               <ExportMenu

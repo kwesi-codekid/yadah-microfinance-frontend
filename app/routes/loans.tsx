@@ -10,6 +10,7 @@ import {
   LandmarkIcon,
   PlusIcon,
   SettingsIcon,
+  ShieldIcon,
   PencilIcon,
   Trash2Icon,
   TrendingUpIcon,
@@ -77,6 +78,7 @@ import {
 import {
   LOAN_STATUS_BLURBS,
   LOAN_STATUS_LABELS,
+  collateralHeld,
   daysOverdue,
   isOpen,
   isPending,
@@ -118,8 +120,17 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
+/**
+ * Views across the statuses (client decisions, 22 Nov 2026): the loans whose
+ * cash collateral the branch still holds, and the loans the office should
+ * raise the rate on. Each is set on its own, with the status tab on All.
+ */
+const VIEWS = ["collateral", "rateDue"] as const;
+type View = (typeof VIEWS)[number];
+
 interface Filters {
   status: Tab;
+  view: View | "";
   search: string;
   /** Inclusive Accra days on when the loan was applied for. */
   from: string;
@@ -134,8 +145,10 @@ function readFilters(url: URL): Filters {
     const v = url.searchParams.get(key) ?? "";
     return DAY_RE.test(v) ? v : "";
   };
+  const viewParam = url.searchParams.get("view") as View | null;
   return {
     status: statusParam && STATUSES.includes(statusParam) ? statusParam : "all",
+    view: viewParam && VIEWS.includes(viewParam) ? viewParam : "",
     search: url.searchParams.get("search")?.trim() ?? "",
     from: day("from"),
     to: day("to"),
@@ -145,6 +158,7 @@ function readFilters(url: URL): Filters {
 function queryFor(f: Filters, page = 1): URLSearchParams {
   const p = new URLSearchParams();
   if (f.status !== "all") p.set("status", f.status);
+  if (f.view) p.set("view", f.view);
   if (f.search) p.set("search", f.search);
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
@@ -188,6 +202,8 @@ export async function loader({ request }: Route.LoaderArgs) {
         page,
         limit: PAGE_SIZE,
         status: filters.status === "all" ? undefined : filters.status,
+        ...(filters.view === "collateral" ? { collateralHeld: "true" as const } : {}),
+        ...(filters.view === "rateDue" ? { rateDue: "true" as const } : {}),
       }),
       listLoans(token, { ...scope, page: 1, limit: 1 }),
       ...STATUSES.map((status) =>
@@ -237,6 +253,10 @@ interface Row {
   durationMonths: number;
   /** True once the rate has climbed the escalation ladder at least once. */
   escalated: boolean;
+  /** The rate the office should raise it to, or null when nothing is due. */
+  rateDue: number | null;
+  /** Cash collateral the branch still holds on it. */
+  collateralHeld: number;
   frozen: boolean;
   /** `principal + interestAmount` at the rate in force now. */
   totalDue: number;
@@ -264,6 +284,8 @@ function toRow(loan: Loan, today: string): Row {
     ratePercent: loan.ratePercent,
     durationMonths: loan.durationMonths,
     escalated: Boolean(loan.escalatedAt),
+    rateDue: loan.rateIncreaseDue?.toRatePercent ?? null,
+    collateralHeld: collateralHeld(loan),
     frozen: loan.frozen,
     totalDue: loan.totalDue,
     totalRepaid: loan.totalRepaid,
@@ -325,9 +347,10 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
       preventScrollReset: true,
     });
 
-  const narrowed = Boolean(filters.search || filters.from || filters.to);
+  const narrowed = Boolean(filters.search || filters.from || filters.to || filters.view);
 
-  // The status views in the rail, each with its count under the same scope.
+  // The status views in the rail, each with its count under the same scope,
+  // then the two views across them.
   const sections = [
     {
       label: "Status",
@@ -335,10 +358,28 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
         key: t.key,
         label: t.label,
         count: counts[t.key],
-        to: hrefFor({ ...filters, status: t.key as Tab }),
+        to: hrefFor({ ...filters, status: t.key as Tab, view: "" }),
       })),
     },
+    {
+      label: "Needs attention",
+      items: [
+        {
+          key: "rateDue",
+          label: "Due for higher rate",
+          count: totals.rateIncreaseDueCount,
+          to: hrefFor({ ...filters, status: "all", view: "rateDue" }),
+        },
+        {
+          key: "collateral",
+          label: "Collateral held",
+          count: totals.collateralHeldCount,
+          to: hrefFor({ ...filters, status: "all", view: "collateral" }),
+        },
+      ],
+    },
   ];
+  const activeKey = filters.view || filters.status;
 
   const searchBox = (
     <SearchBox
@@ -380,7 +421,7 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
             <FilterRail
               label="Filter loans by status"
               sections={sections}
-              active={filters.status}
+              active={activeKey}
               horizontal
             />
           </div>
@@ -388,7 +429,7 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
           <FilterRail
             label="Filter loans by status"
             sections={sections}
-            active={filters.status}
+            active={activeKey}
             header={searchBox}
             footer={
               <>
@@ -477,6 +518,12 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
         <section className="overflow-hidden rounded-2xl bg-card pt-2 text-card-foreground">
           {narrowed && (
             <FilterBar total={total}>
+              {filters.view && (
+                <FilterChip
+                  onDrop={() => apply({ view: "" })}
+                  label={filters.view === "collateral" ? "Collateral held" : "Due for higher rate"}
+                />
+              )}
               {filters.search && (
                 <FilterChip
                   onDrop={() => apply({ search: "" })}
@@ -513,6 +560,9 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
                     <th className="pr-3 text-right">Total due</th>
                     <th className="pr-3 text-right">Repaid</th>
                     <th className="w-[12%] pr-3 text-right">Remaining</th>
+                    {filters.view === "collateral" && (
+                      <th className="pr-3 text-right">Collateral held</th>
+                    )}
                     <th className="pr-3">Due</th>
                     <th className="pr-3">Status</th>
                     <th className="pl-3 text-right">Actions</th>
@@ -520,7 +570,11 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
                 </thead>
                 <tbody>
                   {rows.map((row) => (
-                    <LoanRow key={row.id} row={row} />
+                    <LoanRow
+                      key={row.id}
+                      row={row}
+                      showCollateral={filters.view === "collateral"}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -551,8 +605,9 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
  * nothing yet.
  */
 function TotalsBand({ totals }: { totals: LoanTotals }) {
+  const held = totals.collateralHeldCount ?? 0;
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
       <Stat
         label="Total loaned"
         value={formatPesewas(totals.disbursed)}
@@ -580,6 +635,15 @@ function TotalsBand({ totals }: { totals: LoanTotals }) {
         note={`Owed on ${formatCount(totals.arrearsCount)} late ${totals.arrearsCount === 1 ? "loan" : "loans"}`}
         icon={AlertTriangleIcon}
         tone="danger"
+      />
+      {/* The customers' cash the branch holds as security — owed back to them
+          once their loans are repaid, less what went to the loans. */}
+      <Stat
+        label="Collateral held"
+        value={formatPesewas(totals.collateralHeld ?? 0)}
+        note={`Cash security on ${formatCount(held)} ${held === 1 ? "loan" : "loans"}`}
+        icon={ShieldIcon}
+        tone="neutral"
       />
     </div>
   );
@@ -642,7 +706,7 @@ function Stat({
 
 /* ----------------------------------------------------------------------- rows --- */
 
-function LoanRow({ row }: { row: Row }) {
+function LoanRow({ row, showCollateral }: { row: Row; showCollateral: boolean }) {
   // Carried into the repayment drawer so it closes onto the same filters.
   const { search } = useLocation();
   const office = isOffice(useCurrentUser());
@@ -718,6 +782,15 @@ function LoanRow({ row }: { row: Row }) {
           {row.escalated && <TrendingUpIcon className="size-3.5" />}
           {row.ratePercent}%
         </span>
+        {/* Nothing rises on its own any more: the office raises it. */}
+        {row.rateDue !== null && (
+          <span
+            className="ml-1.5 rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning"
+            title={`Past the months ${row.ratePercent}% covers. Raise it from the loan page.`}
+          >
+            {row.rateDue}% due
+          </span>
+        )}
       </td>
 
       <td className="tabular py-3 pr-3 text-right whitespace-nowrap">
@@ -733,6 +806,12 @@ function LoanRow({ row }: { row: Row }) {
           {formatPesewas(row.remaining)}
         </span>
       </td>
+
+      {showCollateral && (
+        <td className="tabular py-3 pr-3 text-right whitespace-nowrap">
+          {formatPesewas(row.collateralHeld)}
+        </td>
+      )}
 
       {/* No due date until approval builds the schedule — an em dash, not a
           blank, so the column reads as empty rather than broken. */}
@@ -930,7 +1009,7 @@ function LoansEmpty({
       </EmptyHeader>
       {narrowed ? (
         <Button asChild variant="outline" size="sm">
-          <Link to={hrefFor({ ...filters, search: "", from: "", to: "" })}>
+          <Link to={hrefFor({ ...filters, search: "", from: "", to: "", view: "" })}>
             Clear filters
           </Link>
         </Button>

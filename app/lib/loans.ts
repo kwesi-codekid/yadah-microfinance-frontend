@@ -10,9 +10,10 @@
  *
  * Interest is flat and charged on the principal for the whole duration, so
  * `totalDue` is `principal + interestAmount` and settling early pays the same.
- * The one thing that moves is the rate: an overdue loan escalates up a ladder,
- * recomputing interest on the *original* principal, until `frozen` says the
- * ladder is spent.
+ * The one thing that moves is the rate: a loan past the months its rate covers
+ * is flagged (`rateIncreaseDue`) and the office raises it, recomputing interest
+ * on the *original* principal (client decision, 22 Nov 2026 — it used to rise
+ * by itself). Past twelve months the loan goes into arrears on its own.
  */
 
 import type { IdType } from "~/lib/customers";
@@ -39,7 +40,9 @@ export type RepaymentSource =
   | "susu-closure"
   | "transfer"
   | "loan-savings"
-  | "susu-loan";
+  | "susu-loan"
+  /** Taken out of the cash collateral held on the loan itself. */
+  | "collateral";
 
 export type RepaymentChannel = "cash" | "paystack" | "momo";
 
@@ -108,8 +111,19 @@ export interface Loan {
   processingFee?: number;
   /** Pesewas. Cash left as security, held until it is handed back. */
   collateralAmount?: number;
+  /** Pesewas of the collateral already put toward the loan. */
+  collateralUsed?: number;
+  /** Pesewas the branch still holds: the collateral less what was used; 0 once handed back. */
+  collateralHeld?: number;
   /** When the cash collateral was handed back. */
   collateralReturnedAt?: string;
+  /** Pesewas handed back, when it was. */
+  collateralReturnedAmount?: number;
+  /**
+   * Set when the loan has run past its rate's window: the rate the office
+   * should raise it to, and what it would then owe in total. Detail and list only.
+   */
+  rateIncreaseDue?: { toRatePercent: number; totalDue: number };
 }
 
 /* ------------------------------------------------------------- paper loans --- */
@@ -326,7 +340,7 @@ export const LOAN_STATUS_LABELS: Record<LoanStatus, string> = {
 export const LOAN_STATUS_BLURBS: Record<LoanStatus, string> = {
   pending: "Waiting on a decision. Nothing has been disbursed.",
   active: "Disbursed and repaying to schedule.",
-  arrears: "Past due. The rate escalates until it is brought current.",
+  arrears: "Over twelve months and still owing. The rate no longer moves.",
   repaid: "Settled in full.",
   rejected: "Turned down. No money moved.",
 };
@@ -363,6 +377,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   transfer: "Transfer",
   "loan-savings": "From loan savings",
   "susu-loan": "From susu loan",
+  collateral: "From collateral",
 };
 
 export const CHANNEL_OPTIONS: { value: RepaymentChannel; label: string }[] = [
@@ -423,9 +438,24 @@ export function isOpen(loan: Pick<Loan, "status">): boolean {
  * back — only once the loan is repaid.
  */
 export function canReturnCollateral(
-  loan: Pick<Loan, "status" | "collateralAmount" | "collateralReturnedAt">,
+  loan: Pick<Loan, "status" | "collateralAmount" | "collateralReturnedAt" | "collateralHeld">,
 ): boolean {
-  return loan.status === "repaid" && Boolean(loan.collateralAmount) && !loan.collateralReturnedAt;
+  return loan.status === "repaid" && collateralHeld(loan) > 0;
+}
+
+/** What the branch still holds of a loan's collateral, in pesewas. */
+export function collateralHeld(
+  loan: Pick<Loan, "collateralAmount" | "collateralReturnedAt" | "collateralHeld">,
+): number {
+  if (!loan.collateralAmount || loan.collateralReturnedAt) return 0;
+  return loan.collateralHeld ?? loan.collateralAmount;
+}
+
+/** True while the open loan can be paid from the collateral it holds. */
+export function canPayFromCollateral(
+  loan: Pick<Loan, "status" | "collateralAmount" | "collateralReturnedAt" | "collateralHeld">,
+): boolean {
+  return isOpen(loan) && collateralHeld(loan) > 0;
 }
 
 /** True while the application can still be approved or rejected. */

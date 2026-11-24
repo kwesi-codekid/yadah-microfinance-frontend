@@ -44,6 +44,12 @@ export interface TransactionParams {
   /** Office only: one member of staff. The API narrows everyone else to themselves. */
   recordedById?: string;
   /**
+   * `"true"`, with a person: also list what they typed in for a collector.
+   * That money is the collector's, so by default it is left out of the
+   * typist's rows and totals.
+   */
+  includeEntered?: "true" | "false";
+  /**
    * `"true"` to also list Paystack charges not yet applied — money still in
    * flight, as `status: "pending"` or `"failed"` rows that are never in
    * `totals`. The API's default is `"false"`, so omit it for the ledger proper.

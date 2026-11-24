@@ -8,7 +8,11 @@ import { data, Form, useActionData, useFetcher, useNavigation } from "react-rout
 import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
+import { listCollectors } from "~/api/collectors";
 import { openAccount } from "~/api/savings";
+import { CollectorField } from "~/components/collector-field";
+import { readCollectorId } from "~/lib/collector-entry";
+import { NO_COLLECTOR } from "~/lib/customer-form";
 import { CustomerPicker, type PickedCustomer } from "~/components/customer-picker";
 import { RouteSheet, SheetCancel } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -46,7 +50,13 @@ export function meta(_: Route.MetaArgs) {
 /** Opening an account is office-only — enforced here, not just by hiding it. */
 export async function loader({ request }: Route.LoaderArgs) {
   await requireCounter(request);
-  return null;
+  // The roster, so a first deposit a collector brought back is filed under them.
+  const { data: collectors, headers } = await withAuth(request, (token) =>
+    listCollectors(token)
+      .then((r) => r.collectors)
+      .catch(() => []),
+  );
+  return data({ collectors }, { headers });
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -61,6 +71,7 @@ export async function action({ request }: Route.ActionArgs) {
   const fixed = accountType === "fixed";
   const guardianId = String(form.get("guardianId") ?? "").trim();
   const termMonths = Number(form.get("termMonths") ?? "");
+  const collectorId = readCollectorId(form);
 
   if (fixed && !guardianId) {
     return data({ error: "Choose the parent who is the guardian." }, { status: 400 });
@@ -95,7 +106,7 @@ export async function action({ request }: Route.ActionArgs) {
         // The deposit rides in the same transaction as the opening, so it
         // carries the key that makes a retry safe.
         ...(initialDeposit
-          ? { initialDeposit, idempotencyKey, channel }
+          ? { initialDeposit, idempotencyKey, channel, ...(collectorId ? { collectorId } : {}) }
           : {}),
       }),
     ));
@@ -125,7 +136,9 @@ export async function action({ request }: Route.ActionArgs) {
   );
 }
 
-export default function SavingsNew() {
+export default function SavingsNew({ loaderData }: Route.ComponentProps) {
+  const { collectors } = loaderData;
+  const [collectorId, setCollectorId] = useState(NO_COLLECTOR);
   const actionData = useActionData<typeof action>();
   const navigation = useNavigation();
   const submitting = navigation.state === "submitting";
@@ -338,6 +351,16 @@ export default function SavingsNew() {
                 </SelectContent>
               </Select>
             </div>
+          )}
+
+          {/* A first deposit is money like any other: when a collector took it,
+              it is filed under them, not under whoever opens the account. */}
+          {deposit && !tooSmall && (
+            <CollectorField
+              collectors={collectors}
+              value={collectorId}
+              onChange={setCollectorId}
+            />
           )}
 
           {/* The rules that surprise people at the counter later. */}

@@ -7,8 +7,10 @@ import {
   HandCoinsIcon,
   MoreHorizontalIcon,
   PrinterIcon,
+  ShieldIcon,
   SmartphoneIcon,
   PencilIcon,
+  TrendingUpIcon,
   Trash2Icon,
   UserIcon,
   WalletIcon,
@@ -34,6 +36,7 @@ import {
   getConfig,
   getEligibility,
   getLoan,
+  raiseRate,
   reject,
   trashLoan,
   trashRepayment,
@@ -92,7 +95,9 @@ import {
   LOAN_STATUS_LABELS,
   LOAN_STATUS_TONE,
   SOURCE_LABELS,
+  canPayFromCollateral,
   canReturnCollateral,
+  collateralHeld,
   daysOverdue,
   isOpen,
   isPending,
@@ -224,6 +229,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         locked:
           r.source === "susu" || r.source === "susu-closure"
             ? "This was paid from a susu account. It cannot be changed on its own."
+            : r.source === "collateral"
+            ? "This was paid from the collateral. Delete it to put the money back into the collateral."
             : r.source === "loan-savings" || r.source === "susu-loan"
               ? "This was paid from an account that has since been retired. It cannot be changed on its own."
               : r.source === "transfer"
@@ -252,6 +259,7 @@ const OFFICE_INTENTS = new Set([
   "correct-txn",
   "approve-correction",
   "reject-correction",
+  "raise-rate",
 ]);
 
 /**
@@ -293,6 +301,13 @@ export async function action({ request, params }: Route.ActionArgs) {
       if (intent === "reject") {
         await reject(token, params.id, reason);
         return { message: "Application rejected.", gone: false };
+      }
+      if (intent === "raise-rate") {
+        const { loan } = await raiseRate(token, params.id);
+        return {
+          message: `Rate raised to ${loan.ratePercent}%. ${formatPesewas(loan.remaining)} now owing.`,
+          gone: false,
+        };
       }
       if (intent === "trash") {
         await trashLoan(token, params.id, reason || undefined);
@@ -411,6 +426,8 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
             /* Handing cash back is the office's decision, and only once the
                loan is repaid. */
             collateralReturnable={canDecide && canReturnCollateral(loan)}
+            /* Putting the collateral toward the loan is the office's too. */
+            collateralPayable={canDecide && canPayFromCollateral(loan)}
             /* Taking a loan out of the book is the office's, whatever state
                it is in — so the counter is shown the entry greyed, not live. */
             trashable={canDecide}
@@ -422,6 +439,8 @@ export default function LoanDetail({ loaderData }: Route.ComponentProps) {
 
       <div className="space-y-4">
         <Kpis loan={loan} overdue={overdue} repayments={repayments.length} />
+
+        {loan.rateIncreaseDue && <RateDue loan={loan} canDecide={canDecide} />}
 
         <Charges loan={loan} />
 
@@ -515,6 +534,8 @@ function Kpis({
  */
 function Charges({ loan }: { loan: Route.ComponentProps["loaderData"]["loan"] }) {
   if (!loan.processingFee && !loan.collateralAmount) return null;
+  const used = loan.collateralUsed ?? 0;
+  const held = collateralHeld(loan);
   return (
     <dl className="flex flex-wrap gap-x-8 gap-y-2 rounded-2xl bg-card px-4 py-3 text-sm">
       {loan.processingFee ? (
@@ -528,13 +549,87 @@ function Charges({ loan }: { loan: Route.ComponentProps["loaderData"]["loan"] })
           <dt className="text-muted-foreground">Cash collateral</dt>
           <dd className="tabular font-medium">{formatPesewas(loan.collateralAmount)}</dd>
           <dd className="text-xs text-muted-foreground">
-            {loan.collateralReturnedAt
-              ? `handed back ${formatAccraDate(loan.collateralReturnedAt)}`
-              : "held"}
+            {[
+              used > 0 && `${formatPesewas(used)} paid to the loan`,
+              loan.collateralReturnedAt
+                ? `${formatPesewas(loan.collateralReturnedAmount ?? loan.collateralAmount - used)} handed back ${formatAccraDate(loan.collateralReturnedAt)}`
+                : held > 0
+                  ? `${formatPesewas(held)} held`
+                  : "none left",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </dd>
         </div>
       ) : null}
     </dl>
+  );
+}
+
+/**
+ * A loan past the months its rate covers. The rate no longer rises on its own
+ * (client decision, 22 Nov 2026): the office raises it here, to the rate the
+ * ladder says it is due, on the original principal.
+ */
+function RateDue({
+  loan,
+  canDecide,
+}: {
+  loan: Route.ComponentProps["loaderData"]["loan"];
+  canDecide: boolean;
+}) {
+  const fetcher = useFetcher<ActionResult>();
+  const [confirming, setConfirming] = useState(false);
+  const busy = fetcher.state !== "idle";
+  useEffect(() => {
+    if (!fetcher.data) return;
+    if (fetcher.data.ok) toast.success(fetcher.data.message);
+    else toast.error(fetcher.data.message);
+  }, [fetcher.data]);
+  const due = loan.rateIncreaseDue;
+  if (!due) return null;
+  const extra = due.totalDue - loan.totalDue;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
+      <div className="flex items-start gap-2">
+        <TrendingUpIcon className="mt-0.5 size-4 shrink-0 text-warning" />
+        <p>
+          <span className="font-medium">Due for a higher rate.</span> This loan has run past the
+          months {loan.ratePercent}% covers. Raised to {due.toRatePercent}%, it owes{" "}
+          {formatPesewas(due.totalDue)} in total ({formatPesewas(extra)} more).
+          {!canDecide && " The office raises it."}
+        </p>
+      </div>
+      {canDecide && (
+        <>
+          <Button size="sm" disabled={busy} onClick={() => setConfirming(true)}>
+            <TrendingUpIcon />
+            Raise to {due.toRatePercent}%
+          </Button>
+          <AlertDialog open={confirming} onOpenChange={setConfirming}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Raise this loan to {due.toRatePercent}%?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Interest becomes {due.toRatePercent}% of the {formatPesewas(loan.principal)}{" "}
+                  borrowed. The total owed goes from {formatPesewas(loan.totalDue)} to{" "}
+                  {formatPesewas(due.totalDue)}.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => fetcher.submit({ intent: "raise-rate" }, { method: "post" })}
+                >
+                  Raise rate
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -975,6 +1070,7 @@ function LoanMenu({
   open,
   disbursed,
   collateralReturnable,
+  collateralPayable,
   trashable,
   editable,
 }: {
@@ -985,6 +1081,8 @@ function LoanMenu({
   disbursed: boolean;
   /** Cash collateral is held and the loan is repaid — it may go back. */
   collateralReturnable: boolean;
+  /** Cash collateral is held and the loan still owes — it may pay the loan. */
+  collateralPayable: boolean;
   trashable: boolean;
   editable: boolean;
 }) {
@@ -1026,6 +1124,16 @@ function LoanMenu({
               Repay by mobile money
             </Link>
           </DropdownMenuItem>
+          {/* The collateral held on this loan, put toward it (client decision,
+              22 Nov 2026). Office only; no cash changes hands. */}
+          {collateralPayable && (
+            <DropdownMenuItem asChild>
+              <Link to={`/loans/${loanId}/repay/collateral`} prefetch="intent">
+                <ShieldIcon />
+                Repay from collateral
+              </Link>
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild disabled={!editable}>
             <Link to={`/loans/${loanId}/edit`} prefetch="intent" preventScrollReset>

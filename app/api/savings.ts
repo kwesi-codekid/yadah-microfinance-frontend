@@ -123,6 +123,8 @@ export function openAccount(
     initialDeposit?: number;
     idempotencyKey?: string;
     channel?: SavingsChannel;
+    /** The collector who took the first deposit, when the office enters it for them. */
+    collectorId?: string;
   },
 ): Promise<{ account: SavingsAccount; initialTxn?: SavingsTxn }> {
   return apiFetch("/savings/accounts", {

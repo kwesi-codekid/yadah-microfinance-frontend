@@ -242,6 +242,7 @@ export default [
       route("repay", "routes/loan-repay.tsx"),
       route("edit", "routes/loan-edit.tsx"),
       route("repay/susu", "routes/loan-repay-susu.tsx"),
+      route("repay/collateral", "routes/loan-repay-collateral.tsx"),
       route("collateral/return", "routes/loan-collateral-return.tsx"),
       route("charge", "routes/loan-charge.tsx"),
     ]),
