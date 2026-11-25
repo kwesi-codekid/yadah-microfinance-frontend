@@ -1,12 +1,4 @@
-import {
-  BanknoteIcon,
-  CoinsIcon,
-  PrinterIcon,
-  ReceiptIcon,
-  ShoppingCartIcon,
-  UserXIcon,
-  XCircleIcon,
-} from "lucide-react";
+import { PrinterIcon, ReceiptIcon, UserXIcon, XCircleIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   data,
@@ -20,15 +12,16 @@ import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
 import { listSales, voidSale } from "~/api/sales";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
 import {
+  DayRangeChip,
   DayRangeFilter,
   ExportMenu,
-  FilterMenu,
-  type MenuChoice,
+  FilterChip,
   SearchBox,
   StatusPill,
 } from "~/components/listing";
-import { Page } from "~/components/page";
+import { StatBand, StatCard } from "~/components/stat-band";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -189,7 +182,7 @@ interface ActionResult {
   message: string;
 }
 
-/** Voiding, from the row menu. Ringing one up is the POS. */
+/** Voiding, from the row menu. */
 export async function action({ request }: Route.ActionArgs) {
   await requireOffice(request);
   const form = await request.formData();
@@ -321,12 +314,66 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
       preventScrollReset: true,
     });
 
-  const items: MenuChoice[] = TABS.map((t) => ({
-    key: t.key,
-    label: t.label,
-    count: counts[t.key],
-    onSelect: () => apply({ status: t.key }),
-  }));
+  const hrefFor = (patch: Partial<Filters>) => {
+    const query = queryFor({ ...filters, ...patch }).toString();
+    return query ? `/sales?${query}` : "/sales";
+  };
+
+  // The status views down the rail, each with its count — the shape the loan
+  // and savings books have, so the books read as one product.
+  const sections = [
+    {
+      label: "Status",
+      items: TABS.map((t) => ({
+        key: t.key,
+        label: t.label,
+        count: counts[t.key],
+        to: hrefFor({ status: t.key }),
+      })),
+    },
+  ];
+
+  // This endpoint searches server-side, so the term goes through the URL
+  // rather than sifting the ten rows in hand.
+  const searchBox = (
+    <SearchBox
+      value={filters.search}
+      apply={(next) => apply({ search: next })}
+      hidden={{
+        status: filters.status === "all" ? "" : filters.status,
+        walkIn: filters.walkInOnly ? "1" : "",
+        from: filters.from,
+        to: filters.to,
+      }}
+      placeholder="Buyer, phone or receipt no."
+      label="Search sales"
+      busy={busy}
+      className="sm:w-full"
+    />
+  );
+
+  const dayRange = (align: "start" | "end") => (
+    <DayRangeFilter
+      from={filters.from}
+      to={filters.to}
+      apply={(next) => apply(next)}
+      title="Sold"
+      align={align}
+    />
+  );
+
+  const walkInToggle = (
+    <Button
+      variant="outline"
+      size="sm"
+      aria-pressed={filters.walkInOnly}
+      onClick={() => apply({ walkInOnly: !filters.walkInOnly })}
+      className={cn(filters.walkInOnly && "border-primary/50 text-primary")}
+    >
+      <UserXIcon />
+      Walk-ins only
+    </Button>
+  );
 
   const narrowed = Boolean(
     filters.search || filters.walkInOnly || filters.from || filters.to,
@@ -423,65 +470,85 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
   ];
 
   return (
-    <Page className="max-w-none">
-      <TotalsBand totals={totals} voided={counts.voided} />
+    <RailFrame
+      rail={({ horizontal }) =>
+        horizontal ? (
+          // Under `lg`: the search and the filters on one line, the statuses
+          // as a strip under them — as the loan book does it.
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="min-w-56 flex-1">{searchBox}</div>
+              {walkInToggle}
+              {dayRange("end")}
+            </div>
+            <FilterRail
+              label="Filter sales by status"
+              sections={sections}
+              active={filters.status}
+              horizontal
+            />
+          </div>
+        ) : (
+          <FilterRail
+            label="Filter sales by status"
+            sections={sections}
+            active={filters.status}
+            header={searchBox}
+            footer={
+              <div className="space-y-3">
+                <div>
+                  <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                    Date sold
+                  </h3>
+                  <div className="[&>button]:w-full [&>button]:justify-start">
+                    {dayRange("start")}
+                  </div>
+                </div>
+                <div className="[&>button]:w-full [&>button]:justify-start">{walkInToggle}</div>
+              </div>
+            }
+          />
+        )
+      }
+    >
+      <div className="space-y-4 px-4 py-6 sm:px-6">
+      {/* The filter's own figures, across every page of it; voided sales are
+          left out of the money. */}
+      <StatBand>
+        <StatCard label="Sales" value={formatCount(totals.salesCount)} />
+        <StatCard label="Revenue" value={formatPesewas(totals.revenue)} tone="in" />
+        <StatCard label="Profit" value={formatPesewas(totals.profit)} tone="revenue" />
+        <StatCard label="Voided" value={formatCount(counts.voided)} tone="out" />
+      </StatBand>
 
       <DataTable
-        filters={<FilterMenu label="Status" items={items} active={filters.status} />}
-        actions={
+        // What is narrowing the list, as chips — each one let go on its own.
+        filters={
           <>
-            <Button
-              variant="outline"
-              size="sm"
-              aria-pressed={filters.walkInOnly}
-              onClick={() => apply({ walkInOnly: !filters.walkInOnly })}
-              className={cn(
-                filters.walkInOnly && "border-primary/50 text-primary",
-              )}
-            >
-              <UserXIcon />
-              Walk-ins only
-            </Button>
-            <DayRangeFilter
-              from={filters.from}
-              to={filters.to}
-              apply={(next) => apply(next)}
-              title="Sold"
-            />
-            {canExport && (
-              <ExportMenu
-                path="/sales/export"
-                query={queryFor(filters).toString()}
-                total={total}
-                noun="sale"
+            {filters.search && (
+              <FilterChip onDrop={() => apply({ search: "" })} label={`“${filters.search}”`} />
+            )}
+            {filters.walkInOnly && (
+              <FilterChip onDrop={() => apply({ walkInOnly: false })} label="Walk-ins only" />
+            )}
+            {(filters.from || filters.to) && (
+              <DayRangeChip
+                from={filters.from}
+                to={filters.to}
+                onDrop={() => apply({ from: "", to: "" })}
               />
             )}
-            <Button asChild size="sm">
-              <Link to="/pos" prefetch="intent">
-                <ShoppingCartIcon />
-                New sale
-              </Link>
-            </Button>
           </>
         }
-        // This endpoint searches server-side, so the term goes through the URL
-        // rather than sifting the ten rows in hand. `SearchBox` owns the
-        // debounce and keeps working as a plain GET without JavaScript, which
-        // is why it replaces the table's own box rather than sitting beside it.
-        searchSlot={
-          <SearchBox
-            value={filters.search}
-            apply={(next) => apply({ search: next })}
-            hidden={{
-              status: filters.status === "all" ? "" : filters.status,
-              walkIn: filters.walkInOnly ? "1" : "",
-              from: filters.from,
-              to: filters.to,
-            }}
-            placeholder="Buyer, phone or receipt no."
-            label="Search sales"
-            busy={busy}
-          />
+        actions={
+          canExport ? (
+            <ExportMenu
+              path="/sales/export"
+              query={queryFor(filters).toString()}
+              total={total}
+              noun="sale"
+            />
+          ) : null
         }
         columns={columns}
         rows={rows}
@@ -527,7 +594,7 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
             ? "Nothing matches these filters. Widen them, or clear them to see every sale."
             : filters.status === "voided"
               ? "Nothing has been voided."
-              : "Nothing sold over the counter yet. Ring one up at the POS and it appears here with its receipt number."
+              : "Nothing sold over the counter yet."
         }
       />
 
@@ -588,114 +655,8 @@ export default function Sales({ loaderData }: Route.ComponentProps) {
           )}
         </AlertDialogContent>
       </AlertDialog>
-    </Page>
-  );
-}
-
-/* ------------------------------------------------------------------ totals --- */
-
-/**
- * What the filter came to, as the four KPI cards the dashboard and the ledger
- * open with. The API's figures cover the **whole filter** rather than the page
- * on screen and always leave voided sales out, so a page of ten rows can sit
- * under a total covering four hundred — which is why each card says what it is
- * counting rather than leaving it to be inferred from figures that will not add
- * up to the rows.
- */
-function TotalsBand({
-  totals,
-  voided,
-}: {
-  totals: { salesCount: number; revenue: number; profit: number };
-  voided: number;
-}) {
-  return (
-    <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-      <Stat
-        label="Sales"
-        value={formatCount(totals.salesCount)}
-        note="Completed, across every page"
-        icon={ReceiptIcon}
-        tone="neutral"
-      />
-      <Stat
-        label="Revenue"
-        value={formatPesewas(totals.revenue)}
-        note="Voided sales excluded"
-        icon={BanknoteIcon}
-        tone="in"
-      />
-      <Stat
-        label="Profit"
-        value={formatPesewas(totals.profit)}
-        note="Margin over cost"
-        icon={CoinsIcon}
-        tone="revenue"
-      />
-      <Stat
-        label="Voided"
-        value={formatCount(voided)}
-        note="Reversed after the fact"
-        icon={XCircleIcon}
-        tone="out"
-      />
-    </div>
-  );
-}
-
-/** The dashboard's KPI tile, with the ledger's own colours in the square. */
-function Stat({
-  label,
-  value,
-  note,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: string;
-  note: string;
-  icon: typeof ReceiptIcon;
-  tone: "in" | "out" | "revenue" | "neutral";
-}) {
-  return (
-    <div className="relative rounded-2xl bg-card p-4">
-      <span
-        aria-hidden
-        className={cn(
-          "absolute top-3.5 right-3.5 rounded-lg p-2",
-          tone === "in" && "bg-cash-in-subtle",
-          tone === "out" && "bg-cash-out-subtle",
-          tone === "revenue" && "bg-revenue-subtle",
-          tone === "neutral" && "bg-internal-subtle",
-        )}
-      >
-        <Icon
-          className={cn(
-            "size-4",
-            tone === "in" && "text-cash-in",
-            tone === "out" && "text-cash-out",
-            tone === "revenue" && "text-revenue-foreground",
-            tone === "neutral" && "text-internal",
-          )}
-        />
-      </span>
-      {/* Keyed so a change of filter re-enters the number instead of snapping,
-          exactly as the dashboard's own cards do. */}
-      <p
-        key={value}
-        className={cn(
-          "tabular animate-in fade-in slide-in-from-bottom-1 pr-10 text-[22px] font-bold tracking-tight duration-300 motion-reduce:animate-none",
-          tone === "in" && "text-cash-in",
-          tone === "revenue" && "text-revenue-foreground",
-          tone === "out" && "text-muted-foreground",
-          tone === "neutral" && "text-foreground",
-        )}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-xs font-medium">{label}</p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{note}</p>
-    </div>
+      </div>
+    </RailFrame>
   );
 }
 

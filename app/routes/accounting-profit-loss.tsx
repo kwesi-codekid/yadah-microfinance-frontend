@@ -114,22 +114,6 @@ export default function AccountingProfitLoss({ loaderData }: Route.ComponentProp
     <Page className="max-w-none" contentClassName="space-y-4">
       {/* The same order as every other book: its controls, the figures, then
           the statement itself on a card. */}
-      <div className="flex flex-wrap items-center justify-end gap-2">
-          <PeriodFilter
-            from={range.from}
-            to={range.to}
-            active={Boolean(filters.from || filters.to)}
-            apply={apply}
-          />
-          <ExportMenu
-            path="/accounting/profit-loss/export"
-            query={query.toString()}
-            total={1}
-            label={formatDayRange(range.from, range.to)}
-            pdf
-          />
-      </div>
-
       <StatBand>
         <StatCard label="Income" value={formatPesewas(inc.total)} tone="in" />
         <StatCard label="Expenses" value={formatPesewas(exp.total)} tone="out" />
@@ -147,6 +131,22 @@ export default function AccountingProfitLoss({ loaderData }: Route.ComponentProp
           busy && "opacity-60 transition-opacity",
         )}
       >
+        {/* The book's own actions sit on the card, over the rows they act on. */}
+        <div className="-mx-4 -mt-4 mb-4 flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3 sm:-mx-5 sm:-mt-5 sm:mb-5 sm:px-5">
+            <PeriodFilter
+              from={range.from}
+              to={range.to}
+              active={Boolean(filters.from || filters.to)}
+              apply={apply}
+            />
+            <ExportMenu
+              path="/accounting/profit-loss/export"
+              query={query.toString()}
+              total={1}
+              label={formatDayRange(range.from, range.to)}
+              pdf
+            />
+        </div>
 
 
           <div className="grid gap-6 lg:grid-cols-2">

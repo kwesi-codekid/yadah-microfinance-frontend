@@ -290,14 +290,9 @@ export default [
     route("payout-requests", "routes/payout-requests.tsx"),
     route("payout-requests/:id", "routes/payout-request-detail.tsx"),
 
-    /* Counter sales, in two halves. The till is the POS: a destination of its
-       own rather than an errand over the listing, because a basket, a buyer and
-       a total need room and because it is where someone stands for a minute. It
-       sits outside `/sales` so the rail can light one or the other — a path
-       under the listing would light both. `/sales` is then the day book: every
-       sale rung up, with its receipt and its voids. The export and the receipt
-       are resource routes, so they sit outside the listing that links to them. */
-    route("pos", "routes/pos.tsx"),
+    /* Counter sales: the day book — every sale, with its receipt and its
+       voids. The export and the receipt are resource routes, so they sit
+       outside the listing that links to them. */
     route("sales/export", "routes/sales-export.tsx"),
     route("sales/:id/receipt", "routes/sale-receipt.tsx"),
     route("sales/:id", "routes/sale-detail.tsx"),

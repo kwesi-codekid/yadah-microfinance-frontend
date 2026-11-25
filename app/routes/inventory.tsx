@@ -23,6 +23,7 @@ import {
   useFetcher,
   useLocation,
   useNavigation,
+  useOutletContext,
   useSubmit,
 } from "react-router";
 import { toast } from "sonner";
@@ -34,15 +35,12 @@ import {
   ExportMenu,
   FilterBar,
   FilterChip,
-  FilterMenu,
-  ListingCard,
   ListingFooter,
-  ListingToolbar,
   SearchBox,
   StatusPill,
   Th,
 } from "~/components/listing";
-import { Page } from "~/components/page";
+import { StatBand, StatCard } from "~/components/stat-band";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
@@ -88,6 +86,7 @@ import {
   type ItemStatus,
 } from "~/lib/hire-purchase";
 import { isOffice } from "~/lib/auth";
+import type { InventoryOutletContext } from "~/lib/inventory-rail";
 import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/inventory";
@@ -311,90 +310,136 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
     filters.search || filters.inStockOnly || filters.brandId || filters.categoryId,
   );
 
-  const railItems = TABS.map((t) => ({
-    key: t.key,
-    label: t.label,
-    count: counts[t.key],
-    to: hrefFor({ ...filters, status: t.key as Tab }),
-  }));
+  // The shelf's own search, status views and filters go into the module's one
+  // side panel, under its links — the layout seats whatever is handed up here.
+  const { setRailExtra } = useOutletContext<InventoryOutletContext>();
+  useEffect(() => {
+    const searchBox = (
+      <SearchBox
+        value={filters.search}
+        apply={(next) => apply({ search: next })}
+        hidden={{
+          status: filters.status === "all" ? "" : filters.status,
+          inStock: filters.inStockOnly ? "1" : "",
+          brand: filters.brandId,
+          category: filters.categoryId,
+        }}
+        placeholder="Search item, brand or category"
+        label="Search inventory"
+        busy={busy}
+        className="sm:w-full"
+      />
+    );
+    const narrowing = (
+      <>
+        <ChoiceFilter
+          value={filters.categoryId}
+          options={categories}
+          apply={(next) => apply({ categoryId: next })}
+          title="Category"
+          allLabel="Every category"
+        />
+        <ChoiceFilter
+          value={filters.brandId}
+          options={brands}
+          apply={(next) => apply({ brandId: next })}
+          title="Brand"
+          allLabel="Every brand"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          aria-pressed={filters.inStockOnly}
+          onClick={() => apply({ inStockOnly: !filters.inStockOnly })}
+          className={cn(filters.inStockOnly && "border-primary/50 text-primary")}
+        >
+          <BoxesIcon />
+          In stock only
+        </Button>
+      </>
+    );
+    setRailExtra({
+      header: searchBox,
+      sections: [
+        {
+          label: "Status",
+          items: TABS.map((t) => ({
+            key: t.key,
+            label: t.label,
+            count: counts[t.key],
+            to: hrefFor({ ...filters, status: t.key as Tab }),
+          })),
+        },
+      ],
+      active: filters.status,
+      footer: (
+        <div className="space-y-2 [&>button]:w-full [&>button]:justify-start">
+          <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+            Narrow by
+          </h3>
+          {narrowing}
+        </div>
+      ),
+      strip: (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="min-w-56 flex-1">{searchBox}</div>
+          {narrowing}
+        </div>
+      ),
+    });
+    // `apply` is rebuilt every render from the same filters, so it is not a
+    // dependency: what it does changes only when they do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, counts, brands, categories, busy, setRailExtra]);
+  // Leaving the shelf gives the panel back to the module's own links.
+  useEffect(() => () => setRailExtra(null), [setRailExtra]);
 
   return (
-    <Page className="max-w-none">
-      <ListingCard>
-        <ListingToolbar
-          tabs={<FilterMenu label="Status" items={railItems} active={filters.status} />}
-        >
-          <SearchBox
-            value={filters.search}
-            apply={(next) => apply({ search: next })}
-            hidden={{
-              status: filters.status === "all" ? "" : filters.status,
-              inStock: filters.inStockOnly ? "1" : "",
-              brand: filters.brandId,
-              category: filters.categoryId,
-            }}
-            placeholder="Search item, brand or category"
-            label="Search inventory"
-            busy={busy}
-          />
-          <ChoiceFilter
-            value={filters.categoryId}
-            options={categories}
-            apply={(next) => apply({ categoryId: next })}
-            title="Category"
-            allLabel="Every category"
-          />
-          <ChoiceFilter
-            value={filters.brandId}
-            options={brands}
-            apply={(next) => apply({ brandId: next })}
-            title="Brand"
-            allLabel="Every brand"
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            aria-pressed={filters.inStockOnly}
-            onClick={() => apply({ inStockOnly: !filters.inStockOnly })}
-            className={cn(filters.inStockOnly && "border-primary/50 text-primary")}
-          >
-            <BoxesIcon />
-            In stock only
-          </Button>
-          {/* The reveal, and the reason for it, in one control. */}
-          <Button
-            variant="outline"
-            size="sm"
-            aria-pressed={showCost}
-            onClick={() => setShowCost((current) => !current)}
-            title="Cost and margin are office figures. Never show them to a customer."
-          >
-            {showCost ? <EyeOffIcon /> : <EyeIcon />}
-            {showCost ? "Hide cost" : "Show cost"}
-          </Button>
-          <ExportMenu
-            path="/inventory/export"
-            query={(() => {
-              const p = queryFor(filters);
-              p.delete("page");
-              return p.toString();
-            })()}
-            total={total}
-            noun="item"
-          />
-          <Button asChild size="sm" variant="outline">
-            <Link to="/inventory/import">
-              <UploadIcon />
-              Import
-            </Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link to={`/inventory/new${search}`} prefetch="intent" preventScrollReset>
-              <PlusIcon />
-              Add item
-            </Link>
-          </Button>
-        </ListingToolbar>
+    <>
+      <div className="space-y-4 px-4 py-6 sm:px-6">
+        <StatBand columns={3}>
+          <StatCard label="Items" value={formatCount(counts.all)} />
+          <StatCard label="Active" value={formatCount(counts.active)} tone="in" />
+          <StatCard label="Discontinued" value={formatCount(counts.discontinued)} tone="out" />
+        </StatBand>
+
+        <section className="overflow-hidden rounded-2xl bg-card text-card-foreground">
+          {/* The book's own actions sit on the card, over the rows they act on. */}
+          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3">
+            {/* The reveal, and the reason for it, in one control. */}
+            <Button
+              variant="outline"
+              size="sm"
+              aria-pressed={showCost}
+              onClick={() => setShowCost((current) => !current)}
+              title="Cost and margin are office figures. Never show them to a customer."
+            >
+              {showCost ? <EyeOffIcon /> : <EyeIcon />}
+              {showCost ? "Hide cost" : "Show cost"}
+            </Button>
+            <ExportMenu
+              path="/inventory/export"
+              query={(() => {
+                const p = queryFor(filters);
+                p.delete("page");
+                return p.toString();
+              })()}
+              total={total}
+              noun="item"
+            />
+            <Button asChild size="sm" variant="outline">
+              <Link to="/inventory/import">
+                <UploadIcon />
+                Import
+              </Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link to={`/inventory/new${search}`} prefetch="intent" preventScrollReset>
+                <PlusIcon />
+                Add item
+              </Link>
+            </Button>
+          </div>
 
         {narrowed && (
           <FilterBar total={total}>
@@ -469,11 +514,12 @@ export default function Inventory({ loaderData }: Route.ComponentProps) {
           total={total}
           hrefFor={(p) => hrefFor(filters, p)}
         />
-      </ListingCard>
+        </section>
+      </div>
 
       {/* Add, edit and adjust-stock render here, over the shelf. */}
       <Outlet />
-    </Page>
+    </>
   );
 }
 

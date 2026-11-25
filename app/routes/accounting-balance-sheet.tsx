@@ -84,21 +84,6 @@ export default function AccountingBalanceSheet({ loaderData }: Route.ComponentPr
     <Page className="max-w-none" contentClassName="space-y-4">
       {/* The same order as every other book: its controls, the figures, then
           the statement itself on a card. */}
-      <div className="flex flex-wrap items-center justify-end gap-2">
-          <AsOfFilter
-            value={filters.asOf}
-            apply={apply}
-            title="Read the sheet as at"
-          />
-          <ExportMenu
-            path="/accounting/balance-sheet/export"
-            query={query.toString()}
-            total={1}
-            label={`As at ${formatDayRange(sheet.asOf, sheet.asOf)}`}
-            pdf
-          />
-      </div>
-
       <StatBand>
         <StatCard label="Assets" value={formatPesewas(a.total)} />
         <StatCard label="Liabilities" value={formatPesewas(l.total)} />
@@ -116,6 +101,21 @@ export default function AccountingBalanceSheet({ loaderData }: Route.ComponentPr
           busy && "opacity-60 transition-opacity",
         )}
       >
+        {/* The book's own actions sit on the card, over the rows they act on. */}
+        <div className="-mx-4 -mt-4 mb-4 flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3 sm:-mx-5 sm:-mt-5 sm:mb-5 sm:px-5">
+            <AsOfFilter
+              value={filters.asOf}
+              apply={apply}
+              title="Read the sheet as at"
+            />
+            <ExportMenu
+              path="/accounting/balance-sheet/export"
+              query={query.toString()}
+              total={1}
+              label={`As at ${formatDayRange(sheet.asOf, sheet.asOf)}`}
+              pdf
+            />
+        </div>
 
           {off ? (
             <p className="mb-4 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">

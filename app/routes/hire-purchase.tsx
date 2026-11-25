@@ -25,15 +25,13 @@ import {
   ExportMenu,
   FilterBar,
   FilterChip,
-  FilterMenu,
-  ListingCard,
   ListingFooter,
-  ListingToolbar,
   SearchBox,
   StatusPill,
   Th,
 } from "~/components/listing";
-import { Page } from "~/components/page";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
+import { StatBand, StatCard } from "~/components/stat-band";
 import { RedemptionCountdown } from "~/components/redemption";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
@@ -58,7 +56,7 @@ import {
   TableHeader,
   TableRow,
 } from "~/components/ui/table";
-import { formatPesewas, relativeDayLabel } from "~/lib/format";
+import { formatCount, formatPesewas, relativeDayLabel } from "~/lib/format";
 import {
   AGREEMENT_STATUS_BLURBS,
   AGREEMENT_STATUS_LABELS,
@@ -282,88 +280,143 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
       : "";
   const narrowed = Boolean(filters.search || filters.from || filters.to || closedStatus);
 
-  // The live states in the menu; a closed state picked from the other
-  // dropdown lights nothing here.
-  const railItems = TABS.map((t) => ({
-    key: t.key,
-    label: t.label,
-    count: counts[t.key as keyof typeof counts],
-    to: hrefFor({ ...filters, status: t.key as AgreementStatus | "all" }),
-  }));
+  // The live states down the rail, each with its count — the shape the loan
+  // and savings books have. A closed state picked from the dropdown under
+  // them lights nothing here.
+  const sections = [
+    {
+      label: "Status",
+      items: TABS.map((t) => ({
+        key: t.key,
+        label: t.label,
+        count: counts[t.key as keyof typeof counts],
+        to: hrefFor({ ...filters, status: t.key as AgreementStatus | "all" }),
+      })),
+    },
+  ];
+  const activeKey = closedStatus ? "" : filters.status;
+
+  const searchBox = (
+    <SearchBox
+      value={filters.search}
+      apply={(next) => apply({ search: next })}
+      hidden={{
+        status: filters.status === "all" ? "" : filters.status,
+        from: filters.from,
+        to: filters.to,
+      }}
+      placeholder="Search customer or item"
+      label="Search agreements"
+      busy={busy}
+      className="sm:w-full"
+    />
+  );
+  const anyStatus = (
+    <ChoiceFilter
+      value={closedStatus as AgreementStatus | ""}
+      options={STATUS_OPTIONS}
+      apply={(next) => apply({ status: next || "all" })}
+      title="Any status"
+      allLabel="Any status"
+      width="w-52"
+    />
+  );
+  const dayRange = (align: "start" | "end") => (
+    <DayRangeFilter
+      from={filters.from}
+      to={filters.to}
+      title="Signed"
+      align={align}
+      apply={(next) => apply(next)}
+    />
+  );
 
   return (
-    <Page className="max-w-none">
-      <ListingCard>
-        <ListingToolbar
-          tabs={
-            <FilterMenu
-              label="Status"
-              items={railItems}
-              active={closedStatus ? "" : filters.status}
+    <RailFrame
+      rail={({ horizontal }) =>
+        horizontal ? (
+          // Under `lg`: the search and the filters on one line, the statuses
+          // as a strip under them — as the loan book does it.
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="min-w-56 flex-1">{searchBox}</div>
+              {anyStatus}
+              {dayRange("end")}
+            </div>
+            <FilterRail
+              label="Filter agreements by status"
+              sections={sections}
+              active={activeKey}
+              horizontal
             />
-          }
-        >
-          <SearchBox
-            value={filters.search}
-            apply={(next) => apply({ search: next })}
-            hidden={{
-              status: filters.status === "all" ? "" : filters.status,
-              from: filters.from,
-              to: filters.to,
-            }}
-            placeholder="Search customer or item"
-            label="Search agreements"
-            busy={busy}
+          </div>
+        ) : (
+          <FilterRail
+            label="Filter agreements by status"
+            sections={sections}
+            active={activeKey}
+            header={searchBox}
+            footer={
+              <div className="space-y-3">
+                <div>
+                  <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+                    Date signed
+                  </h3>
+                  <div className="[&>button]:w-full [&>button]:justify-start">
+                    {dayRange("start")}
+                  </div>
+                </div>
+                <div className="[&>button]:w-full [&>button]:justify-start">{anyStatus}</div>
+              </div>
+            }
           />
-          <ChoiceFilter
-            value={closedStatus as AgreementStatus | ""}
-            options={STATUS_OPTIONS}
-            apply={(next) => apply({ status: next || "all" })}
-            title="Any status"
-            allLabel="Any status"
-            width="w-52"
-          />
-          <DayRangeFilter
-            from={filters.from}
-            to={filters.to}
-            title="Signed"
-            apply={(next) => apply(next)}
-          />
-          {/* Downloading the whole book is the office's; the counter works one
-              agreement at a time. */}
-          {isOffice(user) && (
-            <ExportMenu
-              path="/hire-purchase/export"
-              query={(() => {
-                const p = queryFor(filters);
-                p.delete("page");
-                return p.toString();
-              })()}
-              total={total}
-              noun="agreement"
-            />
-          )}
-          {/* The rate new agreements snapshot. Admin only — the drawer's own
-              loader is the gate; this only hides the door for everyone else. */}
-          {user?.role === "admin" && (
-            <Button asChild variant="outline" size="sm">
-              <Link to={`/hire-purchase/config${search}`} prefetch="intent" preventScrollReset>
-                <SettingsIcon />
-                Settings
+        )
+      }
+    >
+      <div className="space-y-4 px-4 py-6 sm:px-6">
+        {/* Counts, across the search and the dates: the book sends no money
+            totals to draw here. */}
+        <StatBand>
+          <StatCard label="Agreements" value={formatCount(counts.all)} />
+          <StatCard label="Active" value={formatCount(counts.active)} tone="in" />
+          <StatCard label="In arrears" value={formatCount(counts["in-arrears"])} tone="danger" />
+          <StatCard label="To approve" value={formatCount(counts["awaiting-approval"])} />
+        </StatBand>
+
+        <section className="overflow-hidden rounded-2xl bg-card text-card-foreground">
+          {/* The book's own actions sit on the card, over the rows they act on. */}
+          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3">
+            {/* Downloading the whole book is the office's; the counter works one
+                agreement at a time. */}
+            {isOffice(user) && (
+              <ExportMenu
+                path="/hire-purchase/export"
+                query={(() => {
+                  const p = queryFor(filters);
+                  p.delete("page");
+                  return p.toString();
+                })()}
+                total={total}
+                noun="agreement"
+              />
+            )}
+            {/* The rate new agreements snapshot. Admin only — the drawer's own
+                loader is the gate; this only hides the door for everyone else. */}
+            {user?.role === "admin" && (
+              <Button asChild variant="outline" size="sm">
+                <Link to={`/hire-purchase/config${search}`} prefetch="intent" preventScrollReset>
+                  <SettingsIcon />
+                  Settings
+                </Link>
+              </Button>
+            )}
+            <Button asChild size="sm">
+              <Link to={`/hire-purchase/new${search}`} prefetch="intent" preventScrollReset>
+                <PlusIcon />
+                Sign an agreement
               </Link>
             </Button>
-          )}
-          <Button asChild size="sm">
-            <Link
-              to={`/hire-purchase/new${search}`}
-              prefetch="intent"
-              preventScrollReset
-            >
-              <PlusIcon />
-              Sign an agreement
-            </Link>
-          </Button>
-        </ListingToolbar>
+          </div>
 
         {narrowed && (
           <FilterBar total={total}>
@@ -419,11 +472,12 @@ export default function HirePurchase({ loaderData }: Route.ComponentProps) {
           total={total}
           hrefFor={(p) => hrefFor(filters, p)}
         />
-      </ListingCard>
+        </section>
+      </div>
 
       {/* Signing renders here — a drawer over the book. */}
       <Outlet />
-    </Page>
+    </RailFrame>
   );
 }
 

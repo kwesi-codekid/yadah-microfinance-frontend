@@ -329,15 +329,6 @@ export default function Commissions({ loaderData }: Route.ComponentProps) {
       }
     >
       <div className="space-y-4 px-4 py-6 sm:px-6">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button asChild size="sm">
-            <Link to={`/commissions/move${search}`} prefetch="intent" preventScrollReset>
-              <ArrowRightLeftIcon />
-              Move to a cash account
-            </Link>
-          </Button>
-        </div>
-
         {/* The account itself, all time: the filters narrow the list, never
             what the account holds. */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -367,7 +358,17 @@ export default function Commissions({ loaderData }: Route.ComponentProps) {
           />
         </div>
 
-        <section className="overflow-hidden rounded-2xl bg-card pt-2 text-card-foreground">
+        <section className="overflow-hidden rounded-2xl bg-card text-card-foreground">
+          {/* The book's own actions sit on the card, over the rows they act on. */}
+          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3">
+            <Button asChild size="sm">
+              <Link to={`/commissions/move${search}`} prefetch="intent" preventScrollReset>
+                <ArrowRightLeftIcon />
+                Move to a cash account
+              </Link>
+            </Button>
+          </div>
+
           {narrowed && (
             <FilterBar
               total={showingMoves ? movesTotal : entriesTotal}

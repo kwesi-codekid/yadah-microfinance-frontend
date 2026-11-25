@@ -6,7 +6,6 @@ import {
   CoinsIcon,
   HandCoinsIcon,
   ScaleIcon,
-  ShoppingCartIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
   PiggyBankIcon,
@@ -118,18 +117,7 @@ export const NAV: NavItem[] = [
     // The counter takes instalments; signing and repossession are office-only.
     roles: COUNTER,
   },
-  // The till itself, and the book it writes into — two items, because they are
-  // two jobs. Someone at the counter wants the POS and nothing else; someone
-  // asking what was sold last week wants the listing and never the basket.
-  // Beside hire purchase because all three draw down the same shelf, and
-  // separate from it because a sale is over in a minute and has no lifecycle.
-  {
-    to: "/pos",
-    label: "POS",
-    icon: ShoppingCartIcon,
-    blurb: "Ring up a counter sale: stock out, money in.",
-    roles: COUNTER,
-  },
+  // The counter sales day book: every sale, with its receipt and its voids.
   {
     to: "/sales",
     label: "Sales",

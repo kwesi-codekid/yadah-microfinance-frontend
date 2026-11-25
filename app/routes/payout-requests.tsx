@@ -4,7 +4,6 @@ import {
   ClockIcon,
   RefreshCwIcon,
   SendIcon,
-  TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -18,12 +17,9 @@ import {
   rejectPayoutRequest,
   verifyPayoutTransfer,
 } from "~/api/payout-requests";
-import {
-  FilterMenu,
-  type MenuChoice,
-  StatusPill,
-} from "~/components/listing";
-import { Page } from "~/components/page";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
+import { StatusPill } from "~/components/listing";
+import { StatBand, StatCard } from "~/components/stat-band";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -273,18 +269,25 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
   const busy =
     navigation.state === "loading" && navigation.location?.pathname === "/payout-requests";
 
-  const apply = (patch: Partial<Filters>) =>
-    submit(queryFor({ ...filters, ...patch }), { replace: true, preventScrollReset: true });
-
   const goToPage = (next: number) =>
     submit(queryFor(filters, next), { replace: true, preventScrollReset: true });
 
-  const items: MenuChoice[] = TABS.map((t) => ({
-    key: t.key,
-    label: t.label,
-    count: counts[t.key],
-    onSelect: () => apply({ status: t.key }),
-  }));
+  // The status views down the rail, each with its count — the shape the loan
+  // and savings books have, so the books read as one product.
+  const sections = [
+    {
+      label: "Status",
+      items: TABS.map((t) => ({
+        key: t.key,
+        label: t.label,
+        count: counts[t.key],
+        to: (() => {
+          const query = queryFor({ ...filters, status: t.key }).toString();
+          return query ? `/payout-requests?${query}` : "/payout-requests";
+        })(),
+      })),
+    },
+  ];
 
   const columns: Column<Row>[] = [
     {
@@ -365,11 +368,34 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
   ];
 
   return (
-    <Page className="max-w-none">
-      <TotalsBand counts={counts} stranded={stranded} />
+    <RailFrame
+      rail={({ horizontal }) => (
+        <FilterRail
+          label="Filter payout requests by status"
+          sections={sections}
+          active={filters.status}
+          horizontal={horizontal}
+        />
+      )}
+    >
+      <div className="space-y-4 px-4 py-6 sm:px-6">
+      {/* What is waiting, what went wrong, and what got through. The stranded
+          amount is money off the books that is in nobody's pocket. */}
+      <StatBand columns={3}>
+        <StatCard label="Awaiting decision" value={formatCount(counts.pending)} />
+        <StatCard
+          label={
+            counts.failed > 0
+              ? `Stranded in ${formatCount(counts.failed)} failed transfer${counts.failed === 1 ? "" : "s"}`
+              : "Failed transfers"
+          }
+          value={counts.failed > 0 ? formatPesewas(stranded) : "0"}
+          tone="danger"
+        />
+        <StatCard label="Paid out" value={formatCount(counts.paid)} tone="in" />
+      </StatBand>
 
       <DataTable
-        filters={<FilterMenu label="Status" items={items} active={filters.status} />}
         columns={columns}
         rows={rows}
         rowKey={(row) => row.id}
@@ -506,67 +532,8 @@ export default function PayoutRequests({ loaderData }: Route.ComponentProps) {
           )}
         </AlertDialogContent>
       </AlertDialog>
-    </Page>
-  );
-}
-
-/* ------------------------------------------------------------------ totals --- */
-
-/**
- * The three figures the office asks for first: what is waiting, what went
- * wrong, and what got through. The stranded amount is the one that matters —
- * it is money off the books that is not in anyone's pocket.
- */
-function TotalsBand({
-  counts,
-  stranded,
-}: {
-  counts: Record<PayoutRequestStatus | "all", number>;
-  stranded: number;
-}) {
-  return (
-    <dl className="mb-4 grid gap-4 sm:grid-cols-3">
-      <Tile value={formatCount(counts.pending)} label="Awaiting decision" icon={<ClockIcon />} tone="info" />
-      <Tile
-        value={counts.failed > 0 ? formatPesewas(stranded) : "0"}
-        label={counts.failed > 0 ? `Stranded in ${formatCount(counts.failed)} failed transfer${counts.failed === 1 ? "" : "s"}` : "Failed transfers"}
-        icon={<TriangleAlertIcon />}
-        tone="danger"
-      />
-      <Tile value={formatCount(counts.paid)} label="Paid out" icon={<CheckIcon />} tone="success" />
-    </dl>
-  );
-}
-
-/** A big number, a label under it, and the icon boxed top-right. */
-function Tile({
-  value,
-  label,
-  icon,
-  tone,
-}: {
-  value: string;
-  label: string;
-  icon: React.ReactNode;
-  tone: "success" | "danger" | "info";
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3 rounded-xl border border-border bg-card px-5 py-4">
-      <div>
-        <dd className="tabular font-heading text-3xl font-bold tracking-tight">{value}</dd>
-        <dt className="mt-0.5 text-sm text-muted-foreground">{label}</dt>
       </div>
-      <span
-        className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-lg [&_svg]:size-4",
-          tone === "success" && "bg-success-subtle text-success",
-          tone === "danger" && "bg-danger-subtle text-danger",
-          tone === "info" && "bg-info-subtle text-info",
-        )}
-        aria-hidden
-      >
-        {icon}
-      </span>
-    </div>
+    </RailFrame>
   );
 }
+

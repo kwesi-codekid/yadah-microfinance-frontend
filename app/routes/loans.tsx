@@ -442,76 +442,77 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
       }
     >
       <div className="space-y-4 px-4 py-6 sm:px-6">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {office && (
-            <ExportMenu
-              path="/loans/export"
-              query={(() => {
-                const p = queryFor(filters);
-                p.delete("page");
-                return p.toString();
-              })()}
-              total={total}
-              noun="loan"
-            />
-          )}
-          {/* Loans made on paper before the system existed, copied in as
-              history — one at a time in a drawer, or a sheet at once. */}
-          {office && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <FileTextIcon />
-                  Paper loans
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-auto whitespace-nowrap">
-                <DropdownMenuItem asChild>
-                  <Link to={`/loans/paper${search}`} prefetch="intent" preventScrollReset>
-                    <PlusIcon />
-                    Add paper loan
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link to="/loans/paper-import">
-                    <UploadIcon />
-                    Import from spreadsheet
-                  </Link>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          {/* The rates and limits new lending runs on. A drawer, so the
-              book stays underneath while they are changed. Hidden for now
-              (29 Sep 2026) — flip SHOW_SETTINGS to bring it back; the drawer
-              route itself is still there at /loans/config. */}
-          {SHOW_SETTINGS && office && (
-            <Button asChild variant="outline" size="sm">
+        <TotalsBand totals={totals} />
+
+        <section className="overflow-hidden rounded-2xl bg-card text-card-foreground">
+          {/* The book's own actions sit on the card, over the rows they act on. */}
+          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3">
+            {office && (
+              <ExportMenu
+                path="/loans/export"
+                query={(() => {
+                  const p = queryFor(filters);
+                  p.delete("page");
+                  return p.toString();
+                })()}
+                total={total}
+                noun="loan"
+              />
+            )}
+            {/* Loans made on paper before the system existed, copied in as
+                history — one at a time in a drawer, or a sheet at once. */}
+            {office && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <FileTextIcon />
+                    Paper loans
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-auto whitespace-nowrap">
+                  <DropdownMenuItem asChild>
+                    <Link to={`/loans/paper${search}`} prefetch="intent" preventScrollReset>
+                      <PlusIcon />
+                      Add paper loan
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link to="/loans/paper-import">
+                      <UploadIcon />
+                      Import from spreadsheet
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            {/* The rates and limits new lending runs on. A drawer, so the
+                book stays underneath while they are changed. Hidden for now
+                (29 Sep 2026) — flip SHOW_SETTINGS to bring it back; the drawer
+                route itself is still there at /loans/config. */}
+            {SHOW_SETTINGS && office && (
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  to={`/loans/config${search}`}
+                  prefetch="intent"
+                  preventScrollReset
+                >
+                  <SettingsIcon />
+                  Settings
+                </Link>
+              </Button>
+            )}
+            <Button asChild size="sm">
               <Link
-                to={`/loans/config${search}`}
+                to={`/loans/new${search}`}
                 prefetch="intent"
                 preventScrollReset
               >
-                <SettingsIcon />
-                Settings
+                <PlusIcon />
+                New application
               </Link>
             </Button>
-          )}
-          <Button asChild size="sm">
-            <Link
-              to={`/loans/new${search}`}
-              prefetch="intent"
-              preventScrollReset
-            >
-              <PlusIcon />
-              New application
-            </Link>
-          </Button>
-        </div>
+          </div>
 
-        <TotalsBand totals={totals} />
-
-        <section className="overflow-hidden rounded-2xl bg-card pt-2 text-card-foreground">
           {narrowed && (
             <FilterBar total={total}>
               {filters.view && (
