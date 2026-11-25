@@ -74,6 +74,44 @@ export function listTransactions(
   return apiFetch(`/reports/transactions${queryOf({ ...params })}`, { accessToken });
 }
 
+/** One collector's share of what a member of staff typed in for collectors. */
+export interface EnteredForCollector {
+  collectorId: string;
+  collectorName: string;
+  count: number;
+  /** Everything entered for them, pesewas. */
+  amount: number;
+  /** The cash part of it. */
+  cash: number;
+  susu: number;
+  savings: number;
+  loans: number;
+}
+
+export interface EnteredForCollectors {
+  from: string;
+  to: string;
+  staffId: string;
+  collectors: EnteredForCollector[];
+  total: { count: number; amount: number; cash: number };
+}
+
+/**
+ * GET /reports/transactions/entered-for — what one member of staff typed in
+ * for collectors over a range, collector by collector. The office may name the
+ * person (`recordedById`); everybody else is answered for themselves. That
+ * money is filed under the collectors, so it is not in the person's own
+ * ledger totals.
+ */
+export function getEnteredForCollectors(
+  accessToken: string,
+  params: { from?: string; to?: string; recordedById?: string } = {},
+): Promise<EnteredForCollectors> {
+  return apiFetch(`/reports/transactions/entered-for${queryOf({ ...params })}`, {
+    accessToken,
+  });
+}
+
 /** GET /reports/transactions?format=csv|xlsx — capped at 10,000 rows. */
 export function exportTransactions(
   accessToken: string,

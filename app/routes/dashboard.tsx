@@ -963,44 +963,34 @@ function Unavailable({ what }: { what: string }) {
 function Stat({
   value,
   label,
-  icon: Icon,
-  tint,
   delta,
   hint,
 }: {
   value: string;
   label: string;
-  icon: typeof IdCardIcon;
-  /** Which avatar-tint family colours the icon square — themed in both modes. */
-  tint: 1 | 2 | 3 | 4;
+  /** Kept so callers need not change; the tile no longer draws an icon. */
+  icon?: typeof IdCardIcon;
+  tint?: 1 | 2 | 3 | 4;
   /** A reading against yesterday. `up: null` is "no comparison to make". */
   delta?: { text: string; up: boolean | null };
   /** A plain line of context, where there is no comparison to draw. */
   hint?: string;
 }) {
   return (
-    <div className="relative rounded-lg bg-card p-4">
-      <span
-        className="absolute top-3.5 right-3.5 rounded-lg p-2"
-        style={{ background: `var(--tint-${tint}-bg)` }}
-      >
-        <Icon className="size-4" style={{ color: `var(--tint-${tint}-fg)` }} />
-      </span>
+    <div className="relative min-w-0 rounded-lg bg-card p-4">
       {/* keyed so a refresh re-enters the number instead of snapping */}
       <p
         key={value}
         className={cn(
-          "animate-in fade-in slide-in-from-bottom-1 pr-10 font-bold leading-tight tracking-tight tabular-nums duration-300 motion-reduce:animate-none",
-          // Full amounts, never abbreviated — a long one steps down a size,
-          // and on a phone drops below the icon to get the tile's full width.
-          value.length > 14
-            ? "text-base max-sm:pt-9 max-sm:pr-0 sm:text-lg"
-            : "text-lg sm:text-[22px]",
+          "animate-in fade-in slide-in-from-bottom-1 font-bold leading-tight tracking-tight break-words tabular-nums duration-300 motion-reduce:animate-none",
+          // Full amounts, never abbreviated — a long one steps down a size and
+          // wraps inside its own tile rather than running under the next.
+          value.length > 14 ? "text-base" : "text-lg",
         )}
       >
         <TileFigure value={value} />
       </p>
-      <p className="mt-1 pr-10 text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{label}</p>
       {delta && (
         <p
           key={delta.text}

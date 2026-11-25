@@ -75,9 +75,7 @@ const gh = (pesewas: number) => formatPesewas(pesewas);
 export function CollectorDashboard({ data }: { data: CollectorDashboardData }) {
   const { day, round, history, today, windowDays, generatedAt } = data;
 
-  const stopsLeft = round ? round.totals.customers - round.totals.customersDone : 0;
   const takenToday = day ? day.susu.amount + day.savings.amount : 0;
-  const depositsToday = day ? day.susu.count + day.savings.count : 0;
 
   const awaitingCount = history.filter((r) => r.status === "declared").length;
   const reconciled = history.filter((r) => r.status === "reconciled");
@@ -98,35 +96,30 @@ export function CollectorDashboard({ data }: { data: CollectorDashboardData }) {
           label="Still Due Today"
           icon={CoinsIcon}
           tint={4}
-          hint={round ? `${formatCount(stopsLeft)} stop${stopsLeft === 1 ? "" : "s"} to visit` : "Could not read the round"}
         />
         <Stat
           value={day ? gh(takenToday) : "—"}
           label="Collected Today"
           icon={BanknoteIcon}
           tint={1}
-          hint={day ? `${formatCount(depositsToday)} deposit${depositsToday === 1 ? "" : "s"} · susu and savings` : "Could not read the day"}
         />
         <Stat
           value={day ? gh(day.cashTotal) : "—"}
           label="Cash To Hand Over"
           icon={HandCoinsIcon}
           tint={2}
-          hint="Cash only — mobile money never touches your hands"
         />
         <Stat
           value={round ? `${formatCount(round.totals.customersDone)}/${formatCount(round.totals.customers)}` : "—"}
           label="Stops Paid"
           icon={RouteIcon}
           tint={3}
-          hint={round ? `${formatCount(round.totals.susuAccounts)} susu account${round.totals.susuAccounts === 1 ? "" : "s"} on the round` : undefined}
         />
         <Stat
           value={formatCount(awaitingCount)}
           label="Awaiting Office Count"
           icon={ScaleIcon}
           tint={awaitingCount > 0 ? 4 : 3}
-          hint={`Handovers declared, not yet counted · last ${windowDays} days`}
         />
       </div>
 
@@ -696,7 +689,7 @@ function Card({
   children: ReactNode;
 }) {
   return (
-    <section className="flex min-h-56 flex-1 flex-col rounded-lg bg-card p-4 text-card-foreground sm:p-5">
+    <section className="flex min-h-56 shrink-0 grow basis-auto flex-col rounded-lg bg-card p-4 text-card-foreground sm:p-5">
       <header className={cn("mb-4 flex flex-wrap items-center gap-2", centered ? "justify-center" : "justify-between")}>
         <h3 className="text-[15px] font-bold tracking-tight">{title}</h3>
         {!plain && detailTo && (
@@ -737,36 +730,30 @@ function Unavailable({ what }: { what: string }) {
 function Stat({
   value,
   label,
-  icon: Icon,
-  tint,
   hint,
 }: {
   value: string;
   label: string;
-  icon: LucideIcon;
-  tint: 1 | 2 | 3 | 4;
+  /** Kept so callers need not change; the tile no longer draws an icon. */
+  icon?: LucideIcon;
+  tint?: 1 | 2 | 3 | 4;
   hint?: string;
 }) {
   return (
-    <div className="relative flex min-h-28 flex-col rounded-lg bg-card p-4">
-      <span className="absolute top-3.5 right-3.5 rounded-lg p-2" style={{ background: `var(--tint-${tint}-bg)` }}>
-        <Icon className="size-4" style={{ color: `var(--tint-${tint}-fg)` }} />
-      </span>
+    <div className="relative flex min-w-0 flex-col rounded-lg bg-card p-4">
       <p
         key={value}
         className={cn(
-          "animate-in fade-in slide-in-from-bottom-1 pr-10 font-bold leading-tight tracking-tight tabular-nums duration-300 motion-reduce:animate-none",
-          // Full amounts, never abbreviated — a long one steps down a size,
-          // and on a phone drops below the icon to get the tile's full width.
-          value.length > 14
-            ? "text-base max-sm:pt-9 max-sm:pr-0 sm:text-lg"
-            : "text-lg sm:text-[22px]",
+          "animate-in fade-in slide-in-from-bottom-1 font-bold leading-tight tracking-tight break-words tabular-nums duration-300 motion-reduce:animate-none",
+          // Full amounts, never abbreviated — a long one steps down a size and
+          // wraps inside its own tile rather than running under the next.
+          value.length > 14 ? "text-base" : "text-lg",
         )}
       >
         <TileFigure value={value} />
       </p>
-      <p className="mt-1 pr-10 text-xs text-muted-foreground">{label}</p>
-      <p className="mt-auto pt-1 text-[10px] text-muted-foreground">{hint ?? " "}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+      {hint && <p className="mt-auto pt-1 text-[10px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }

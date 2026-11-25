@@ -12,7 +12,11 @@ import { toast } from "sonner";
 import { correctTransaction, proposeCorrection } from "~/api/corrections";
 import { getCustomer } from "~/api/customers";
 import { ApiError } from "~/api/error";
-import { listTransactions } from "~/api/reports";
+import {
+  getEnteredForCollectors,
+  listTransactions,
+  type EnteredForCollectors,
+} from "~/api/reports";
 import { listUsers } from "~/api/users";
 import {
   LEDGER_COLUMNS,
@@ -54,13 +58,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { StatBand, StatCard } from "~/components/stat-band";
+import { Tabs, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { isCounter, isOffice } from "~/lib/auth";
 import {
   KIND_NOUNS,
   targetPath,
   type CorrectionKind,
 } from "~/lib/corrections";
-import { accraDay, accraDaysAgo, formatAmount, parseCedis } from "~/lib/format";
+import { accraDay, accraDaysAgo, formatAmount, formatPesewas, parseCedis } from "~/lib/format";
 import { PERIOD_PRESETS } from "~/lib/period";
 import { MODULES, MODULE_LABELS, type TxnModule } from "~/lib/reports";
 import { requireCounter, requireUser, withAuth } from "~/lib/session.server";
@@ -186,7 +192,19 @@ export async function loader({ request }: Route.LoaderArgs) {
         ? listUsers(token, { limit: STAFF_LIMIT }).catch(() => null)
         : Promise.resolve(null),
     ]);
-    return { feed, customer, staff };
+    // The other half of one person's day: what they typed in for collectors.
+    // Asked for only when the ledger is one person's — a teller's own, or the
+    // one the office picked. Never for a collector: they enter only their own
+    // round, so there is no second half to show. Best-effort, like the staff list.
+    const entered =
+      (!office && isCounter(user)) || (office && filters.recordedById)
+        ? await getEnteredForCollectors(token, {
+            from: range.from,
+            to: range.to,
+            recordedById: filters.recordedById || undefined,
+          }).catch(() => null)
+        : null;
+    return { feed, customer, staff, entered };
   });
 
   const { feed } = result;
@@ -214,6 +232,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       canCorrect: isCounter(user),
       total: feed.total,
       totals: feed.totals,
+      /** What this person entered for collectors; null on the whole-branch view. */
+      entered: result.entered,
       rows: feed.items.map(toLedgerRow),
     },
     { headers },
@@ -309,12 +329,17 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
     people,
     total,
     totals,
+    entered,
     rows,
   } = loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
 
   const [search, setSearch] = useState("");
+  // One person's day has two halves — their own entries, and what they typed
+  // in for collectors — shown one at a time, as tabs.
+  const [view, setView] = useState<"own" | "collectors">("own");
+  const showCollectors = Boolean(entered) && view === "collectors";
 
   // The row being corrected, if any. One dialog over the table, opened by
   // whichever menu asked; the ledger re-reads itself when the action answers.
@@ -429,24 +454,6 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
     </Button>
   );
 
-  // Money an attendant typed in for a collector is filed under the collector.
-  // Narrowed to one person, it is left out unless asked for, so it never
-  // swells that person's own totals. Only meaningful when narrowed.
-  const narrowedToPerson = !office || Boolean(filters.recordedById);
-  const enteredToggle = narrowedToPerson ? (
-    <Button
-      variant="outline"
-      size="sm"
-      aria-pressed={filters.entered}
-      onClick={() => apply({ entered: !filters.entered })}
-      className={cn(filters.entered && "border-primary/50 text-primary")}
-      title="Also show what was typed in for a collector. It stays filed under the collector."
-    >
-      <UserIcon />
-      Include entered for collectors
-    </Button>
-  ) : null;
-
   const railHeading = (text: string) => (
     <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
       {text}
@@ -498,7 +505,6 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
                   </div>
                   <div className="space-y-2 [&>button]:w-full [&>button]:justify-start">
                     {pendingToggle}
-                    {enteredToggle}
                   </div>
                 </div>
               }
@@ -515,6 +521,19 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
       }
     >
       <div className="space-y-4 px-4 py-6 sm:px-6">
+        {entered && (
+          <Tabs value={view} onValueChange={(next) => setView(next as "own" | "collectors")}>
+            <TabsList>
+              <TabsTrigger value="own">{office ? "Their transactions" : "My transactions"}</TabsTrigger>
+              <TabsTrigger value="collectors">Entered for collectors</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
+
+        {showCollectors && entered ? (
+          <EnteredForCollectorsCard entered={entered} own={!office} />
+        ) : (
+          <>
         <LedgerTotals totals={totals} />
 
         <DataTable
@@ -555,7 +574,6 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
             <>
               {/* Under `lg` the rail is a strip with no room for this. */}
               <span className="lg:hidden">{pendingToggle}</span>
-              {enteredToggle && <span className="lg:hidden">{enteredToggle}</span>}
               {/* The export carries the resolved range, so the file covers the
                   days on screen rather than re-defaulting on the API's side. */}
               <ExportMenu
@@ -590,6 +608,8 @@ export default function Transactions({ loaderData }: Route.ComponentProps) {
               : "No deposit, withdrawal, repayment or transfer was recorded in these days."
         }
       />
+          </>
+        )}
       </div>
 
       {correcting && correcting.kind && (
@@ -727,3 +747,84 @@ function describe(details?: Record<string, unknown>): string | undefined {
   return parts.length ? parts.join(" · ") : undefined;
 }
 
+/* ------------------------------------------------- entered for collectors --- */
+
+/**
+ * What this person typed in for collectors, collector by collector. The cards
+ * above are their own cash; this money is filed under each collector, so it
+ * is not in those cards and is shown here instead — the two together are the
+ * person's whole day.
+ */
+function EnteredForCollectorsCard({
+  entered,
+  own,
+}: {
+  entered: EnteredForCollectors;
+  /** The viewer's own entries, as opposed to a colleague the office picked. */
+  own: boolean;
+}) {
+  return (
+    <>
+      {/* The same four cards the other tab opens with, for this half of the day. */}
+      <StatBand>
+        <StatCard label="Total entered" value={formatPesewas(entered.total.amount)} tone="in" />
+        <StatCard label="Cash" value={formatPesewas(entered.total.cash)} />
+        <StatCard label="Entries" value={String(entered.total.count)} />
+        <StatCard label="Collectors" value={String(entered.collectors.length)} />
+      </StatBand>
+
+    <section className="overflow-hidden rounded-2xl bg-card text-card-foreground">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-4 py-3">
+        <h3 className="text-sm font-semibold">
+          {own ? "You entered for collectors" : "Entered for collectors"}
+        </h3>
+        <p className="tabular text-sm font-bold">{formatPesewas(entered.total.amount)}</p>
+      </div>
+      {entered.collectors.length === 0 ? (
+        <p className="px-4 py-3 text-sm text-muted-foreground">
+          Nothing entered for a collector in these days.
+        </p>
+      ) : (
+        <div className="overflow-x-auto px-4">
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr className="border-b border-border text-left text-xs font-bold [&>th]:py-2.5">
+                <th className="pr-3">Collector</th>
+                <th className="pr-3 text-right">Entries</th>
+                <th className="pr-3 text-right">Susu</th>
+                <th className="pr-3 text-right">Savings</th>
+                <th className="pr-3 text-right">Loans</th>
+                <th className="text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entered.collectors.map((c) => (
+                <tr key={c.collectorId} className="border-b border-border/60 last:border-0">
+                  <td className="py-2.5 pr-3 font-medium">{c.collectorName}</td>
+                  <td className="tabular py-2.5 pr-3 text-right">{c.count}</td>
+                  <td className="tabular py-2.5 pr-3 text-right">{formatPesewas(c.susu)}</td>
+                  <td className="tabular py-2.5 pr-3 text-right">{formatPesewas(c.savings)}</td>
+                  <td className="tabular py-2.5 pr-3 text-right">{formatPesewas(c.loans)}</td>
+                  <td className="tabular py-2.5 text-right font-semibold">
+                    {formatPesewas(c.amount)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-border font-semibold">
+                <td className="py-2.5 pr-3">All collectors</td>
+                <td className="tabular py-2.5 pr-3 text-right">{entered.total.count}</td>
+                <td colSpan={3} />
+                <td className="tabular py-2.5 text-right">
+                  {formatPesewas(entered.total.amount)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
+    </>
+  );
+}
