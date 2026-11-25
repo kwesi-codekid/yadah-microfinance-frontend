@@ -4,6 +4,7 @@ import { data, Link, Outlet, useNavigation } from "react-router";
 import { listCapital, listCashAccounts } from "~/api/accounting";
 import { StatusPill } from "~/components/listing";
 import { Page } from "~/components/page";
+import { StatBand, StatCard } from "~/components/stat-band";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { DataTable, type Column } from "~/components/ui/data-table";
@@ -169,27 +170,13 @@ export default function AccountingCapital({ loaderData }: Route.ComponentProps) 
   return (
     <Page className="max-w-none">
 
-      <dl className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-3">
-        <Figure
-          label="Contributed"
-          value={formatPesewas(contributed)}
-          hint="Put in by the owner, all time"
-          tone="in"
-        />
-        <Figure
-          label="Drawn"
-          value={formatPesewas(drawn)}
-          hint="Taken out by the owner, all time"
-          tone="out"
-        />
-        <Figure
-          label="Net capital"
-          value={formatPesewas(contributed - drawn)}
-          hint="What the owner has in the business"
-          tone="neutral"
-          className="col-span-2 lg:col-span-1"
-        />
-      </dl>
+      <div className="mb-4">
+        <StatBand columns={3}>
+          <StatCard label="Contributed" value={formatPesewas(contributed)} tone="in" />
+          <StatCard label="Drawn" value={formatPesewas(drawn)} tone="out" />
+          <StatCard label="Net capital" value={formatPesewas(contributed - drawn)} />
+        </StatBand>
+      </div>
 
       <DataTable
         actions={
@@ -244,38 +231,5 @@ export default function AccountingCapital({ loaderData }: Route.ComponentProps) 
       {/* Recording renders here, over the list. */}
       <Outlet />
     </Page>
-  );
-}
-
-/** One figure, boxed, in the money-direction colours the ledger uses. */
-function Figure({
-  label,
-  value,
-  hint,
-  tone,
-  className,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  tone: "in" | "out" | "neutral";
-  className?: string;
-}) {
-  return (
-    <div className={cn("rounded-lg border border-border bg-muted/40 px-3 py-2.5", className)}>
-      <dt className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        {label}
-      </dt>
-      <dd
-        className={cn(
-          "tabular mt-0.5 font-semibold",
-          tone === "in" && "text-cash-in",
-          tone === "out" && "text-cash-out",
-        )}
-      >
-        {value}
-      </dd>
-      <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>
-    </div>
   );
 }

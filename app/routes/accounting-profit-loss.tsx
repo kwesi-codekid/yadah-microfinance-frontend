@@ -5,18 +5,15 @@ import { data, useNavigation, useSubmit } from "react-router";
 import { getProfitAndLoss } from "~/api/accounting";
 import {
   ExportMenu,
-  Figure,
-  ListingCard,
-  ListingToolbar,
   PeriodFilter,
 } from "~/components/listing";
 import { Page } from "~/components/page";
+import { StatBand, StatCard } from "~/components/stat-band";
 import { EXPENSE_CATEGORY_LABELS, type ExpenseCategory } from "~/lib/accounting";
 import {
   accraDay,
   formatAccraDateTime,
   formatAmount,
-  formatCount,
   formatDayRange,
   formatPercent,
   formatPesewas,
@@ -100,25 +97,24 @@ export default function AccountingProfitLoss({ loaderData }: Route.ComponentProp
   const margin = inc.total > 0 ? profit / inc.total : null;
 
   const incomeLines: { label: string; value: number; hint?: string }[] = [
-    { label: "Susu commission", value: inc.susuCommission, hint: "One payment per cycle, as cycles end" },
-    { label: "Savings fees", value: inc.savingsFees, hint: "Flat fee on withdrawals and closures" },
-    { label: "Sale margin", value: inc.outrightSalesProfit, hint: "Counter sales over cost" },
-    { label: "Loan interest", value: inc.loanInterest, hint: "Recognised as repaid" },
+    { label: "Susu commission", value: inc.susuCommission },
+    { label: "Savings fees", value: inc.savingsFees },
+    { label: "Sale margin", value: inc.outrightSalesProfit },
+    { label: "Loan interest", value: inc.loanInterest },
     {
       label: "Loan processing fees",
       value: inc.loanProcessingFees ?? 0,
-      hint: "Paid when the loan goes out",
     },
-    { label: "Hire purchase interest", value: inc.hirePurchaseInterest, hint: "Recognised as repaid" },
+    { label: "Hire purchase interest", value: inc.hirePurchaseInterest },
   ];
 
   const byCategory = [...exp.byCategory].sort((x, y) => y.amount - x.amount);
 
   return (
-    <Page>
-
-      <ListingCard>
-        <ListingToolbar>
+    <Page className="max-w-none" contentClassName="space-y-4">
+      {/* The same order as every other book: its controls, the figures, then
+          the statement itself on a card. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
           <PeriodFilter
             from={range.from}
             to={range.to}
@@ -132,32 +128,28 @@ export default function AccountingProfitLoss({ loaderData }: Route.ComponentProp
             label={formatDayRange(range.from, range.to)}
             pdf
           />
-        </ListingToolbar>
+      </div>
 
-        <div className={cn("p-4 sm:p-5", busy && "opacity-60 transition-opacity")}>
-          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Figure label="Income" value={formatPesewas(inc.total)} hint="Earned, not passed through" tone="revenue" />
-            <Figure
-              label="Expenses"
-              value={formatPesewas(exp.total)}
-              hint={`${formatPesewas(exp.recorded)} recorded · ${formatPesewas(exp.depreciation)} depreciation`}
-              tone="warning"
-            />
-            <Figure
-              label={profit >= 0 ? "Net profit" : "Net loss"}
-              value={formatPesewas(Math.abs(profit))}
-              hint="Income less expenses"
-              tone={profit >= 0 ? "success" : "danger"}
-            />
-            <Figure
-              label="Margin"
-              value={margin == null ? "—" : formatPercent(margin)}
-              hint="Profit as a share of income"
-              tone="muted"
-            />
-          </dl>
+      <StatBand>
+        <StatCard label="Income" value={formatPesewas(inc.total)} tone="in" />
+        <StatCard label="Expenses" value={formatPesewas(exp.total)} tone="out" />
+        <StatCard
+          label={profit >= 0 ? "Net profit" : "Net loss"}
+          value={formatPesewas(Math.abs(profit))}
+          tone={profit >= 0 ? "in" : "danger"}
+        />
+        <StatCard label="Margin" value={margin == null ? "—" : formatPercent(margin)} />
+      </StatBand>
 
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      <section
+        className={cn(
+          "overflow-hidden rounded-2xl bg-card p-4 text-card-foreground sm:p-5",
+          busy && "opacity-60 transition-opacity",
+        )}
+      >
+
+
+          <div className="grid gap-6 lg:grid-cols-2">
             <Statement
               title="Income"
               icon={<TrendingUpIcon className="size-3.5 text-cash-in" />}
@@ -185,11 +177,10 @@ export default function AccountingProfitLoss({ loaderData }: Route.ComponentProp
                       EXPENSE_CATEGORY_LABELS[row.category as ExpenseCategory] ?? row.category
                     }
                     value={row.amount}
-                    hint={`${formatCount(row.count)} ${row.count === 1 ? "entry" : "entries"}`}
                   />
                 ))
               )}
-              <Line label="Depreciation" value={exp.depreciation} hint="Computed, never posted" />
+              <Line label="Depreciation" value={exp.depreciation} />
             </Statement>
           </div>
 
@@ -215,8 +206,7 @@ export default function AccountingProfitLoss({ loaderData }: Route.ComponentProp
             disagree. {formatDayRange(range.from, range.to)}, generated{" "}
             {formatAccraDateTime(report.generatedAt)}.
           </p>
-        </div>
-      </ListingCard>
+      </section>
     </Page>
   );
 }

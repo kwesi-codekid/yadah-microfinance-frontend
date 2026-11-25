@@ -1,18 +1,14 @@
 import {
-  BanknoteIcon,
-  LandmarkIcon,
   PiggyBankIcon,
   PlusIcon,
   ReceiptIcon,
-  ScaleIcon,
-  WalletIcon,
-  type LucideIcon,
 } from "lucide-react";
 import { data, Link, Outlet, useNavigation } from "react-router";
 
 import { getCashPosition, listCashAccounts } from "~/api/accounting";
 import { StatusPill } from "~/components/listing";
 import { Page } from "~/components/page";
+import { StatBand, StatCard } from "~/components/stat-band";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { Button } from "~/components/ui/button";
 import { DataTable, type Column } from "~/components/ui/data-table";
@@ -24,7 +20,7 @@ import {
   type CashAccountKind,
   type CashChannel,
 } from "~/lib/accounting";
-import { formatAccraDate, formatCount, formatDayRange, formatPesewas } from "~/lib/format";
+import { formatAccraDate, formatCount, formatPesewas } from "~/lib/format";
 import { requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/accounting";
@@ -124,7 +120,7 @@ function toRow(account: CashAccount, balance: number | undefined): Row {
  * that is the order the office reads it in: how much is there, then where.
  */
 export default function Accounting({ loaderData }: Route.ComponentProps) {
-  const { isAdmin, asOf, total, commission, rows, uncovered } = loaderData;
+  const { isAdmin, total, rows, uncovered } = loaderData;
   const navigation = useNavigation();
   const busy =
     navigation.state === "loading" && navigation.location?.pathname === "/accounting";
@@ -207,50 +203,21 @@ export default function Accounting({ loaderData }: Route.ComponentProps) {
 
   return (
     <Page className="max-w-none">
-      <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat
-          label="Cash position"
-          value={formatPesewas(total)}
-          note={
-            (asOf
-              ? `Across every account, as at ${formatDayRange(asOf, asOf)}`
-              : "Across every account, derived on every read") +
-            (commission > 0
-              ? ` · includes ${formatPesewas(commission)} in the commission account`
-              : "")
-          }
-          icon={WalletIcon}
-          tone="in"
-        />
-        <Stat
-          label="Accounts"
-          value={formatCount(active)}
-          note={
-            rows.length === active
-              ? "Active company accounts"
-              : `${formatCount(rows.length - active)} closed`
-          }
-          icon={LandmarkIcon}
-          tone="neutral"
-        />
-        <Stat
-          label="Largest holding"
-          value={largest?.balance != null ? formatPesewas(largest.balance) : "—"}
-          note={largest ? largest.name : "No account holds anything yet"}
-          icon={BanknoteIcon}
-          tone="revenue"
-        />
-        <Stat
-          label="Channels uncovered"
-          value={formatCount(uncovered.length)}
-          note={
-            uncovered.length === 0
-              ? "Cash, MoMo and Paystack each have an account"
-              : `No account for ${uncovered.map((c) => CASH_CHANNEL_LABELS[c]).join(", ")}`
-          }
-          icon={ScaleIcon}
-          tone={uncovered.length === 0 ? "neutral" : "out"}
-        />
+      <div className="mb-4">
+        <StatBand>
+          <StatCard label="Cash position" value={formatPesewas(total)} tone="in" />
+          <StatCard label="Accounts" value={formatCount(active)} />
+          <StatCard
+            label="Largest holding"
+            value={largest?.balance != null ? formatPesewas(largest.balance) : "—"}
+            tone="revenue"
+          />
+          <StatCard
+            label="Channels uncovered"
+            value={formatCount(uncovered.length)}
+            tone={uncovered.length === 0 ? "neutral" : "out"}
+          />
+        </StatBand>
       </div>
 
       <DataTable
@@ -297,62 +264,6 @@ export default function Accounting({ loaderData }: Route.ComponentProps) {
       {/* Opening an account renders here, over the position. */}
       <Outlet />
     </Page>
-  );
-}
-
-/* ------------------------------------------------------------------ pieces --- */
-
-/** The dashboard's KPI tile, with the ledger's own colours in the square. */
-function Stat({
-  label,
-  value,
-  note,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: string;
-  note: string;
-  icon: LucideIcon;
-  tone: "in" | "out" | "revenue" | "neutral";
-}) {
-  return (
-    <div className="relative rounded-2xl bg-card p-4">
-      <span
-        aria-hidden
-        className={cn(
-          "absolute top-3.5 right-3.5 rounded-lg p-2",
-          tone === "in" && "bg-cash-in-subtle",
-          tone === "out" && "bg-cash-out-subtle",
-          tone === "revenue" && "bg-revenue-subtle",
-          tone === "neutral" && "bg-internal-subtle",
-        )}
-      >
-        <Icon
-          className={cn(
-            "size-4",
-            tone === "in" && "text-cash-in",
-            tone === "out" && "text-cash-out",
-            tone === "revenue" && "text-revenue-foreground",
-            tone === "neutral" && "text-internal",
-          )}
-        />
-      </span>
-      <p
-        key={value}
-        className={cn(
-          "tabular animate-in fade-in slide-in-from-bottom-1 pr-10 text-[22px] font-bold tracking-tight duration-300 motion-reduce:animate-none",
-          tone === "in" && "text-cash-in",
-          tone === "revenue" && "text-revenue-foreground",
-          tone === "out" && "text-cash-out",
-          tone === "neutral" && "text-foreground",
-        )}
-      >
-        {value}
-      </p>
-      <p className="mt-1 text-xs font-medium">{label}</p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{note}</p>
-    </div>
   );
 }
 

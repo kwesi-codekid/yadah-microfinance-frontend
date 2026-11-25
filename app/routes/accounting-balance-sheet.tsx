@@ -6,11 +6,9 @@ import { getBalanceSheet } from "~/api/accounting";
 import {
   AsOfFilter,
   ExportMenu,
-  Figure,
-  ListingCard,
-  ListingToolbar,
 } from "~/components/listing";
 import { Page } from "~/components/page";
+import { StatBand, StatCard } from "~/components/stat-band";
 import { netWorth } from "~/lib/accounting";
 import {
   formatAccraDateTime,
@@ -83,10 +81,10 @@ export default function AccountingBalanceSheet({ loaderData }: Route.ComponentPr
   const off = !sheet.balances || sheet.checkDifference !== 0;
 
   return (
-    <Page>
-
-      <ListingCard>
-        <ListingToolbar>
+    <Page className="max-w-none" contentClassName="space-y-4">
+      {/* The same order as every other book: its controls, the figures, then
+          the statement itself on a card. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
           <AsOfFilter
             value={filters.asOf}
             apply={apply}
@@ -99,9 +97,26 @@ export default function AccountingBalanceSheet({ loaderData }: Route.ComponentPr
             label={`As at ${formatDayRange(sheet.asOf, sheet.asOf)}`}
             pdf
           />
-        </ListingToolbar>
+      </div>
 
-        <div className={cn("p-4 sm:p-5", busy && "opacity-60 transition-opacity")}>
+      <StatBand>
+        <StatCard label="Assets" value={formatPesewas(a.total)} />
+        <StatCard label="Liabilities" value={formatPesewas(l.total)} />
+        <StatCard label="Equity" value={formatPesewas(e.total)} />
+        <StatCard
+          label="Net worth"
+          value={formatPesewas(netWorth(sheet))}
+          tone={netWorth(sheet) >= 0 ? "in" : "danger"}
+        />
+      </StatBand>
+
+      <section
+        className={cn(
+          "overflow-hidden rounded-2xl bg-card p-4 text-card-foreground sm:p-5",
+          busy && "opacity-60 transition-opacity",
+        )}
+      >
+
           {off ? (
             <p className="mb-4 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
               <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-warning" />
@@ -122,27 +137,16 @@ export default function AccountingBalanceSheet({ loaderData }: Route.ComponentPr
             </p>
           )}
 
-          <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Figure label="Assets" value={formatPesewas(a.total)} hint="What the business owns" tone="info" />
-            <Figure label="Liabilities" value={formatPesewas(l.total)} hint="What it owes — customers first" tone="warning" />
-            <Figure label="Equity" value={formatPesewas(e.total)} hint="The owner’s stake plus what was kept" />
-            <Figure
-              label="Net worth"
-              value={formatPesewas(netWorth(sheet))}
-              hint="Assets less liabilities"
-              tone={netWorth(sheet) >= 0 ? "success" : "danger"}
-            />
-          </dl>
 
           {/* The statement proper: amounts in one column, subtotals ruled off,
               the way the printed sheet lays them out. */}
-          <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2">
             <Statement title="Assets" total={a.total}>
               <Group title="Current">
                 <Line label="Cash and bank" value={a.current.cashAndBank} />
-                <Line label="Loans receivable" value={a.current.loansReceivable} hint="Principal outstanding" />
+                <Line label="Loans receivable" value={a.current.loansReceivable} />
                 <Line label="Hire purchase receivable" value={a.current.hirePurchaseReceivable} />
-                <Line label="Inventory" value={a.current.inventory} hint="Stock on the shelf, at cost" />
+                <Line label="Inventory" value={a.current.inventory} />
                 <Subtotal value={a.current.total} />
               </Group>
               <Group title="Non-current">
@@ -160,12 +164,11 @@ export default function AccountingBalanceSheet({ loaderData }: Route.ComponentPr
                   <Line
                     label="Loan collateral held"
                     value={l.customerDeposits.collateralHeld ?? 0}
-                    hint="Cash taken on loans, owed back"
                   />
                   <Subtotal value={l.customerDeposits.total} />
                 </Group>
                 <Group title="Other">
-                  <Line label="Accrued expenses" value={l.accruedExpenses} hint="Approved, not yet paid" />
+                  <Line label="Accrued expenses" value={l.accruedExpenses} />
                 </Group>
               </Statement>
 
@@ -173,7 +176,7 @@ export default function AccountingBalanceSheet({ loaderData }: Route.ComponentPr
                 <Group>
                   <Line label="Contributed capital" value={e.contributedCapital} />
                   <Line label="Drawings" value={-e.drawings} />
-                  <Line label="Retained earnings" value={e.retainedEarnings} hint="Profit kept, all time" />
+                  <Line label="Retained earnings" value={e.retainedEarnings} />
                 </Group>
               </Statement>
             </div>
@@ -197,8 +200,7 @@ export default function AccountingBalanceSheet({ loaderData }: Route.ComponentPr
               {formatAccraDateTime(sheet.generatedAt)}. Amounts in cedis.
             </p>
           </div>
-        </div>
-      </ListingCard>
+      </section>
     </Page>
   );
 }

@@ -486,7 +486,7 @@ function FinancialDashboard({
         />
         <Stat
           value={gh(f.deposits.total)}
-          label="Customer Deposits"
+          label="Deposit Liabilities"
           icon={PiggyBankIcon}
           tint={3}
         />

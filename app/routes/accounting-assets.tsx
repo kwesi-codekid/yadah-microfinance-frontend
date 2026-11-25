@@ -19,8 +19,9 @@ import { toast } from "sonner";
 
 import { disposeAsset, listAssets, listCashAccounts } from "~/api/accounting";
 import { ApiError } from "~/api/error";
-import { AsOfFilter, ChoiceFilter, ExportMenu, Figure, StatusPill } from "~/components/listing";
+import { AsOfFilter, ChoiceFilter, ExportMenu, StatusPill } from "~/components/listing";
 import { Page } from "~/components/page";
+import { StatBand, StatCard } from "~/components/stat-band";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
@@ -62,7 +63,6 @@ import {
 } from "~/lib/accounting";
 import { accraDay, formatAccraDate, formatCount, formatDayRange, formatPesewas, parseCedis } from "~/lib/format";
 import { requireAdmin, requireOffice, withAuth } from "~/lib/session.server";
-import { cn } from "~/lib/utils";
 import type { Route } from "./+types/accounting-assets";
 
 export function meta(_: Route.MetaArgs) {
@@ -430,17 +430,13 @@ export default function AccountingAssets({ loaderData }: Route.ComponentProps) {
 
       {/* This page's figures rather than the register's: the API gives no
           totals, so a total over four hundred rows would be a lie about ten. */}
-      <dl className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <Figure label="Cost, this page" value={formatPesewas(pageCost)} hint="What was paid for the rows shown" tone="muted" />
-        <Figure label="Book value, this page" value={formatPesewas(pageBook)} hint="In-use rows, less depreciation to date" />
-        <Figure
-          label="Monthly depreciation"
-          value={formatPesewas(pageMonthly)}
-          hint="What these in-use rows take off profit each month"
-          tone="warning"
-          className="col-span-2 lg:col-span-1"
-        />
-      </dl>
+      <div className="mb-4">
+        <StatBand columns={3}>
+          <StatCard label="Cost, this page" value={formatPesewas(pageCost)} />
+          <StatCard label="Book value, this page" value={formatPesewas(pageBook)} />
+          <StatCard label="Monthly depreciation" value={formatPesewas(pageMonthly)} tone="out" />
+        </StatBand>
+      </div>
 
       <DataTable
         actions={

@@ -30,15 +30,17 @@ import {
   rejectExpense,
 } from "~/api/expenses";
 import { ApiError } from "~/api/error";
+import { FilterRail, RailFrame } from "~/components/filter-rail";
 import {
   ChoiceFilter,
+  DayRangeChip,
   DayRangeFilter,
   ExportMenu,
-  Figure,
+  FilterChip,
   SearchBox,
   StatusPill,
 } from "~/components/listing";
-import { Page } from "~/components/page";
+import { StatBand, StatCard } from "~/components/stat-band";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import {
   AlertDialog,
@@ -50,7 +52,7 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
-import { DataTable, type Column, type TableTab } from "~/components/ui/data-table";
+import { DataTable, type Column } from "~/components/ui/data-table";
 import { DateField } from "~/components/ui/date-field";
 import { DropdownMenuItem, DropdownMenuSeparator } from "~/components/ui/dropdown-menu";
 import { Input } from "~/components/ui/input";
@@ -78,7 +80,7 @@ import {
   type ExpenseCategory,
   type ExpenseStatus,
 } from "~/lib/accounting";
-import { accraDay, formatAccraDate, formatCount, formatPesewas } from "~/lib/format";
+import { accraDay, formatAccraDate, formatPesewas } from "~/lib/format";
 import { isOffice } from "~/lib/auth";
 import { requireCounter, requireOffice, withAuth } from "~/lib/session.server";
 import { cn } from "~/lib/utils";
@@ -415,11 +417,70 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
   const goToPage = (next: number) =>
     submit(queryFor(filters, next), { replace: true, preventScrollReset: true });
 
-  const tabs: TableTab[] = TABS.map((t) => ({
-    value: t.key,
-    label: t.label,
-    count: counts[t.key],
-  }));
+  const hrefFor = (patch: Partial<Filters>) => {
+    const query = queryFor({ ...filters, ...patch }).toString();
+    return query ? `/expenses?${query}` : "/expenses";
+  };
+
+  // The status views down the rail, each with its count — the shape the loan
+  // and savings books have, so the books read as one product.
+  const sections = [
+    {
+      label: "Status",
+      items: TABS.map((t) => ({
+        key: t.key,
+        label: t.label,
+        count: counts[t.key],
+        to: hrefFor({ status: t.key }),
+      })),
+    },
+  ];
+
+  const searchBox = (
+    <SearchBox
+      value={filters.search}
+      apply={(next) => apply({ search: next })}
+      hidden={{
+        status: filters.status === "all" ? "" : filters.status,
+        category: filters.category,
+        account: filters.account,
+        from: filters.from,
+        to: filters.to,
+      }}
+      placeholder="Description, payee or reference"
+      label="Search expenses"
+      busy={busy}
+      className="sm:w-full"
+    />
+  );
+
+  const dayRange = (align: "start" | "end") => (
+    <DayRangeFilter
+      from={filters.from}
+      to={filters.to}
+      apply={(next) => apply(next)}
+      title="Incurred"
+      align={align}
+    />
+  );
+
+  const categoryFilter = (
+    <ChoiceFilter
+      value={filters.category}
+      options={EXPENSE_CATEGORY_OPTIONS}
+      apply={(next) => apply({ category: next })}
+      title="Category"
+      allLabel="Every category"
+      icon={<TagIcon />}
+      width="w-64"
+    />
+  );
+
+  const railHeading = (text: string) => (
+    <h3 className="mb-1.5 flex items-center gap-2 px-2 pt-1 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+      {text}
+    </h3>
+  );
 
   const narrowed = Boolean(
     filters.search || filters.category || filters.account || filters.from || filters.to,
@@ -507,84 +568,108 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
     },
   ];
 
-  // The three largest categories, which is as much as a strip can say without
-  // becoming a report. Everything else is one line.
-  const top = summary?.byCategory.slice(0, 3) ?? [];
-  const rest = (summary?.byCategory.length ?? 0) - top.length;
+  const biggest = summary?.byCategory[0];
 
   return (
-    <Page className="max-w-none">
+    <RailFrame
+      rail={({ horizontal }) =>
+        horizontal ? (
+          // Under `lg`: the search and the filters on one line, the statuses
+          // as a strip under them — as the loan book does it.
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="min-w-56 flex-1">{searchBox}</div>
+              {categoryFilter}
+              {dayRange("end")}
+            </div>
+            <FilterRail
+              label="Filter expenses by status"
+              sections={sections}
+              active={filters.status}
+              horizontal
+            />
+          </div>
+        ) : (
+          <FilterRail
+            label="Filter expenses by status"
+            sections={sections}
+            active={filters.status}
+            header={searchBox}
+            footer={
+              <div className="space-y-3">
+                <div>
+                  {railHeading("Date incurred")}
+                  <div className="[&>button]:w-full [&>button]:justify-start">
+                    {dayRange("start")}
+                  </div>
+                </div>
+                <div>
+                  {railHeading("Category")}
+                  <div className="[&>button]:w-full [&>button]:justify-start">
+                    {categoryFilter}
+                  </div>
+                </div>
+              </div>
+            }
+          />
+        )
+      }
+    >
+      <div className="space-y-4 px-4 py-6 sm:px-6">
       {/* What the branch has spent this month, and what it still owes on it.
           Over the whole book, not the filtered page: a total that moved when
           somebody picked a category would be a total nobody could quote. */}
       {summary && (
-        <section className="mb-6">
-          <dl className="grid gap-3 sm:grid-cols-3">
-            <Figure
-              label="Spent this month"
-              value={formatPesewas(summary.totalAmount)}
-              hint={`${formatCount(summary.totalCount)} expense${summary.totalCount === 1 ? "" : "s"}, rejected ones excluded`}
-              tone="warning"
-            />
-            <Figure
-              label="Still owed"
-              value={formatPesewas(summary.outstandingAmount)}
-              hint="Incurred but not yet paid out"
-              tone={summary.outstandingAmount > 0 ? "info" : "muted"}
-            />
-            <Figure
-              label="Biggest category"
-              value={top[0] ? EXPENSE_CATEGORY_LABELS[top[0].category] : "—"}
-              hint={top[0] ? formatPesewas(top[0].amount) : "Nothing recorded yet"}
-              tone="muted"
-            />
-          </dl>
-
-          {top.length > 0 && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {top
-                .map(
-                  (entry) =>
-                    `${EXPENSE_CATEGORY_LABELS[entry.category]} ${formatPesewas(entry.amount)}`,
-                )
-                .join(" · ")}
-              {rest > 0 && ` · ${formatCount(rest)} more`}
-            </p>
-          )}
-        </section>
+        <StatBand columns={3}>
+          <StatCard label="Spent this month" value={formatPesewas(summary.totalAmount)} tone="out" />
+          <StatCard label="Still owed" value={formatPesewas(summary.outstandingAmount)} />
+          <StatCard
+            label={
+              biggest
+                ? `Biggest category · ${EXPENSE_CATEGORY_LABELS[biggest.category]}`
+                : "Biggest category"
+            }
+            value={biggest ? formatPesewas(biggest.amount) : "—"}
+          />
+        </StatBand>
       )}
 
       <DataTable
+        // What is narrowing the list, as chips — each one let go on its own.
+        // The rail is where they are set; this is where they are seen.
+        filters={
+          <>
+            {filters.search && (
+              <FilterChip onDrop={() => apply({ search: "" })} label={`“${filters.search}”`} />
+            )}
+            {filters.category && (
+              <FilterChip
+                onDrop={() => apply({ category: "" })}
+                label={EXPENSE_CATEGORY_LABELS[filters.category]}
+              />
+            )}
+            {filters.account && (
+              <FilterChip
+                onDrop={() => apply({ account: "" })}
+                label={
+                  <>
+                    <WalletIcon className="size-3" />
+                    {accountName ?? "One account"}
+                  </>
+                }
+              />
+            )}
+            {(filters.from || filters.to) && (
+              <DayRangeChip
+                from={filters.from}
+                to={filters.to}
+                onDrop={() => apply({ from: "", to: "" })}
+              />
+            )}
+          </>
+        }
         actions={
           <>
-            <ChoiceFilter
-              value={filters.category}
-              options={EXPENSE_CATEGORY_OPTIONS}
-              apply={(next) => apply({ category: next })}
-              title="Category"
-              allLabel="Every category"
-              icon={<TagIcon />}
-              width="w-64"
-            />
-            {filters.account && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-primary/50 text-primary"
-                onClick={() => apply({ account: "" })}
-                aria-label="Stop filtering by account"
-              >
-                <WalletIcon />
-                {accountName ?? "One account"}
-                <XIcon />
-              </Button>
-            )}
-            <DayRangeFilter
-              from={filters.from}
-              to={filters.to}
-              apply={(next) => apply(next)}
-              title="Incurred"
-            />
             <ExportMenu
               path="/expenses/export"
               query={queryFor(filters).toString()}
@@ -598,26 +683,6 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
               </Link>
             </Button>
           </>
-        }
-        tabs={tabs}
-        activeTab={filters.status}
-        onTabChange={(value) => apply({ status: value as Tab })}
-        tabsLabel="Filter expenses by status"
-        searchSlot={
-          <SearchBox
-            value={filters.search}
-            apply={(next) => apply({ search: next })}
-            hidden={{
-              status: filters.status === "all" ? "" : filters.status,
-              category: filters.category,
-              account: filters.account,
-              from: filters.from,
-              to: filters.to,
-            }}
-            placeholder="Description, payee or reference"
-            label="Search expenses"
-            busy={busy}
-          />
         }
         columns={columns}
         rows={rows}
@@ -811,6 +876,7 @@ export default function AccountingExpenses({ loaderData }: Route.ComponentProps)
 
       {/* Recording renders here, over the book. */}
       <Outlet />
-    </Page>
+      </div>
+    </RailFrame>
   );
 }
