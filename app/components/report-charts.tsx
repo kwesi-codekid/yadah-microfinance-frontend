@@ -141,37 +141,27 @@ export function ReportCard({
 export function StatTile({
   value,
   label,
-  icon: Icon,
-  tint,
   delta,
   hint,
 }: {
   value: string;
   label: string;
-  icon: React.ComponentType<{
-    className?: string;
-    style?: React.CSSProperties;
-  }>;
-  tint: 1 | 2 | 3 | 4 | 5 | 6;
+  /** Kept so callers need not change; the tile no longer draws an icon. */
+  icon?: unknown;
+  tint?: 1 | 2 | 3 | 4 | 5 | 6;
   /** A reading against the previous period. `up` says which way is good. */
   delta?: { text: string; good: boolean | null };
   hint?: string;
 }) {
   return (
     <div className="relative rounded-2xl bg-card p-4">
-      <span
-        className="absolute top-3.5 right-3.5 rounded-lg p-2"
-        style={{ background: `var(--tint-${tint}-bg)` }}
-      >
-        <Icon className="size-4" style={{ color: `var(--tint-${tint}-fg)` }} />
-      </span>
       <p
         key={value}
-        className="animate-in fade-in slide-in-from-bottom-1 pr-10 text-[22px] font-bold tracking-tight tabular-nums duration-300 motion-reduce:animate-none"
+        className="animate-in fade-in slide-in-from-bottom-1 text-lg font-bold tracking-tight tabular-nums duration-300 motion-reduce:animate-none"
       >
         {value}
       </p>
-      <p className="mt-1 pr-10 text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{label}</p>
       {delta ? (
         <p
           className={cn(

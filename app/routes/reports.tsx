@@ -333,8 +333,8 @@ function Tiles({
   return (
     <div
       className={cn(
-        "grid grid-cols-2 gap-4",
-        items.length >= 6 ? "md:grid-cols-3 xl:grid-cols-6" : "md:grid-cols-4",
+        // Four to a row on a wide screen, as the other books draw their cards.
+        "grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4",
       )}
     >
       {items.map((item) => (
@@ -407,7 +407,7 @@ function OverviewTab({ r }: TabProps) {
       <Tiles
         items={[
           {
-            value: gh(k.depositsMobilised),
+            value: formatPesewas(k.depositsMobilised),
             label: "Deposits mobilised",
             icon: ArrowDownToLineIcon,
             tint: 1,
@@ -417,14 +417,14 @@ function OverviewTab({ r }: TabProps) {
             },
           },
           {
-            value: gh(k.withdrawalsPaid),
+            value: formatPesewas(k.withdrawalsPaid),
             label: "Withdrawals and payouts",
             icon: ArrowUpFromLineIcon,
             tint: 2,
             hint: "Susu payouts and savings withdrawals",
           },
           {
-            value: gh(k.loansDisbursed),
+            value: formatPesewas(k.loansDisbursed),
             label: "Loans disbursed",
             icon: LandmarkIcon,
             tint: 3,
@@ -441,7 +441,7 @@ function OverviewTab({ r }: TabProps) {
             },
           },
           {
-            value: gh(k.revenue),
+            value: formatPesewas(k.revenue),
             label: "Revenue kept",
             icon: CoinsIcon,
             tint: 5,
@@ -451,7 +451,7 @@ function OverviewTab({ r }: TabProps) {
             },
           },
           {
-            value: `${k.handoverVariance < 0 ? "−" : "+"}${gh(Math.abs(k.handoverVariance))}`,
+            value: `${k.handoverVariance < 0 ? "−" : "+"}${formatPesewas(Math.abs(k.handoverVariance))}`,
             label: "Handover variance",
             icon: HandCoinsIcon,
             tint: 4,
@@ -636,25 +636,25 @@ function SusuTab({ r }: TabProps) {
             hint: "With a plan running",
           },
           {
-            value: gh(r.susu.valueHeld),
+            value: formatPesewas(r.susu.valueHeld),
             label: "Held for customers",
             icon: WalletIcon,
             tint: 3,
             hint: "Balances of open accounts",
           },
           {
-            value: gh(collected),
+            value: formatPesewas(collected),
             label: "Collected this period",
             icon: BanknoteIcon,
             tint: 1,
-            hint: `${gh(paidOut)} paid out`,
+            hint: `${formatPesewas(paidOut)} paid out`,
           },
           {
             value: formatCount(r.susu.payoutsDue.count),
             label: "Cycles completed",
             icon: CalendarCheckIcon,
             tint: 6,
-            hint: `${gh(r.susu.payoutsDue.amount)} commission earned`,
+            hint: `${formatPesewas(r.susu.payoutsDue.amount)} commission earned`,
           },
         ]}
       />
@@ -749,24 +749,24 @@ function SavingsTab({ r }: TabProps) {
             tint: 3,
           },
           {
-            value: gh(r.savings.balance),
+            value: formatPesewas(r.savings.balance),
             label: "Balance held",
             icon: WalletIcon,
             tint: 1,
             hint: "Owed to savers at month end",
           },
           {
-            value: gh(deposits),
+            value: formatPesewas(deposits),
             label: "Deposits",
             icon: ArrowDownToLineIcon,
             tint: 1,
           },
           {
-            value: gh(withdrawals),
+            value: formatPesewas(withdrawals),
             label: "Withdrawals",
             icon: ArrowUpFromLineIcon,
             tint: 2,
-            hint: `net ${gh(deposits - withdrawals)}`,
+            hint: `net ${formatPesewas(deposits - withdrawals)}`,
           },
         ]}
       />
@@ -837,13 +837,13 @@ function LoansTab({ r }: TabProps) {
             tint: 3,
           },
           {
-            value: gh(r.loans.outstanding),
+            value: formatPesewas(r.loans.outstanding),
             label: "Still owed",
             icon: WalletIcon,
             tint: 1,
           },
           {
-            value: gh(arrears),
+            value: formatPesewas(arrears),
             label: "In arrears",
             icon: CircleAlertIcon,
             tint: 2,
@@ -1034,7 +1034,7 @@ function HirePurchaseTab({ r }: TabProps) {
             tint: 4,
           },
           {
-            value: gh(r.hp.outstanding),
+            value: formatPesewas(r.hp.outstanding),
             label: "Still owed",
             icon: WalletIcon,
             tint: 1,
@@ -1044,14 +1044,14 @@ function HirePurchaseTab({ r }: TabProps) {
             label: "Behind",
             icon: CircleAlertIcon,
             tint: 6,
-            hint: `${gh(s[1].amount)} owed`,
+            hint: `${formatPesewas(s[1].amount)} owed`,
           },
           {
             value: formatCount(s[2].count),
             label: "Repossessed",
             icon: CircleAlertIcon,
             tint: 2,
-            hint: `${gh(s[2].amount)} owed`,
+            hint: `${formatPesewas(s[2].amount)} owed`,
           },
         ]}
       />
@@ -1138,19 +1138,19 @@ function SalesTab({ r }: TabProps) {
             hint: `${formatCount(r.sales.voided)} voided`,
           },
           {
-            value: gh(outright),
+            value: formatPesewas(outright),
             label: "Sold outright",
             icon: BanknoteIcon,
             tint: 3,
           },
           {
-            value: gh(hp),
+            value: formatPesewas(hp),
             label: "Sold on hire purchase",
             icon: PackageIcon,
             tint: 1,
           },
           {
-            value: gh(sum(r.revenue, (m) => m.salesMargin)),
+            value: formatPesewas(sum(r.revenue, (m) => m.salesMargin)),
             label: "Margin kept",
             icon: CoinsIcon,
             tint: 5,
@@ -1253,13 +1253,13 @@ function StaffTab({ r }: TabProps) {
             hint: `${formatCount(r.staff.length - collectors)} tellers at the counter`,
           },
           {
-            value: gh(recorded),
+            value: formatPesewas(recorded),
             label: "Recorded in the field",
             icon: BanknoteIcon,
             tint: 2,
           },
           {
-            value: gh(confirmed),
+            value: formatPesewas(confirmed),
             label: "Confirmed by the office",
             icon: CalendarCheckIcon,
             tint: 1,
@@ -1363,7 +1363,7 @@ function HandoverTab({ r }: TabProps) {
       <Tiles
         items={[
           {
-            value: `${r.kpis.handoverVariance < 0 ? "−" : "+"}${gh(Math.abs(r.kpis.handoverVariance))}`,
+            value: `${r.kpis.handoverVariance < 0 ? "−" : "+"}${formatPesewas(Math.abs(r.kpis.handoverVariance))}`,
             label: "Net variance, period",
             icon: HandCoinsIcon,
             tint: 2,
@@ -1381,7 +1381,7 @@ function HandoverTab({ r }: TabProps) {
             label: "Short handovers, 14 days",
             icon: CircleAlertIcon,
             tint: 6,
-            hint: `${gh(Math.abs(shortBy))} short in all`,
+            hint: `${formatPesewas(Math.abs(shortBy))} short in all`,
           },
           {
             value: formatPercent(exact / Math.max(1, cells.length)),
@@ -1557,27 +1557,27 @@ function RevenueTab({ r }: TabProps) {
       <Tiles
         items={[
           {
-            value: gh(parts[0].value),
+            value: formatPesewas(parts[0].value),
             label: "Interest",
             icon: LandmarkIcon,
             tint: 3,
           },
           {
-            value: gh(parts[1].value),
+            value: formatPesewas(parts[1].value),
             label: "Susu commission",
             icon: HandCoinsIcon,
             tint: 2,
             hint: "One payment per cycle",
           },
           {
-            value: gh(parts[2].value),
+            value: formatPesewas(parts[2].value),
             label: "Sales margin",
             icon: ShoppingBagIcon,
             tint: 1,
             hint: "Outright sales only",
           },
           {
-            value: gh(parts[3].value),
+            value: formatPesewas(parts[3].value),
             label: "Fees",
             icon: CoinsIcon,
             tint: 4,
