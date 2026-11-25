@@ -68,14 +68,14 @@ import {
   formatPesewas,
 } from "~/lib/format";
 import {
-  buildReportsData,
   DEFAULT_REPORT_PERIOD,
   REPORT_PERIODS,
   reportPeriodOf,
   type ReportPeriod,
   type ReportsData,
-} from "~/lib/reports-dummy";
-import { requireOffice } from "~/lib/session.server";
+} from "~/lib/reports-overview";
+import { getReportsOverview } from "~/api/reports";
+import { requireOffice, withAuth } from "~/lib/session.server";
 import { useCurrentUser } from "~/lib/use-current-user";
 import { cn } from "~/lib/utils";
 import type { Route } from "./+types/reports";
@@ -94,9 +94,9 @@ export const handle = {
  * each with the figures the office actually asks for and a door into the full
  * report behind it.
  *
- * The figures here are placeholders, generated from a fixed seed so the page
- * is the same on every load. Each tab is shaped for the reporting endpoint
- * that will replace it; see `~/lib/reports-dummy` for which is which.
+ * Every figure is read from the books by `GET /reports/overview`, through the
+ * same doors the dashboard, the ledger and the statements use, so the page
+ * cannot disagree with them.
  */
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -106,10 +106,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const period = reportPeriodOf(
     new URL(request.url).searchParams.get("period"),
   );
-  // The Accra day is computed here and passed down, so render and hydration
-  // can never disagree about what "today" is.
-  const report = buildReportsData(period, accraDay(), new Date().toISOString());
-  return data(report);
+  const { data: report, headers } = await withAuth(request, (token) =>
+    getReportsOverview(token, period),
+  );
+  return data(report, { headers });
 }
 
 /* -------------------------------------------------------------------- tabs --- */
@@ -231,20 +231,6 @@ export default function Reports({ loaderData }: Route.ComponentProps) {
       )}
     >
       <div className="min-h-full min-w-0 bg-background px-5 pt-1 pb-5 text-foreground sm:px-8">
-        {/* Said first and plainly: nothing on this page is read from the books
-            yet, so none of it will match the dashboard or the ledgers. */}
-        <div
-          role="alert"
-          className="mb-4 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm"
-        >
-          <p className="font-semibold">These are sample figures, not your books.</p>
-          <p className="mt-0.5 text-muted-foreground">
-            This overview is still a preview drawn from made-up numbers, so it will not match the
-            dashboard or any ledger. For real figures use the reports under “Export” — collections,
-            outstanding loans, arrears and commission — or the pages each card links to.
-          </p>
-        </div>
-
         {/* ---------------------------------------------------- controls --- */}
         <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
         <div className="flex items-center gap-2">
@@ -317,7 +303,7 @@ export default function Reports({ loaderData }: Route.ComponentProps) {
       </div>
 
       <p className="mt-4 text-[11px] text-muted-foreground">
-        Sample figures for {periodLabel.toLowerCase()} (
+        Figures from the books for {periodLabel.toLowerCase()} (
         {formatDayRange(r.from, r.to)}), generated at{" "}
         {formatAccraDateTime(r.generatedAt)}. Money is shown in cedis; every
         amount is held as pesewas.
@@ -607,7 +593,7 @@ function OverviewTab({ r }: TabProps) {
               {
                 label: "Customers",
                 figure: `${formatCount(r.customers.total)} active`,
-                detail: `${formatCount(sum(r.customers.months, (m) => m.joined))} joined · ${formatCount(sum(r.customers.months, (m) => m.dormant))} went dormant`,
+                detail: `${formatCount(sum(r.customers.months, (m) => m.joined))} joined · ${formatCount(sum(r.customers.months, (m) => m.dormant))} deactivated`,
                 color: "var(--tint-6-fg)",
               },
             ].map((row) => (
@@ -1062,7 +1048,7 @@ function HirePurchaseTab({ r }: TabProps) {
           },
           {
             value: formatCount(s[2].count),
-            label: "Defaulted",
+            label: "Repossessed",
             icon: CircleAlertIcon,
             tint: 2,
             hint: `${gh(s[2].amount)} owed`,
@@ -1080,7 +1066,7 @@ function HirePurchaseTab({ r }: TabProps) {
             parts={[
               { label: "Paying on time", value: s[0].count, color: NAVY },
               { label: "Behind", value: s[1].count, color: "var(--warning)" },
-              { label: "Defaulted", value: s[2].count, color: CORAL },
+              { label: "Repossessed", value: s[2].count, color: CORAL },
               { label: "Settled this period", value: s[3].count, color: MIST },
             ]}
             format={(v) => `${formatCount(v)}`}
@@ -1308,7 +1294,7 @@ function StaffTab({ r }: TabProps) {
               return {
                 key: s.id,
                 label: s.name,
-                sub: `${s.role === "collector" ? "Collector" : "Teller"} · ${formatCount(s.customers)} customers`,
+                sub: `${s.role === "collector" ? "Collector" : "Office"} · ${formatCount(s.customers)} customers`,
                 value: s.recorded,
                 inner: s.confirmed,
                 trailing: (
@@ -1457,7 +1443,7 @@ function CustomersTab({ r }: TabProps) {
           },
           {
             value: formatCount(dormant),
-            label: "Went dormant",
+            label: "Deactivated",
             icon: UserMinusIcon,
             tint: 2,
             hint: "60 days without activity",
@@ -1476,28 +1462,28 @@ function CustomersTab({ r }: TabProps) {
       <Row>
         <ReportCard
           eyebrow="Customers"
-          title="Joined against gone quiet"
+          title="Joined against deactivated"
           detailTo="/customers"
           detailLabel="Open customers"
           aside={
             <Legend
               items={[
                 { label: "Joined", color: SKY },
-                { label: "Went dormant", color: SLATE },
+                { label: "Deactivated", color: SLATE },
               ]}
             />
           }
-          note="Dormant: 60 days without a deposit, repayment or purchase"
+          note="Deactivated: customers switched to inactive in the month"
         >
           <PairedColumns
             points={points}
             series={[
               { key: "joined", label: "Joined", color: SKY },
-              { key: "dormant", label: "Dormant", color: SLATE },
+              { key: "dormant", label: "Deactivated", color: SLATE },
             ]}
             height={220}
             format={formatCount}
-            ariaLabel="Customers joined against gone dormant, month by month"
+            ariaLabel="Customers joined against deactivated, month by month"
           />
         </ReportCard>
         <ReportCard
@@ -1557,14 +1543,14 @@ function RevenueTab({ r }: TabProps) {
     },
   }));
   const parts = [
-    { label: "Loan interest", value: by((m) => m.loanInterest), color: NAVY },
+    { label: "Interest", value: by((m) => m.loanInterest), color: NAVY },
     {
       label: "Susu commission",
       value: by((m) => m.susuCommission),
       color: CORAL,
     },
     { label: "Sales margin", value: by((m) => m.salesMargin), color: SKY },
-    { label: "Savings fees", value: by((m) => m.savingsFees), color: SLATE },
+    { label: "Fees", value: by((m) => m.savingsFees), color: SLATE },
   ];
   return (
     <>
@@ -1572,7 +1558,7 @@ function RevenueTab({ r }: TabProps) {
         items={[
           {
             value: gh(parts[0].value),
-            label: "Loan interest",
+            label: "Interest",
             icon: LandmarkIcon,
             tint: 3,
           },
@@ -1581,7 +1567,7 @@ function RevenueTab({ r }: TabProps) {
             label: "Susu commission",
             icon: HandCoinsIcon,
             tint: 2,
-            hint: "First day of each cycle",
+            hint: "One payment per cycle",
           },
           {
             value: gh(parts[2].value),
@@ -1592,10 +1578,10 @@ function RevenueTab({ r }: TabProps) {
           },
           {
             value: gh(parts[3].value),
-            label: "Savings fees",
+            label: "Fees",
             icon: CoinsIcon,
             tint: 4,
-            hint: "Per withdrawal",
+            hint: "Savings withdrawals and loan processing",
           },
         ]}
       />
@@ -1614,10 +1600,10 @@ function RevenueTab({ r }: TabProps) {
           <StackedColumns
             points={points}
             series={[
-              { key: "interest", label: "Loan interest", color: NAVY },
+              { key: "interest", label: "Interest", color: NAVY },
               { key: "commission", label: "Susu commission", color: CORAL },
               { key: "margin", label: "Sales margin", color: SKY },
-              { key: "fees", label: "Savings fees", color: SLATE },
+              { key: "fees", label: "Fees", color: SLATE },
             ]}
             height={236}
             ariaLabel="Revenue by source, month by month"

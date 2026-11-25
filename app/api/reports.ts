@@ -1,4 +1,5 @@
 import { apiFetch, apiFetchRaw } from "~/api/client";
+import type { ReportPeriod, ReportsData } from "~/lib/reports-overview";
 import { queryOf, type ExportFormat } from "~/api/query";
 import type {
   AgingReport,
@@ -150,6 +151,17 @@ export function exportLoanAging(
   range: { from?: string; to?: string } = {},
 ): Promise<Response> {
   return apiFetchRaw(`/reports/loans/aging${queryOf(range, format)}`, { accessToken });
+}
+
+/**
+ * GET /reports/overview — the Reports page: one block per tab, every figure
+ * read from the books. `period` is month, quarter (the default) or year.
+ */
+export function getReportsOverview(
+  accessToken: string,
+  period: ReportPeriod,
+): Promise<ReportsData> {
+  return apiFetch(`/reports/overview?period=${period}`, { accessToken });
 }
 
 /**
