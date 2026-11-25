@@ -115,10 +115,21 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   // The buckets come keyed differently across deployments, so each is looked up
   // under every name it is known by rather than trusted to one.
-  const source = result.aging?.buckets ?? {};
-  const byRow = new Map<string, { count?: number; amount?: number }>(
-    (result.aging?.rows ?? []).map((r) => [String(r.bucket ?? ""), r]),
-  );
+  // The API sends a list, one entry per bucket with the money under
+  // `totalRemaining`. Read as a keyed object it matched nothing, and every
+  // bucket showed zero.
+  const sent = result.aging?.buckets ?? {};
+  const source: Record<string, { count?: number; amount?: number }> = Array.isArray(sent)
+    ? Object.fromEntries(
+        sent.map((b) => [
+          String(b.bucket ?? ""),
+          { count: b.count ?? 0, amount: b.totalRemaining ?? b.amount ?? 0 },
+        ]),
+      )
+    : sent;
+  // The API's rows are the loans themselves, each tagged with its bucket — not
+  // bucket totals — so they are no fallback for the figures above.
+  const byRow = new Map<string, { count?: number; amount?: number }>();
   const buckets = BUCKETS.map((bucket) => {
     const hit =
       bucket.keys.map((k) => source[k]).find(Boolean) ??

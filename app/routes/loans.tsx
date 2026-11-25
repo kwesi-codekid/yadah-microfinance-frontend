@@ -1,22 +1,17 @@
 import {
-  AlertTriangleIcon,
   BanknoteArrowDownIcon,
-  BanknoteIcon,
   CheckIcon,
   EllipsisIcon,
-  HandCoinsIcon,
   EyeIcon,
   FileTextIcon,
   LandmarkIcon,
   PlusIcon,
   SettingsIcon,
-  ShieldIcon,
   PencilIcon,
   Trash2Icon,
   TrendingUpIcon,
   UploadIcon,
   UserIcon,
-  WalletIcon,
 } from "lucide-react";
 import {
   data,
@@ -605,35 +600,26 @@ export default function Loans({ loaderData }: Route.ComponentProps) {
  * nothing yet.
  */
 function TotalsBand({ totals }: { totals: LoanTotals }) {
-  const held = totals.collateralHeldCount ?? 0;
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
       <Stat
         label="Total loaned"
         value={formatPesewas(totals.disbursed)}
-        note={`Principal across ${formatCount(totals.disbursedCount)} disbursed`}
-        icon={BanknoteIcon}
         tone="neutral"
       />
       <Stat
         label="Amount paid"
         value={formatPesewas(totals.repaid)}
-        note="Repayments collected"
-        icon={HandCoinsIcon}
         tone="in"
       />
       <Stat
         label="Outstanding"
         value={formatPesewas(totals.outstanding)}
-        note={`Still owed on ${formatCount(totals.outstandingCount)} open`}
-        icon={WalletIcon}
         tone="revenue"
       />
       <Stat
         label="In arrears"
         value={formatPesewas(totals.arrears)}
-        note={`Owed on ${formatCount(totals.arrearsCount)} late ${totals.arrearsCount === 1 ? "loan" : "loans"}`}
-        icon={AlertTriangleIcon}
         tone="danger"
       />
       {/* The customers' cash the branch holds as security — owed back to them
@@ -641,8 +627,6 @@ function TotalsBand({ totals }: { totals: LoanTotals }) {
       <Stat
         label="Collateral held"
         value={formatPesewas(totals.collateralHeld ?? 0)}
-        note={`Cash security on ${formatCount(held)} ${held === 1 ? "loan" : "loans"}`}
-        icon={ShieldIcon}
         tone="neutral"
       />
     </div>
@@ -653,43 +637,19 @@ function TotalsBand({ totals }: { totals: LoanTotals }) {
 function Stat({
   label,
   value,
-  note,
-  icon: Icon,
   tone,
 }: {
   label: string;
   value: string;
-  note: string;
-  icon: typeof BanknoteIcon;
   tone: "in" | "danger" | "revenue" | "neutral";
 }) {
   return (
     <div className="relative rounded-2xl bg-card p-4">
-      <span
-        aria-hidden
-        className={cn(
-          "absolute top-3.5 right-3.5 rounded-lg p-2",
-          tone === "in" && "bg-cash-in-subtle",
-          tone === "danger" && "bg-danger-subtle",
-          tone === "revenue" && "bg-revenue-subtle",
-          tone === "neutral" && "bg-internal-subtle",
-        )}
-      >
-        <Icon
-          className={cn(
-            "size-4",
-            tone === "in" && "text-cash-in",
-            tone === "danger" && "text-danger",
-            tone === "revenue" && "text-revenue-foreground",
-            tone === "neutral" && "text-internal",
-          )}
-        />
-      </span>
       {/* Keyed so a change of filter re-enters the number instead of snapping. */}
       <p
         key={value}
         className={cn(
-          "tabular animate-in fade-in slide-in-from-bottom-1 pr-10 text-[22px] font-bold tracking-tight duration-300 motion-reduce:animate-none",
+          "tabular animate-in fade-in slide-in-from-bottom-1 text-lg font-bold tracking-tight duration-300 motion-reduce:animate-none",
           tone === "in" && "text-cash-in",
           tone === "danger" && "text-danger",
           tone === "revenue" && "text-revenue-foreground",
@@ -699,7 +659,6 @@ function Stat({
         {value}
       </p>
       <p className="mt-1 text-xs font-medium">{label}</p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{note}</p>
     </div>
   );
 }

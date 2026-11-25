@@ -21,7 +21,7 @@ import {
 import { toast } from "sonner";
 
 import { ApiError } from "~/api/error";
-import { listAccounts, renumberThisMonth } from "~/api/savings";
+import { listAccounts, renumberThisMonth, type SavingsTotals } from "~/api/savings";
 import { RenumberButton, type RenumberResult } from "~/components/renumber-button";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { FilterRail, RailFrame } from "~/components/filter-rail";
@@ -70,7 +70,7 @@ import {
   TableRow,
 } from "~/components/ui/table";
 import { isCounter, isOffice } from "~/lib/auth";
-import { formatPesewas, relativeDayLabel } from "~/lib/format";
+import { formatCount, formatPesewas, relativeDayLabel } from "~/lib/format";
 import {
   ACCOUNT_TYPE_LABELS,
   type SavingsAccount,
@@ -90,7 +90,7 @@ export const handle = {
   title: "Savings",
 };
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 const TABS = [
   { key: "all", label: "All" },
@@ -168,8 +168,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
     const status = filters.status === "all" ? undefined : filters.status;
     const accountType = filters.type || undefined;
-    const [list, statusCounts, typeCounts] = await Promise.all([
+    // The money cards cover the search, the type and the dates but not the
+    // status tab — "Balance held" on the Closed tab would otherwise read 0.
+    const [list, whole, statusCounts, typeCounts] = await Promise.all([
       listAccounts(token, { ...scope, accountType, page, limit: PAGE_SIZE, status }),
+      listAccounts(token, { ...scope, accountType, page: 1, limit: 1 }),
       Promise.all(
         STATUSES.map((s) =>
           listAccounts(token, { ...scope, accountType, page: 1, limit: 1, status: s }),
@@ -183,7 +186,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         ),
       ),
     ]);
-    return { list, counts: statusCounts, typeCounts };
+    return { list, totals: whole.totals ?? null, counts: statusCounts, typeCounts };
   });
 
   const byStatus = Object.fromEntries(
@@ -200,6 +203,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       filters,
       page,
       total: result.list.total,
+      totals: result.totals,
       counts: {
         all: STATUSES.reduce((sum, s) => sum + byStatus[s], 0),
         ...byStatus,
@@ -275,7 +279,7 @@ function toRow(a: SavingsAccount, now: Date): Row {
 }
 
 export default function Savings({ loaderData }: Route.ComponentProps) {
-  const { canManage, office, filters, page, total, counts, typeCounts, rows } =
+  const { canManage, office, filters, page, total, totals, counts, typeCounts, rows } =
     loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
@@ -390,7 +394,9 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
         )
       }
     >
-      <div className="px-4 py-6 sm:px-6">
+      <div className="space-y-4 px-4 py-6 sm:px-6">
+        {totals && <TotalsBand totals={totals} />}
+
         <section className="overflow-hidden rounded-2xl bg-card text-card-foreground">
           {/* The book's own actions sit on the card, over the rows they act on. */}
           <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3">
@@ -470,6 +476,54 @@ export default function Savings({ loaderData }: Route.ComponentProps) {
       {/* Open account renders here — a drawer over the book. */}
       <Outlet />
     </RailFrame>
+  );
+}
+
+/* ------------------------------------------------------------------ totals --- */
+
+/**
+ * The book in money, as the loans page draws it: the figures cover the search,
+ * the type and the dates across every page, not the rows on screen.
+ */
+function TotalsBand({ totals }: { totals: SavingsTotals }) {
+  return (
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <Stat label="Open accounts" value={formatCount(totals.activeCount)} tone="neutral" />
+      <Stat label="Total deposited" value={formatPesewas(totals.deposited)} tone="in" />
+      <Stat label="Total withdrawn" value={formatPesewas(totals.withdrawn)} tone="danger" />
+      <Stat label="Balance held" value={formatPesewas(totals.balance)} tone="neutral" />
+      <Stat label="Commission" value={formatPesewas(totals.fees)} tone="revenue" />
+    </div>
+  );
+}
+
+/** The loans page's KPI tile. */
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "in" | "danger" | "revenue" | "neutral";
+}) {
+  return (
+    <div className="relative rounded-2xl bg-card p-4">
+      {/* Keyed so a change of filter re-enters the number instead of snapping. */}
+      <p
+        key={value}
+        className={cn(
+          "tabular animate-in fade-in slide-in-from-bottom-1 text-lg font-bold tracking-tight duration-300 motion-reduce:animate-none",
+          tone === "in" && "text-cash-in",
+          tone === "danger" && "text-danger",
+          tone === "revenue" && "text-revenue-foreground",
+          tone === "neutral" && "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-xs font-medium">{label}</p>
+    </div>
   );
 }
 

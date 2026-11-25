@@ -492,7 +492,8 @@ function FinancialDashboard({
         />
         <Stat
           value={gh(book.outstanding)}
-          label="Loans Outstanding"
+          // Loans and hire purchase together; the Loans page shows loans alone.
+          label="Loans & HP Outstanding"
           icon={HandCoinsIcon}
           tint={2}
         />

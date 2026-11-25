@@ -231,6 +231,20 @@ export default function Reports({ loaderData }: Route.ComponentProps) {
       )}
     >
       <div className="min-h-full min-w-0 bg-background px-5 pt-1 pb-5 text-foreground sm:px-8">
+        {/* Said first and plainly: nothing on this page is read from the books
+            yet, so none of it will match the dashboard or the ledgers. */}
+        <div
+          role="alert"
+          className="mb-4 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm"
+        >
+          <p className="font-semibold">These are sample figures, not your books.</p>
+          <p className="mt-0.5 text-muted-foreground">
+            This overview is still a preview drawn from made-up numbers, so it will not match the
+            dashboard or any ledger. For real figures use the reports under “Export” — collections,
+            outstanding loans, arrears and commission — or the pages each card links to.
+          </p>
+        </div>
+
         {/* ---------------------------------------------------- controls --- */}
         <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
         <div className="flex items-center gap-2">

@@ -90,10 +90,15 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const raw = result.report.rows ?? result.report.items ?? [];
   const rows = raw.map((row) => {
-    const susu = { count: row.susu?.count ?? 0, amount: row.susu?.amount ?? 0 };
+    // The API sends these flat (`susuCount`, `susuAmount`, …); the nested form
+    // is still read, but reading only that showed every collector as zero.
+    const susu = {
+      count: row.susuCount ?? row.susu?.count ?? 0,
+      amount: row.susuAmount ?? row.susu?.amount ?? 0,
+    };
     const savings = {
-      count: row.savings?.count ?? 0,
-      amount: row.savings?.amount ?? 0,
+      count: row.savingsCount ?? row.savings?.count ?? 0,
+      amount: row.savingsAmount ?? row.savings?.amount ?? 0,
     };
     return {
       id: row.userId ?? row.name ?? "",
@@ -106,7 +111,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       // Trust the row's own total when it carries one; otherwise the two
       // modules are the whole of it.
       count: row.count ?? susu.count + savings.count,
-      total: row.total ?? row.amount ?? susu.amount + savings.amount,
+      total: row.totalAmount ?? row.total ?? row.amount ?? susu.amount + savings.amount,
     };
   });
 
@@ -125,7 +130,9 @@ export async function loader({ request }: Route.LoaderArgs) {
         result.report.totals?.savings?.amount ?? rows.reduce((n, r) => n + r.savings.amount, 0),
     },
     count: result.report.totals?.count ?? rows.reduce((n, r) => n + r.count, 0),
-    amount: amountOf(result.report.totals ?? {}) || rows.reduce((n, r) => n + r.total, 0),
+    amount:
+      result.report.totalAmount ??
+      (amountOf(result.report.totals ?? {}) || rows.reduce((n, r) => n + r.total, 0)),
   };
 
   return data(

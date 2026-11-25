@@ -13,7 +13,12 @@ import { Link, Outlet, useLocation, useNavigation, useSubmit } from "react-route
 import { data } from "react-router";
 
 import { ApiError } from "~/api/error";
-import { listAccounts, renumberThisMonth, runSusuMigration } from "~/api/susu";
+import {
+  listAccounts,
+  renumberThisMonth,
+  runSusuMigration,
+  type SusuTotals,
+} from "~/api/susu";
 import { RenumberButton, type RenumberResult } from "~/components/renumber-button";
 import { drawerParentShouldRevalidate } from "~/components/route-sheet";
 import { SusuMigrateButton, type MigrateResult } from "~/components/susu-migrate";
@@ -37,7 +42,7 @@ import {
 } from "~/components/listing";
 import { Table, TableBody, TableCell, TableHeader, TableRow } from "~/components/ui/table";
 import { isCounter, isOffice } from "~/lib/auth";
-import { formatPesewas, relativeDayLabel } from "~/lib/format";
+import { formatCount, formatPesewas, relativeDayLabel } from "~/lib/format";
 import { requireUser, withAuth } from "~/lib/session.server";
 import { SUSU_STATUS_LABELS, type SusuAccount, type SusuPlan, type SusuStatus } from "~/lib/susu";
 import { SusuStatusPill, Th } from "~/components/susu-bits";
@@ -53,7 +58,7 @@ export const handle = {
   title: "Susu",
 };
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 /** The day summary button, off for now. The route at /susu/summary stays. */
 const SHOW_DAY_SUMMARY = false;
@@ -124,16 +129,19 @@ export async function loader({ request }: Route.LoaderArgs) {
       from: filters.from || undefined,
       to: filters.to || undefined,
     };
-    const [list, ...counts] = await Promise.all([
+    // The money cards cover the search and the dates but not the status tab —
+    // "Balance held" on the Closed tab would otherwise read 0.
+    const [list, whole, ...counts] = await Promise.all([
       listAccounts(token, {
         ...scope,
         page,
         limit: PAGE_SIZE,
         status: filters.status === "all" ? undefined : filters.status,
       }),
+      listAccounts(token, { ...scope, page: 1, limit: 1 }),
       ...STATUSES.map((status) => listAccounts(token, { ...scope, page: 1, limit: 1, status })),
     ]);
-    return { list, counts };
+    return { list, totals: whole.totals ?? null, counts };
   });
 
   const byStatus = Object.fromEntries(STATUSES.map((s, i) => [s, result.counts[i].total])) as Record<
@@ -150,6 +158,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       filters,
       page,
       total: result.list.total,
+      totals: result.totals,
       counts: { all: STATUSES.reduce((sum, s) => sum + byStatus[s], 0), ...byStatus },
       rows: result.list.items.map((a) => toRow(a, now)),
     },
@@ -220,7 +229,7 @@ function toRow(a: SusuAccount, now: Date): Row {
 }
 
 export default function Susu({ loaderData }: Route.ComponentProps) {
-  const { canManage, office, filters, page, total, counts, rows } = loaderData;
+  const { canManage, office, filters, page, total, totals, counts, rows } = loaderData;
   const navigation = useNavigation();
   const submit = useSubmit();
   const { search } = useLocation();
@@ -309,40 +318,44 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
       }
     >
       <div className="space-y-4 px-4 py-6 sm:px-6">
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {office && <RenumberButton action="/susu" product="susu" />}
-          {office && <SusuMigrateButton />}
-          <ExportMenu
-            path="/susu/export"
-            query={(() => {
-              const p = queryFor(filters);
-              p.delete("page");
-              return p.toString();
-            })()}
-            total={total}
-            noun="account"
-          />
-          {/* The day summary is hidden for now (30 Sep 2026) — flip SHOW_DAY_SUMMARY
-              to bring it back; the page itself is still there at /susu/summary. */}
-          {SHOW_DAY_SUMMARY && (
-            <Button asChild variant="outline" size="sm">
-              <Link to="/susu/summary">
-                <LayersIcon />
-                Day summary
-              </Link>
-            </Button>
-          )}
-          {canManage && (
-            <Button asChild size="sm">
-              <Link to={`/susu/new${search}`} prefetch="intent" preventScrollReset>
-                <PlusIcon />
-                Open account
-              </Link>
-            </Button>
-          )}
-        </div>
+        {totals && <TotalsBand totals={totals} />}
 
-        <section className="overflow-hidden rounded-2xl bg-card pt-2 text-card-foreground">
+        <section className="overflow-hidden rounded-2xl bg-card text-card-foreground">
+          {/* The book's own actions sit on the card, over the rows they act on —
+              the same toolbar the savings book has. */}
+          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-border px-4 py-3">
+            <ExportMenu
+              path="/susu/export"
+              query={(() => {
+                const p = queryFor(filters);
+                p.delete("page");
+                return p.toString();
+              })()}
+              total={total}
+              noun="account"
+            />
+            {office && <RenumberButton action="/susu" product="susu" />}
+            {office && <SusuMigrateButton />}
+            {/* The day summary is hidden for now (30 Sep 2026) — flip SHOW_DAY_SUMMARY
+                to bring it back; the page itself is still there at /susu/summary. */}
+            {SHOW_DAY_SUMMARY && (
+              <Button asChild variant="outline" size="sm">
+                <Link to="/susu/summary">
+                  <LayersIcon />
+                  Day summary
+                </Link>
+              </Button>
+            )}
+            {canManage && (
+              <Button asChild size="sm">
+                <Link to={`/susu/new${search}`} prefetch="intent" preventScrollReset>
+                  <PlusIcon />
+                  Open account
+                </Link>
+              </Button>
+            )}
+          </div>
+
           {narrowed && (
             <FilterBar total={total}>
               {filters.search && (
@@ -395,6 +408,54 @@ export default function Susu({ loaderData }: Route.ComponentProps) {
       {/* Open account renders here — a drawer over the book. */}
       <Outlet />
     </RailFrame>
+  );
+}
+
+/* ------------------------------------------------------------------ totals --- */
+
+/**
+ * The book in money, as the savings page draws it: the figures cover the
+ * search and the dates across every page, not the rows on screen.
+ */
+function TotalsBand({ totals }: { totals: SusuTotals }) {
+  return (
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <Stat label="Open accounts" value={formatCount(totals.activeCount)} tone="neutral" />
+      <Stat label="Total deposited" value={formatPesewas(totals.deposited)} tone="in" />
+      <Stat label="Total withdrawn" value={formatPesewas(totals.withdrawn)} tone="danger" />
+      <Stat label="Balance held" value={formatPesewas(totals.balance)} tone="neutral" />
+      <Stat label="Commission" value={formatPesewas(totals.commission)} tone="revenue" />
+    </div>
+  );
+}
+
+/** The savings page's KPI tile. */
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "in" | "danger" | "revenue" | "neutral";
+}) {
+  return (
+    <div className="relative rounded-2xl bg-card p-4">
+      {/* Keyed so a change of filter re-enters the number instead of snapping. */}
+      <p
+        key={value}
+        className={cn(
+          "tabular animate-in fade-in slide-in-from-bottom-1 text-lg font-bold tracking-tight duration-300 motion-reduce:animate-none",
+          tone === "in" && "text-cash-in",
+          tone === "danger" && "text-danger",
+          tone === "revenue" && "text-revenue-foreground",
+          tone === "neutral" && "text-foreground",
+        )}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-xs font-medium">{label}</p>
+    </div>
   );
 }
 

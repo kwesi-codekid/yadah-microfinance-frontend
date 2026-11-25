@@ -45,10 +45,24 @@ export interface AccountListParams {
 /* ---------------------------------------------------------------- accounts --- */
 
 /** GET /savings/accounts — every role sees every account. */
+/**
+ * The book in money, across the whole filter rather than the page: what the
+ * open accounts hold, how many are open, and what went in and out.
+ */
+export interface SavingsTotals {
+  balance: number;
+  activeCount: number;
+  deposited: number;
+  /** Handed out, fees not included. */
+  withdrawn: number;
+  /** Withdrawal fees kept. */
+  fees: number;
+}
+
 export function listAccounts(
   accessToken: string,
   params: AccountListParams = {},
-): Promise<Paginated<SavingsAccount>> {
+): Promise<Paginated<SavingsAccount> & { totals?: SavingsTotals }> {
   return apiFetch(`/savings/accounts${queryOf({ ...params })}`, { accessToken });
 }
 

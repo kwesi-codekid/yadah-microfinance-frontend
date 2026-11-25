@@ -488,12 +488,20 @@ export interface CollectionsReport {
   /** Some deployments answer with `items`; both are read. */
   items?: CollectionRow[];
   totals?: Partial<Tally> & { susu?: Tally; savings?: Tally };
+  /** What the API sends: everything collected in the range, pesewas. */
+  totalAmount?: number;
 }
 
 export interface CollectionRow {
   userId?: string;
   userName?: string;
   name?: string;
+  /** What the API sends, flat: counts and pesewas per module, and their sum. */
+  susuCount?: number;
+  susuAmount?: number;
+  savingsCount?: number;
+  savingsAmount?: number;
+  totalAmount?: number;
   susu?: Partial<Tally>;
   savings?: Partial<Tally>;
   count?: number;
@@ -523,7 +531,13 @@ export interface OutstandingRow {
 
 /** `GET /reports/loans/aging` — arrears in the three buckets. */
 export interface AgingReport {
-  buckets?: Record<string, Partial<Tally>>;
+  /**
+   * What the API sends is a list, one entry per bucket, with the money under
+   * `totalRemaining`. The keyed-object form is read too.
+   */
+  buckets?:
+    | Record<string, Partial<Tally>>
+    | { bucket?: string; count?: number; totalRemaining?: number; amount?: number }[];
   rows?: { bucket?: string; count?: number; amount?: number }[];
   total?: Partial<Tally>;
 }

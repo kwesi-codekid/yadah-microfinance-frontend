@@ -47,11 +47,25 @@ export interface AccountListParams {
 
 /* ---------------------------------------------------------------- accounts --- */
 
+/**
+ * The book in money, across the whole filter rather than the page: what the
+ * open accounts hold, how many are open, and what went in and out.
+ */
+export interface SusuTotals {
+  balance: number;
+  activeCount: number;
+  deposited: number;
+  /** Paid out, cash and transfers, commission not included. */
+  withdrawn: number;
+  /** Susu commission kept. */
+  commission: number;
+}
+
 /** GET /susu/accounts — every role sees every account. */
 export function listAccounts(
   accessToken: string,
   params: AccountListParams = {},
-): Promise<Paginated<SusuAccount>> {
+): Promise<Paginated<SusuAccount> & { totals?: SusuTotals }> {
   return apiFetch(`/susu/accounts${queryOf({ ...params })}`, { accessToken });
 }
 
