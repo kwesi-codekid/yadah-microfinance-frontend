@@ -1125,15 +1125,14 @@ function LoanMenu({
             </Link>
           </DropdownMenuItem>
           {/* The collateral held on this loan, put toward it (client decision,
-              22 Nov 2026). Office only; no cash changes hands. */}
-          {collateralPayable && (
-            <DropdownMenuItem asChild>
-              <Link to={`/loans/${loanId}/repay/collateral`} prefetch="intent">
-                <ShieldIcon />
-                Repay from collateral
-              </Link>
-            </DropdownMenuItem>
-          )}
+              22 Nov 2026). Office only; no cash changes hands. Greyed when
+              the loan is closed or holds no collateral. */}
+          <DropdownMenuItem asChild disabled={!collateralPayable}>
+            <Link to={`/loans/${loanId}/repay/collateral`} prefetch="intent">
+              <ShieldIcon />
+              Repay from collateral
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild disabled={!editable}>
             <Link to={`/loans/${loanId}/edit`} prefetch="intent" preventScrollReset>

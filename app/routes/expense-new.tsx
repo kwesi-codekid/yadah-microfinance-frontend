@@ -223,11 +223,6 @@ export default function AccountingExpenseNew() {
               />
             </div>
           </div>
-          <p className="-mt-3 text-xs text-muted-foreground">
-            The day the cost belongs to, not the day it is paid. August salaries
-            settled in September are an August cost.
-          </p>
-
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="payee" className="eyebrow text-muted-foreground">

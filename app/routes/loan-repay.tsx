@@ -334,10 +334,6 @@ export default function LoanRepay({ loaderData }: Route.ComponentProps) {
                 startMonth={earliest}
                 endMonth={today}
               />
-              <p className="text-xs text-muted-foreground">
-                Leave empty for today. Pick an earlier day if the customer paid before it was
-                entered.
-              </p>
             </div>
           )}
         </div>

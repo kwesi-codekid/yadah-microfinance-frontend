@@ -130,9 +130,6 @@ export default function LoanCollateralReturn({ loaderData }: Route.ComponentProp
                 startMonth={new Date(today.getFullYear() - 2, today.getMonth())}
                 endMonth={today}
               />
-              <p className="text-xs text-muted-foreground">
-                Leave empty for today. It shows as cash out on that day.
-              </p>
             </div>
           )}
         </div>

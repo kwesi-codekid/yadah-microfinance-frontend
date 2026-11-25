@@ -241,9 +241,6 @@ export default function InventoryDamageNew({ loaderData }: Route.ComponentProps)
               maxLength={300}
               placeholder="Knocked off the shelf while restocking. Screen cracked."
             />
-            <p className="text-xs text-muted-foreground">
-              This is what the office reads when deciding. Be specific.
-            </p>
           </div>
 
           <div className="space-y-1.5">

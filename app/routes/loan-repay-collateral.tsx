@@ -205,11 +205,6 @@ export default function LoanRepayCollateral({ loaderData }: Route.ComponentProps
                   hint="Handed back once the loan is repaid"
                 />
               </dl>
-
-              <p className="rounded-lg border border-info/40 bg-info/10 px-4 py-3 text-sm">
-                No cash changes hands: the collateral was taken in cash when the loan went
-                out. The customer gets an SMS for the repayment, as for any other.
-              </p>
             </>
           )}
         </div>

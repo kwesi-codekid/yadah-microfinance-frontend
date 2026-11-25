@@ -266,10 +266,6 @@ export default function InventoryReceive({ loaderData }: Route.ComponentProps) {
               placeholder={toCedisInput(item.sellingPrice)}
               className="tabular"
             />
-            <p className="text-xs text-muted-foreground">
-              Leave blank to keep GH₵ {formatAmount(item.sellingPrice)}. Past
-              sales keep the price they were written at either way.
-            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -303,9 +299,6 @@ export default function InventoryReceive({ loaderData }: Route.ComponentProps) {
           <div className="space-y-1.5">
             <Label className="eyebrow text-muted-foreground">Received on</Label>
             <DateField name="receivedOn" defaultValue={accraDay()} endMonth={new Date()} />
-            <p className="text-xs text-muted-foreground">
-              The day the goods arrived, which need not be today.
-            </p>
           </div>
 
           <div className="space-y-1.5">

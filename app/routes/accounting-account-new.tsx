@@ -209,12 +209,6 @@ export default function AccountingAccountNew() {
               </Select>
             </div>
           </div>
-          <p className="-mt-3 text-xs text-muted-foreground">
-            Customer money is tied to an account by the channel it was recorded
-            on. Everything taken in cash lands on the cash account; MoMo and
-            Paystack on theirs.
-          </p>
-
           {bankish && (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">

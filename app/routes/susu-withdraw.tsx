@@ -240,13 +240,9 @@ export default function SusuWithdraw() {
                   <dd className="tabular">GH₵ {formatAmount(all.commission)}</dd>
                 </div>
               </dl>
-              {all.commission > 0 && (
+              {all.commission > 0 && onlyCommission && (
                 <p className="text-xs text-muted-foreground">
-                  {onlyCommission
-                    ? "Only commission is left, so nothing is handed over. "
-                    : ""}
-                  The cycles in progress end here, one day of each plan's amount going to Yadah.
-                  The plans keep running — the next deposit starts their new cycles.
+                  Only commission is left, so nothing is handed over.
                 </p>
               )}
               {!onlyCommission && (

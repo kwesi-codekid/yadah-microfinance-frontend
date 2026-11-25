@@ -143,10 +143,6 @@ export default function CommissionMoveDrawer({ loaderData }: Route.ComponentProp
               In the commission account
             </p>
             <p className="tabular mt-0.5 text-2xl font-bold">GH₵ {formatAmount(balance)}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              The commission account goes down and the cash account goes up by the same amount.
-              The company's cash total does not change.
-            </p>
           </div>
 
           <div className="space-y-1.5">

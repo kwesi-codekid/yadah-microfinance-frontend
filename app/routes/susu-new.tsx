@@ -151,17 +151,8 @@ export default function SusuNew() {
                 <span className="tabular">GH₵ {formatAmount(cycleTotal)}</span> over a full
                 cycle of {CYCLE_TARGET} payments, one of them kept as commission.
               </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                More plans can be added later, each on its own cycle.
-              </p>
-            )}
+            ) : null}
           </div>
-
-          <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            One account per customer, for life. If they had one before, it is
-            reopened under the same number.
-          </p>
         </div>
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-4">

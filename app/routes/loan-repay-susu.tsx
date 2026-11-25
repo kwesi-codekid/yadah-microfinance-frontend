@@ -214,11 +214,6 @@ export default function LoanRepaySusu({ loaderData }: Route.ComponentProps) {
                   hint="Cycles untouched"
                 />
               </dl>
-
-              <p className="rounded-lg border border-info/40 bg-info/10 px-4 py-3 text-sm">
-                A withdrawal from the susu balance, applied to the loan. No commission is
-                taken and the account stays open with every cycle where it was.
-              </p>
             </>
           )}
         </div>

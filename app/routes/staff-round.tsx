@@ -150,9 +150,7 @@ export default function StaffRound({ loaderData }: Route.ComponentProps) {
             </p>
             <p className="tabular mt-0.5 text-2xl font-bold">{formatCount(size)}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              customer{size === 1 ? "" : "s"}. All of them move together — the API
-              does it in one transaction, so either every one lands on the new
-              round or none does.
+              customer{size === 1 ? "" : "s"}
             </p>
           </div>
 
@@ -201,13 +199,6 @@ export default function StaffRound({ loaderData }: Route.ComponentProps) {
             />
           </div>
 
-          {taker && size > 0 && (
-            <p className="rounded-lg border border-info/40 bg-info/10 px-4 py-3 text-sm">
-              {formatCount(size)} customer{size === 1 ? "" : "s"} will be collected
-              by {taker.name} from now on. This does not move any money, only who
-              is due to visit.
-            </p>
-          )}
         </SheetBody>
 
         <SheetActions>

@@ -7,6 +7,7 @@ import {
   LandmarkIcon,
   PlusIcon,
   SettingsIcon,
+  ShieldIcon,
   PencilIcon,
   Trash2Icon,
   TrendingUpIcon,
@@ -831,6 +832,18 @@ function LoanRow({ row, showCollateral }: { row: Row; showCollateral: boolean })
               >
                 <BanknoteArrowDownIcon />
                 Record repayment
+              </Link>
+            </DropdownMenuItem>
+            {/* The collateral held on the loan, put toward it. The office's, and
+                only while the loan is open and some collateral is still held —
+                greyed otherwise, so it is always there to be found. */}
+            <DropdownMenuItem
+              asChild
+              disabled={!office || !row.open || row.collateralHeld <= 0}
+            >
+              <Link to={`/loans/${row.id}/repay/collateral`} prefetch="intent">
+                <ShieldIcon />
+                Repay from collateral
               </Link>
             </DropdownMenuItem>
             {/* Changing a loan's terms is the office's. Nothing about a rejected

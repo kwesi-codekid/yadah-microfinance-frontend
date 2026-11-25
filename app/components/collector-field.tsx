@@ -51,11 +51,7 @@ export function CollectorField({
           Filed under your name, not a collector&rsquo;s. If a collector brought this in, pick
           them above.
         </p>
-      ) : (
-        <p className="text-xs text-muted-foreground">
-          It counts in this collector&rsquo;s day and cash. You stay on record as who entered it.
-        </p>
-      )}
+      ) : null}
     </div>
   );
 }
