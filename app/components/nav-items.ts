@@ -213,7 +213,6 @@ export const NAV: NavItem[] = [
     icon: BookOpenTextIcon,
     blurb: "Cash, assets, capital and the two statements.",
     roles: OFFICE,
-    hidden: true,
   },
   {
     to: "/staff",
