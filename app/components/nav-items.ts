@@ -1,7 +1,7 @@
 import {
   ArrowLeftRightIcon,
   BanknoteArrowUpIcon,
-  // BookOpenTextIcon, — used by the Accounting entry, commented out below
+  BookOpenTextIcon,
   ChartColumnIcon,
   CoinsIcon,
   HandCoinsIcon,
@@ -195,14 +195,13 @@ export const NAV: NavItem[] = [
   // The company's own books, as opposed to its customers': what it holds in
   // the drawer and the bank, what it owns, what the owner put in — and the
   // balance sheet and profit and loss built from all of it.
-  // Commented out of the nav for now; the routes still work by URL.
-  // {
-  //   to: "/accounting",
-  //   label: "Accounting",
-  //   icon: BookOpenTextIcon,
-  //   blurb: "Cash, assets, capital and the two statements.",
-  //   roles: OFFICE,
-  // },
+  {
+    to: "/accounting",
+    label: "Accounting",
+    icon: BookOpenTextIcon,
+    blurb: "Cash, assets, capital and the two statements.",
+    roles: OFFICE,
+  },
   {
     to: "/staff",
     label: "Staff",
